@@ -19,9 +19,9 @@ export class Player extends Entity {
     this.iframe = 0;
     this.scrap = 0;        // run-state currency, awarded per kill
     this.kills = 0;
-    // M2: start with all three baseline weapons so the player can try them
-    // out from the sandbox. M3+ replaces this with a loadout-pick from
-    // BaseCampScene that respects MetaProgress unlocks.
+    // Sandbox seed: when no RunState is active, give the player one of each
+    // baseline weapon so the SANDBOX intro button is useful for testing.
+    // RunState.applyToPlayer overrides this list during a real run.
     this.inventory = [
       new Weapon(WEAPONS.pistol),
       new Weapon(WEAPONS.smg),
@@ -29,6 +29,24 @@ export class Player extends Entity {
     ];
     this.currentWeaponIdx = 0;
     this._wasLeftDown = false;   // edge-detect for semi-auto fire
+    // Fire is "armed" only after the LMB has been released at least once
+    // since the Player was constructed. This prevents a click-through:
+    // clicking a map node leaves leftDown=true entering combat — without
+    // this gate, the first frame would auto-fire (bug reported in
+    // improve.md #1).
+    this._fireArmed = false;
+    // Backup knife: short-range melee that auto-fires when every weapon in
+    // the inventory is dry (improve.md #2). Holds its own cooldown so it
+    // doesn't share the active weapon's rate cap.
+    this.knife = {
+      cooldown: 0,
+      cooldownMax: 0.45,
+      damage: 8,
+      range: 46,
+      arc: Math.PI * 0.55,         // ~100° front cone
+      swingT: 0,                   // visual swing animation timer (s)
+      swingDuration: 0.18,
+    };
   }
 
   get weapon() { return this.inventory[this.currentWeaponIdx]; }
@@ -60,7 +78,7 @@ export class Player extends Entity {
   }
 
   // ── Per-frame update ──
-  update(dt, input, arena, projMgr, particles, audio) {
+  update(dt, input, arena, projMgr, particles, _audio) {
     // Aim toward mouse
     this.aim = angleTo(this.x, this.y, input.mouse.x, input.mouse.y);
 
@@ -100,24 +118,81 @@ export class Player extends Entity {
     // Reload
     if (input.consumeKey('r')) this.weapon.startReload();
 
-    // Update active weapon timers
+    // Update active weapon timers + knife cooldown
     this.weapon.update(dt);
+    if (this.knife.cooldown > 0) this.knife.cooldown = Math.max(0, this.knife.cooldown - dt);
+    if (this.knife.swingT > 0)   this.knife.swingT   = Math.max(0, this.knife.swingT - dt);
 
-    // Fire — semi requires fresh press, auto fires on hold (rate-capped).
-    const isAuto = this.weapon.def.fireMode === 'auto';
-    const wantFire = isAuto
-      ? input.mouse.leftDown
-      : (input.mouse.leftDown && !this._wasLeftDown);
-    if (wantFire) {
-      if (this.weapon.tryFire()) {
-        this._fireBullet(projMgr, particles, audio);
+    // Arm fire only after the LMB has been released at least once since
+    // construction. Stops a held click from a previous scene (e.g. clicking
+    // a map node) auto-firing on the first combat frame.
+    if (!this._fireArmed && !input.mouse.leftDown) this._fireArmed = true;
+
+    if (this._fireArmed) {
+      const def = this.weapon.def;
+      const isAuto = def.fireMode === 'auto';
+      const wantFire = isAuto
+        ? input.mouse.leftDown
+        : (input.mouse.leftDown && !this._wasLeftDown);
+      if (wantFire) {
+        if (this.weapon.tryFire()) {
+          this._dispatchFire(def, projMgr, particles);
+        } else if (this._allDry()) {
+          // Backup knife — only when EVERY weapon is empty. Forces a real
+          // scavenge run rather than rewarding spam-melee mid-fight.
+          this._knifeAttack(particles, this._zombies);
+        }
       }
     }
     this._wasLeftDown = input.mouse.leftDown;
   }
 
-  _fireBullet(projMgr, particles, audio) {
-    const def = this.weapon.def;
+  // Called by CombatScene each frame so the knife can target zombies.
+  setZombieList(list) { this._zombies = list; }
+
+  _allDry() {
+    for (const w of this.inventory) {
+      if (w.mag > 0 || w.reserve > 0) return false;
+    }
+    return true;
+  }
+
+  _knifeAttack(particles, zombies) {
+    if (this.knife.cooldown > 0) return;
+    this.knife.cooldown = this.knife.cooldownMax;
+    this.knife.swingT = this.knife.swingDuration;
+    events.emit('KNIFE_SWING', { x: this.x, y: this.y, angle: this.aim });
+    if (!zombies) return;
+    const halfArc = this.knife.arc / 2;
+    const rangeSq = this.knife.range * this.knife.range;
+    for (const z of zombies) {
+      if (!z.alive) continue;
+      const dx = z.x - this.x, dy = z.y - this.y;
+      const distSq = dx * dx + dy * dy;
+      if (distSq > rangeSq) continue;
+      const ang = Math.atan2(dy, dx);
+      let d = Math.abs(ang - this.aim);
+      if (d > Math.PI) d = Math.PI * 2 - d;
+      if (d > halfArc) continue;
+      // Hit
+      z.takeDamage(this.knife.damage);
+      if (particles) particles.spawnBlood(z.x, z.y);
+      events.emit('KNIFE_HIT', { zombie: z, damage: this.knife.damage });
+    }
+  }
+
+  // Routes a fire to the right behavior based on weapon-def tags. Each
+  // path is intentionally distinct so weapons feel different (per
+  // improve.md #3: keep weapons strictly distinct).
+  _dispatchFire(def, projMgr, particles) {
+    if (def.melee)      return this._fireMelee(def, particles);
+    if (def.flame)      return this._fireFlame(def, particles);
+    if (def.placesMine) return this._fireMine(def);
+    if (def.thrown)     return this._fireGrenade(def);
+    return this._fireBullet(def, projMgr, particles);
+  }
+
+  _fireBullet(def, projMgr, particles) {
     const muzzleDist = this.r + 4;
     const px = this.x + Math.cos(this.aim) * muzzleDist;
     const py = this.y + Math.sin(this.aim) * muzzleDist;
@@ -134,16 +209,112 @@ export class Player extends Entity {
         color: def.bulletColor,
         weaponId: def.id,
         source: 'player',
-        pierce: 0,
+        pierce: def.pierce || 0,
+        aoe: def.aoe || null,
       });
     }
     if (particles) particles.spawnMuzzleFlash(px, py, this.aim);
     events.emit('SCREEN_SHAKE', { duration: 0.08, intensity: def.recoilShake });
     events.emit('WEAPON_FIRED', { weaponId: def.id, x: px, y: py });
-    // Audio is a no-op stub during M1; in M2+ Audio.js binds to WEAPON_FIRED
-    // directly via bindAudioEvents, so calling audio.playSfx here would
-    // double-play the same sample. Leave the param around for future per-shot
-    // pitch variations but no direct call.
+  }
+
+  _fireMelee(def, particles) {
+    const m = def.melee;
+    const halfArc = m.halfArc;
+    const rangeSq = m.range * m.range;
+    if (this._zombies) {
+      for (const z of this._zombies) {
+        if (!z.alive) continue;
+        const dx = z.x - this.x, dy = z.y - this.y;
+        if (dx * dx + dy * dy > rangeSq) continue;
+        const ang = Math.atan2(dy, dx);
+        let d = Math.abs(ang - this.aim);
+        if (d > Math.PI) d = Math.PI * 2 - d;
+        if (d > halfArc) continue;
+        const wasAlive = z.alive;
+        z.takeDamage(def.damage);
+        if (particles) particles.spawnBlood(z.x, z.y);
+        // FLAME_HIT-style event so CombatScene awards kill credit.
+        events.emit('FLAME_HIT', { zombie: z, damage: def.damage });
+        if (def.hitStop && wasAlive && z.alive) events.emit('HIT_STOP', def.hitStop);
+      }
+    }
+    // Reuse the knife swing animation for visual feedback.
+    this.knife.swingT = this.knife.swingDuration;
+    events.emit('SCREEN_SHAKE', { duration: 0.10, intensity: def.recoilShake });
+    events.emit('WEAPON_FIRED', { weaponId: def.id, x: this.x, y: this.y });
+  }
+
+  _fireFlame(def, particles) {
+    const f = def.flame;
+    const baseR = this.r + 4;
+    const px = this.x + Math.cos(this.aim) * baseR;
+    const py = this.y + Math.sin(this.aim) * baseR;
+    // Cone particles for visual fire — each tick spawns a few flame puffs
+    // along a randomized angle within the cone.
+    if (particles) {
+      for (let i = 0; i < 4; i++) {
+        const a = this.aim + (Math.random() - 0.5) * f.halfArc * 2;
+        const reach = f.range * (0.4 + Math.random() * 0.6);
+        const speed = 240 + Math.random() * 200;
+        particles._pushParticle({
+          x: px, y: py,
+          vx: Math.cos(a) * speed,
+          vy: Math.sin(a) * speed,
+          r: 4 + Math.random() * 3,
+          color: Math.random() < 0.55 ? '#ff7733' : (Math.random() < 0.5 ? '#ffcc44' : '#cc3322'),
+          life: 0.18 + Math.random() * 0.18,
+          maxLife: 0.36,
+          drag: 0.86,
+        });
+      }
+    }
+    // Damage all zombies in the cone, this fuel-tick.
+    if (this._zombies) {
+      const halfArc = f.halfArc;
+      const rangeSq = f.range * f.range;
+      for (const z of this._zombies) {
+        if (!z.alive) continue;
+        const dx = z.x - this.x, dy = z.y - this.y;
+        const dSq = dx * dx + dy * dy;
+        if (dSq > rangeSq) continue;
+        const ang = Math.atan2(dy, dx);
+        let d = Math.abs(ang - this.aim);
+        if (d > Math.PI) d = Math.PI * 2 - d;
+        if (d > halfArc) continue;
+        const wasAlive = z.alive;
+        z.takeDamage(def.damage);
+        if (wasAlive && !z.alive) {
+          events.emit('FLAME_HIT', { zombie: z, damage: def.damage });
+        } else if (Math.random() < 0.18) {
+          // Damage numbers occasionally on tick — full stack would be spammy.
+          events.emit('FLAME_HIT', { zombie: z, damage: def.damage });
+        }
+      }
+    }
+    events.emit('SCREEN_SHAKE', { duration: 0.04, intensity: def.recoilShake });
+    events.emit('WEAPON_FIRED', { weaponId: def.id, x: px, y: py });
+  }
+
+  _fireMine(def) {
+    events.emit('PLACE_MINE', { x: this.x, y: this.y, def: def.placesMine });
+    events.emit('WEAPON_FIRED', { weaponId: def.id, x: this.x, y: this.y });
+  }
+
+  _fireGrenade(def) {
+    const muzzleDist = this.r + 4;
+    const px = this.x + Math.cos(this.aim) * muzzleDist;
+    const py = this.y + Math.sin(this.aim) * muzzleDist;
+    const a = this.aim + (Math.random() - 0.5) * (def.spreadRad || 0);
+    const speed = def.projectileSpeed;
+    events.emit('THROW_GRENADE', {
+      x: px, y: py,
+      vx: Math.cos(a) * speed,
+      vy: Math.sin(a) * speed,
+      def: { aoe: def.aoe, fuseTime: def.fuseTime },
+    });
+    events.emit('SCREEN_SHAKE', { duration: 0.06, intensity: def.recoilShake });
+    events.emit('WEAPON_FIRED', { weaponId: def.id, x: px, y: py });
   }
 
   draw(ctx) {
@@ -162,11 +333,31 @@ export class Player extends Entity {
     ctx.lineTo(this.r + 22, 0);
     ctx.stroke();
 
-    // Held weapon silhouette
-    ctx.fillStyle = '#1a1a1c';
-    ctx.fillRect(this.r - 2, -3, 14, 6);
-    ctx.fillStyle = '#3a3a3c';
-    ctx.fillRect(this.r + 6, -2, 6, 4);
+    // Held weapon silhouette — or knife mid-swing
+    if (this.knife.swingT > 0) {
+      const t = 1 - this.knife.swingT / this.knife.swingDuration;
+      const swing = -this.knife.arc / 2 + this.knife.arc * t;
+      ctx.save();
+      ctx.rotate(swing);
+      ctx.strokeStyle = '#cdd6c0';
+      ctx.lineWidth = 2.5;
+      ctx.beginPath();
+      ctx.moveTo(this.r, 0);
+      ctx.lineTo(this.r + this.knife.range * 0.6, 0);
+      ctx.stroke();
+      // arc trail
+      ctx.strokeStyle = 'rgba(205,214,192,0.35)';
+      ctx.lineWidth = 6;
+      ctx.beginPath();
+      ctx.arc(0, 0, this.r + this.knife.range * 0.5, -this.knife.arc / 2, swing);
+      ctx.stroke();
+      ctx.restore();
+    } else {
+      ctx.fillStyle = '#1a1a1c';
+      ctx.fillRect(this.r - 2, -3, 14, 6);
+      ctx.fillStyle = '#3a3a3c';
+      ctx.fillRect(this.r + 6, -2, 6, 4);
+    }
 
     // Body circle
     if (!flicker) {

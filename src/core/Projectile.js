@@ -16,9 +16,10 @@ function makeProjectile() {
     damage: 1,
     color: '#ffe066',
     weaponId: '',
-    pierce: 0,            // remaining additional zombies the bullet can hit
-    hitSet: null,         // Set of zombies already hit (piercing dedup)
-    source: 'player',     // 'player' | 'zombie'
+    pierce: 0,
+    hitSet: null,
+    source: 'player',
+    aoe: null,            // {radius, damage, falloff} — explodes on impact
     alive: false,
     trail,
     trailIdx: 0,
@@ -42,6 +43,7 @@ export class ProjectileManager {
     p.weaponId = opts.weaponId || '';
     p.pierce = opts.pierce || 0;
     p.source = opts.source || 'player';
+    p.aoe = opts.aoe || null;
     if (p.pierce > 0) {
       if (!p.hitSet) p.hitSet = new Set();
       else p.hitSet.clear();
@@ -92,6 +94,18 @@ export class ProjectileManager {
           const tr = z.r + p.r;
           if (dx * dx + dy * dy <= tr * tr) {
             onZombieHit(z, p);
+            if (p.aoe) {
+              // Rocket-style impact — emit explosion then retire bullet.
+              events.emit('AOE_EXPLOSION', {
+                x: p.x, y: p.y,
+                radius: p.aoe.radius,
+                damage: p.aoe.damage,
+                falloff: p.aoe.falloff != null ? p.aoe.falloff : 0.5,
+                source: p.weaponId,
+              });
+              p.alive = false;
+              break;
+            }
             if (p.pierce > 0) {
               p.hitSet.add(z);
               p.pierce -= 1;

@@ -52,13 +52,17 @@ export class HUD {
 
     // ── Bottom-right: weapon + ammo ──
     const wx = w - 14, wy = h - 50;
-    ctx.fillStyle = PALETTE.uiText;
-    ctx.font = 'bold 14px monospace';
     ctx.textAlign = 'right';
     const wpn = player.weapon;
-    ctx.fillText(wpn.name.toUpperCase(), wx, wy - 12);
+    const allDry = player._allDry && player._allDry();
+    ctx.fillStyle = allDry ? PALETTE.uiWarn : PALETTE.uiText;
+    ctx.font = 'bold 14px monospace';
+    ctx.fillText(allDry ? 'KNIFE (NO AMMO)' : wpn.name.toUpperCase(), wx, wy - 12);
     ctx.font = 'bold 22px monospace';
-    if (wpn.reloading) {
+    if (allDry) {
+      ctx.fillStyle = PALETTE.uiWarn;
+      ctx.fillText('melee', wx, wy + 12);
+    } else if (wpn.reloading) {
       ctx.fillStyle = PALETTE.uiWarn;
       ctx.fillText('RELOADING', wx, wy + 12);
     } else {
@@ -69,7 +73,7 @@ export class HUD {
     }
     ctx.font = '10px monospace';
     ctx.fillStyle = PALETTE.uiDim;
-    ctx.fillText(`[${wpn.ammoLabel}]`, wx, wy + 25);
+    ctx.fillText(allDry ? '[scavenge for ammo]' : `[${wpn.ammoLabel}]`, wx, wy + 25);
 
     // Reload progress arc above weapon
     if (wpn.reloading) {

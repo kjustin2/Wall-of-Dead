@@ -9,13 +9,22 @@ import { events } from '../engine/EventBus.js';
 import { Shambler } from '../zombies/Shambler.js';
 import { Runner } from '../zombies/Runner.js';
 import { Spitter } from '../zombies/Spitter.js';
+import { Bloater } from '../zombies/Bloater.js';
+import { Brute } from '../zombies/Brute.js';
+import { Screamer } from '../zombies/Screamer.js';
+import { Crawler } from '../zombies/Crawler.js';
+import { BossPatientZero } from '../zombies/BossPatientZero.js';
 import { getNightTemplate } from '../data/WaveTemplates.js';
 
 const ZOMBIE_CLASS = {
   shambler: Shambler,
   runner: Runner,
   spitter: Spitter,
-  // M5: bloater, brute, screamer, crawler | M6: bossPatientZero
+  bloater: Bloater,
+  brute: Brute,
+  screamer: Screamer,
+  crawler: Crawler,
+  patient_zero: BossPatientZero,
 };
 
 export class WaveDirector {
@@ -64,6 +73,20 @@ export class WaveDirector {
   spawn(zombie) {
     this.zombies.push(zombie);
     events.emit('ZOMBIE_SPAWN', { id: zombie.id, x: zombie.x, y: zombie.y });
+  }
+
+  // Direct spawn for screamer reinforcements: bypass perimeter, spawn near
+  // a target point. Caller passes the class id.
+  spawnNear(klassId, x, y, jitter) {
+    const Klass = ZOMBIE_CLASS[klassId];
+    if (!Klass) return null;
+    const j = jitter != null ? jitter : 60;
+    const ang = Math.random() * Math.PI * 2;
+    const r   = j * (0.5 + Math.random() * 0.7);
+    const z = new Klass(x + Math.cos(ang) * r, y + Math.sin(ang) * r);
+    this.zombies.push(z);
+    events.emit('ZOMBIE_SPAWN', { id: z.id, x: z.x, y: z.y });
+    return z;
   }
 
   _spawnOne(klassId) {

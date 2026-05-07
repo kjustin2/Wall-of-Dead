@@ -33,43 +33,46 @@ export const WAVE_TEMPLATES = [
       { duration: 14, composition: [['runner', 5], ['spitter', 1]] },
     ],
   },
-  // Night 4-6: progressively meaner combos. Final wave gets denser.
+  // Night 4: bloater debut.
   {
     nightNum: 4,
     bossNight: false,
     waves: [
       { duration: 12, composition: [['shambler', 6], ['runner', 4]] },
-      { duration: 14, composition: [['spitter', 3], ['runner', 4]] },
-      { duration: 14, composition: [['shambler', 7], ['runner', 4], ['spitter', 1]] },
+      { duration: 14, composition: [['spitter', 2], ['runner', 4], ['bloater', 1]] },
+      { duration: 14, composition: [['shambler', 6], ['bloater', 2], ['spitter', 1]] },
     ],
   },
+  // Night 5: screamers + crawlers.
   {
     nightNum: 5,
     bossNight: false,
     waves: [
-      { duration: 12, composition: [['runner', 8], ['spitter', 1]] },
-      { duration: 14, composition: [['shambler', 8], ['spitter', 3]] },
-      { duration: 14, composition: [['runner', 6], ['spitter', 3], ['shambler', 5]] },
+      { duration: 12, composition: [['runner', 6], ['screamer', 1]] },
+      { duration: 14, composition: [['shambler', 6], ['spitter', 2], ['screamer', 1]] },
+      { duration: 14, composition: [['crawler', 6], ['runner', 4], ['bloater', 1]] },
     ],
   },
+  // Night 6: brute debut.
   {
     nightNum: 6,
     bossNight: false,
     waves: [
-      { duration: 12, composition: [['shambler', 10], ['runner', 5]] },
-      { duration: 14, composition: [['spitter', 4], ['runner', 8]] },
-      { duration: 16, composition: [['shambler', 10], ['runner', 8], ['spitter', 3]] },
+      { duration: 12, composition: [['shambler', 8], ['runner', 5]] },
+      { duration: 14, composition: [['spitter', 3], ['screamer', 1], ['bloater', 2]] },
+      { duration: 16, composition: [['brute', 1], ['shambler', 8], ['crawler', 4], ['spitter', 2]] },
     ],
   },
-  // Night 7: boss night. Boss zombie definition lands in M6 — for now this
-  // entry is a stand-in heavy wave so the night still completes.
+  // Night 7: boss night. Two waves of horde then Patient Zero arrives
+  // alongside support adds. The boss multi-phase logic (summon + frenzy)
+  // does most of the gameplay heavy lifting.
   {
     nightNum: 7,
     bossNight: true,
     waves: [
-      { duration: 12, composition: [['shambler', 10], ['runner', 8]] },
-      { duration: 14, composition: [['spitter', 5], ['runner', 8]] },
-      { duration: 18, composition: [['shambler', 14], ['runner', 10], ['spitter', 4]] },
+      { duration: 12, composition: [['shambler', 8], ['runner', 6], ['spitter', 2]] },
+      { duration: 14, composition: [['screamer', 2], ['bloater', 3], ['runner', 6]] },
+      { duration: 20, composition: [['patient_zero', 1], ['crawler', 6], ['shambler', 4], ['spitter', 2]] },
     ],
   },
 ];

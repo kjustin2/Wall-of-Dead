@@ -24,6 +24,7 @@ import { VictoryScene }  from './scenes/VictoryScene.js';
 import { MetaScene }     from './scenes/MetaScene.js';
 import { meta }          from './engine/MetaProgress.js';
 import { runState }      from './world/RunState.js';
+import { installDevConsole } from './DevConsole.js';
 
 // ── Canvas setup ──
 const canvas = document.getElementById('game');
@@ -117,3 +118,4 @@ window._wod = {
   listenerCounts: () => events.counts(),
   resetMeta: () => meta.resetAll(),
 };
+installDevConsole({ sceneManager, audio, renderer, engine });

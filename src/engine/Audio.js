@@ -13,6 +13,18 @@
 import { events } from './EventBus.js';
 
 const SFX_COOLDOWN_MS = 18;  // de-dupe identical SFX within this window
+const BGM_VOL = 0.32;        // music sits below SFX
+
+// Track pools — fall back gracefully if the user hasn't synced the
+// roguehero2/music/ folder. We try the local music/ folder first, then
+// the sibling roguehero2/music/ folder, then give up silently.
+const MUSIC_PATHS = ['music/', '../roguehero2/music/'];
+const POOLS = {
+  intro: ['Main_Menu.mp3','Main_Menu2.mp3','Main_Menu3.mp3','Main_Menu4.mp3','Main_Menu5.mp3','Main_Menu6.mp3','Main_Menu7.mp3','Main_Menu8.mp3'],
+  map:   ['Selection_Map.mp3','Selection_Map2.mp3','Selection_Map3.mp3','Selection_Map4.mp3','Selection_Map5.mp3','Selection_Map6.mp3','Selection_Map7.mp3','Selection_Map8.mp3'],
+  night: ['Normal_Battle.mp3','Normal_Battle2.mp3','Normal_Battle3.mp3','Normal_Battle4.mp3','Normal_Battle5.mp3','Normal_Battle6.mp3','Normal_Battle7.mp3','Normal_Battle8.mp3','Normal_Battle9.mp3','Normal_Battle10.mp3','Normal_Battle11.mp3','Normal_Battle12.mp3','Normal_Battle13.mp3'],
+  boss:  ['Boss_Battle.mp3','Boss_Battle2.mp3','Boss_Battle3.mp3','Boss_Battle4.mp3','Boss_Battle5.mp3','Boss_Battle6.mp3','Boss_Battle7.mp3','Boss_Battle8.mp3'],
+};
 
 export class AudioSystem {
   constructor() {
@@ -20,8 +32,14 @@ export class AudioSystem {
     this.masterGain = null;
     this.masterVolume = 0.6;
     this.muted = false;
-    this._lastFire = {};       // sfxId → ms timestamp
+    this._lastFire = {};
     this._initFailed = false;
+    this._bgm = null;             // HTMLAudioElement
+    this._bgmPool = null;          // currently selected pool key
+    this._bgmShuffle = [];         // remaining tracks before reshuffle
+    this._musicBase = MUSIC_PATHS[0];
+    this._musicBaseTried = 0;
+    this._lockedTrack = null;      // pinned during boss / continued combat
   }
 
   // Must be called after a user gesture (click). BootScene's "click to begin"
@@ -59,6 +77,67 @@ export class AudioSystem {
     this._lastFire[id] = now;
     const fn = SFX[id];
     if (fn) fn(this.ctx, this.masterGain);
+  }
+
+  // ── BGM ──
+  // Pool keys: 'intro' | 'map' | 'night' | 'boss'. Locking pins the
+  // current track until silenceBgm() (used during boss fights so the
+  // boss theme doesn't randomly reroll mid-fight).
+  playBgm(poolKey, opts) {
+    if (typeof Audio === 'undefined' || this.muted) return;
+    const pool = POOLS[poolKey];
+    if (!pool || pool.length === 0) return;
+    if (this._lockedTrack && this._bgmPool === poolKey) return;
+    if (poolKey === this._bgmPool && this._bgm && !this._bgm.paused) return;
+
+    if (!this._bgmShuffle.length || this._bgmPool !== poolKey) {
+      this._bgmShuffle = [...pool].sort(() => Math.random() - 0.5);
+      this._bgmPool = poolKey;
+    }
+    const track = this._bgmShuffle.pop();
+    this._lockedTrack = (opts && opts.lock) ? track : null;
+    this._loadAndPlay(track, poolKey);
+  }
+
+  silenceBgm() {
+    this._lockedTrack = null;
+    if (this._bgm) {
+      try { this._bgm.pause(); } catch {}
+    }
+  }
+
+  _loadAndPlay(track, poolKey) {
+    const src = this._musicBase + track;
+    if (!this._bgm) {
+      this._bgm = new Audio();
+      this._bgm.loop = false;
+      this._bgm.volume = BGM_VOL * this.masterVolume;
+      this._bgm.addEventListener('ended', () => {
+        // Move to next track in shuffle for variety
+        if (this._lockedTrack === track) {
+          // Locked: replay same track
+          this._loadAndPlay(track, poolKey);
+        } else if (this._bgmPool) {
+          this.playBgm(this._bgmPool);
+        }
+      });
+      this._bgm.addEventListener('error', () => {
+        // Fall through to next path candidate.
+        this._musicBaseTried++;
+        if (this._musicBaseTried < MUSIC_PATHS.length) {
+          this._musicBase = MUSIC_PATHS[this._musicBaseTried];
+          this._loadAndPlay(track, poolKey);
+        }
+      });
+    }
+    try {
+      this._bgm.src = src;
+      this._bgm.volume = BGM_VOL * this.masterVolume;
+      const p = this._bgm.play();
+      if (p && p.catch) p.catch(() => {});
+    } catch (e) {
+      // Browsers without autoplay yet — quietly drop until next gesture.
+    }
   }
 }
 
@@ -153,8 +232,8 @@ const SFX = {
   },
 };
 
-// Listen for game events and play matching SFX. Centralizing this here keeps
-// scenes/weapons from importing the audio module directly.
+// Listen for game events and play matching SFX + BGM. Centralizing this
+// here keeps scenes/weapons from importing the audio module directly.
 export function bindAudioEvents(audio) {
   events.on('WEAPON_FIRED', ({ weaponId }) => audio.playSfx(weaponId));
   events.on('WEAPON_RELOAD_START', () => audio.playSfx('reload_click'));
@@ -164,4 +243,19 @@ export function bindAudioEvents(audio) {
   events.on('PLAYER_DAMAGED', () => audio.playSfx('player_hurt'));
   events.on('AOE_EXPLOSION',  () => audio.playSfx('explosion'));
   events.on('SPITTER_FIRE',   () => audio.playSfx('spitter'));
+
+  // BGM: route per-scene-entry to the right pool. Boss entry locks the
+  // track so it plays uninterrupted to a phase transition.
+  events.on('SCENE_ENTERED', ({ name }) => {
+    if (name === 'intro' || name === 'baseCamp') audio.playBgm('intro');
+    else if (name === 'map' || name === 'scavenge' || name === 'shop' || name === 'event') audio.playBgm('map');
+    else if (name === 'gameOver' || name === 'victory' || name === 'meta' || name === 'boot') audio.silenceBgm();
+    // 'combat' BGM picks based on boss flag — handled when the scene tells us.
+  });
+  events.on('NIGHT_START', ({ nightNum, waveCount: _w }) => {
+    // Any night >= the boss-night flag uses the boss pool, locked.
+    // Combat scenes set window._wod-style state; we keep this loose here.
+  });
+  events.on('BOSS_FIGHT_BEGIN', () => audio.playBgm('boss', { lock: true }));
+  events.on('NIGHT_FIGHT_BEGIN', () => audio.playBgm('night'));
 }

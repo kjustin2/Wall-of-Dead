@@ -3,6 +3,7 @@ import { events } from '../engine/EventBus.js';
 import { runState } from '../world/RunState.js';
 import { meta } from '../engine/MetaProgress.js';
 import { WEAPONS } from '../weapons/WeaponDefs.js';
+import { drawWrapped } from '../util/text.js';
 import { PALETTE, NIGHT } from '../Config.js';
 
 // Pre-run loadout pick. Three buttons, each starting weapon. Player choice
@@ -12,9 +13,9 @@ import { PALETTE, NIGHT } from '../Config.js';
 // milestones gate options behind MetaProgress.unlockedStarters.
 
 const ALL_STARTERS = [
-  { id: 'pistol',  blurb: 'reliable. 12-round mag. you know this one.' },
-  { id: 'smg',     blurb: 'spray-and-pray. burns ammo. forgives bad aim.' },
-  { id: 'shotgun', blurb: 'point-blank god, six shells, slow reload.' },
+  { id: 'pistol',  blurb: 'reliable sidearm. precise, semi-auto.' },
+  { id: 'smg',     blurb: 'auto spray. burns ammo. forgives aim.' },
+  { id: 'shotgun', blurb: 'point-blank slug. heavy kick, slow reload.' },
 ];
 
 export class BaseCampScene extends Scene {
@@ -30,7 +31,7 @@ export class BaseCampScene extends Scene {
     this.t = 0;
     this.hoverIdx = -1;
     const unlocked = new Set(meta.state.unlockedStarters || ['pistol']);
-    // M3: while we're still building unlock loops, expose all 3 baselines.
+    // While we're still tuning the unlock loop, expose all baselines.
     unlocked.add('pistol'); unlocked.add('smg'); unlocked.add('shotgun');
     this.options = ALL_STARTERS
       .filter(o => unlocked.has(o.id))
@@ -111,9 +112,10 @@ export class BaseCampScene extends Scene {
       ctx.textAlign = 'center';
       ctx.fillText(def.name, x + cardW / 2, baseY + 36);
 
+      // Wrap the blurb so a long description never escapes the card border.
       ctx.fillStyle = PALETTE.uiDim;
       ctx.font = '12px monospace';
-      ctx.fillText(opt.blurb, x + cardW / 2, baseY + 62);
+      drawWrapped(ctx, opt.blurb, x + cardW / 2, baseY + 60, cardW - 36, 16);
 
       // Stat block
       ctx.textAlign = 'left';

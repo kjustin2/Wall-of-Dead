@@ -3,8 +3,17 @@ import { events } from '../engine/EventBus.js';
 import { runState } from '../world/RunState.js';
 import { meta } from '../engine/MetaProgress.js';
 import { LockpickGame } from '../minigames/LockpickGame.js';
+import { WireCutGame } from '../minigames/WireCutGame.js';
 import { WEAPONS } from '../weapons/WeaponDefs.js';
 import { PALETTE } from '../Config.js';
+
+// Pool of available minigames. ScavengeScene picks one each enter so
+// repeat scavenge nodes don't feel identical. Simon and Pipe go here in
+// future M5 follow-ups (each ~150 LOC budget per the plan).
+const MINIGAME_POOL = [
+  () => new LockpickGame(),
+  () => new WireCutGame(),
+];
 
 // Scavenge: pick a minigame (just lockpick for M4), play it, translate the
 // result tier into loot, then return to the map.
@@ -24,13 +33,13 @@ const TIER_RESULTS = {
   S: { ammoLight: 80, ammoShell: 14, heal: 35, weaponChance: 1.00, bigHeal: true },
 };
 
-const RARE_WEAPON_POOL = ['shotgun', 'smg'];   // M5 expands w/ AR/sniper/rocket
+const RARE_WEAPON_POOL = ['shotgun', 'smg', 'ar', 'sniper', 'flame', 'rocket', 'bat', 'mine', 'grenade'];
 
 export class ScavengeScene extends Scene {
   constructor(input) {
     super();
     this.input = input;
-    this.game = new LockpickGame();
+    this.game = null;
     this.phase = 'play';      // 'play' → 'reveal' → 'done'
     this.result = null;
     this.loot = null;
@@ -42,10 +51,15 @@ export class ScavengeScene extends Scene {
     this.result = null;
     this.loot = null;
     this.revealT = 0;
+    // Pick a minigame at random from the pool — keeps scavenges fresh.
+    const factory = MINIGAME_POOL[Math.floor(Math.random() * MINIGAME_POOL.length)];
+    this.game = factory();
     // Difficulty scales loosely with night progression — the further along
     // the run, the tighter the wedges to keep loot meaningful.
     const n = runState.nightNum || 0;
     const difficulty = n <= 2 ? 'easy' : (n <= 5 ? 'normal' : 'hard');
+    // WireCut needs the canvas reference for click hit-testing; expose it on the input
+    // (it already has `canvas`, but inline doc here so future minigames see the pattern).
     this.game.start({ difficulty });
   }
 
