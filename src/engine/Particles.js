@@ -186,11 +186,57 @@ export class ParticleSystem {
     }
   }
 
+  // Heavy gore on overkill. Heavier drag, longer life than spawnBlood, and
+  // a small downward bias each frame so chunks "fall" to the ground rather
+  // than feathering away. Color is sampled from the zombie's body palette
+  // so different zombie types leave visually distinct chunks.
+  spawnChunks(x, y, color, count) {
+    const n = count != null ? count : 6;
+    const dark = '#2a050a';
+    for (let i = 0; i < n; i++) {
+      const angle = Math.random() * Math.PI * 2;
+      const speed = 90 + Math.random() * 220;
+      this._pushParticle({
+        x, y,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed - 60,   // initial up-toss
+        r: 3 + Math.random() * 3,
+        color: Math.random() < 0.55 ? (color || '#5a0a14') : dark,
+        life: 0.45 + Math.random() * 0.30,
+        maxLife: 0.75,
+        drag: 0.85,
+      });
+    }
+  }
+
+  // Brass casing ejected perpendicular-ish to aim direction. Tiny visual
+  // garnish — one per shot is plenty without spamming the pool.
+  spawnCasing(x, y, aim) {
+    // Eject ~90° to the right of aim, with mild jitter.
+    const ejectAngle = aim + Math.PI / 2 + (Math.random() - 0.5) * 0.4;
+    const speed = 110 + Math.random() * 60;
+    this._pushParticle({
+      x, y,
+      vx: Math.cos(ejectAngle) * speed,
+      vy: Math.sin(ejectAngle) * speed - 30,
+      r: 1.4 + Math.random() * 0.6,
+      color: '#c69b3a',
+      life: 0.35 + Math.random() * 0.10,
+      maxLife: 0.45,
+      drag: 0.90,
+    });
+  }
+
   spawnDamageNumber(x, y, amount) {
     const isText = typeof amount === 'string';
     const text = isText ? amount : String(amount);
     const color = isText ? '#88ffaa' : (amount >= 15 ? '#ffaa66' : '#ffd699');
     const size  = isText ? 13 : (amount >= 15 ? 18 : 14);
+    // Cap the damage-number queue. Without this, rocket spam during boss
+    // waves can pile up tens of floats per frame and tank framerate; the
+    // cap is generous enough that legitimate dense fights still feel
+    // responsive but bounds the worst case.
+    if (this.texts.length >= 80) this.texts.shift();
     this.texts.push({
       x: x + (Math.random() * 18 - 9),
       y: y - 12,

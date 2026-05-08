@@ -4,6 +4,8 @@
 // thrown) on each def hand off to specialized fire paths in Player.js.
 //
 // Numbers tuned against shambler 32hp / runner 14hp / spitter 22hp.
+// `startReserve` was reduced ~40% across the board to support the horror
+// scarcity goal — finding ammo should feel meaningful, not routine.
 
 import { AMMO } from './AmmoTypes.js';
 
@@ -11,11 +13,11 @@ export const WEAPONS = {
   pistol: {
     id: 'pistol', name: 'Pistol',
     ammoType: AMMO.LIGHT,
-    magSize: 12, startReserve: 60,
+    magSize: 12, startReserve: 36,
     fireRate: 5.0, fireMode: 'semi',
     damage: 14, pellets: 1,
     spreadRad: 0.04, projectileSpeed: 1100, projectileLife: 0.55, projectileR: 3,
-    reloadTime: 1.0, recoilShake: 0.18,
+    reloadTime: 1.0, recoilShake: 0.18, knockback: 60,
     bulletColor: '#ffe066',
     sfxId: 'pistol',
   },
@@ -23,11 +25,11 @@ export const WEAPONS = {
   smg: {
     id: 'smg', name: 'SMG',
     ammoType: AMMO.LIGHT,
-    magSize: 36, startReserve: 144,
+    magSize: 36, startReserve: 80,
     fireRate: 12.0, fireMode: 'auto',
     damage: 7, pellets: 1,
     spreadRad: 0.13, projectileSpeed: 980, projectileLife: 0.5, projectileR: 2.5,
-    reloadTime: 1.5, recoilShake: 0.12,
+    reloadTime: 1.5, recoilShake: 0.12, knockback: 35,
     bulletColor: '#ffd844',
     sfxId: 'smg',
   },
@@ -35,11 +37,11 @@ export const WEAPONS = {
   shotgun: {
     id: 'shotgun', name: 'Shotgun',
     ammoType: AMMO.SHELL,
-    magSize: 6, startReserve: 24,
+    magSize: 6, startReserve: 14,
     fireRate: 1.4, fireMode: 'semi',
     damage: 9, pellets: 8,
     spreadRad: 0.42, projectileSpeed: 940, projectileLife: 0.32, projectileR: 2.5,
-    reloadTime: 1.8, recoilShake: 0.65, hitStop: 0.05,
+    reloadTime: 1.8, recoilShake: 0.65, hitStop: 0.05, knockback: 240,
     bulletColor: '#ff9955',
     sfxId: 'shotgun',
   },
@@ -47,11 +49,12 @@ export const WEAPONS = {
   ar: {
     id: 'ar', name: 'Assault Rifle',
     ammoType: AMMO.HEAVY,
-    magSize: 30, startReserve: 90,
-    fireRate: 8.0, fireMode: 'auto',
-    damage: 11, pellets: 1,
+    magSize: 30, startReserve: 54,
+    fireRate: 2.8, fireMode: 'burst',     // 2.8 trigger pulls/sec; each pull fires 3 rounds
+    burst: { count: 3, intervalSec: 0.07 },
+    damage: 13, pellets: 1,
     spreadRad: 0.07, projectileSpeed: 1300, projectileLife: 0.5, projectileR: 2.5,
-    reloadTime: 1.7, recoilShake: 0.20,
+    reloadTime: 1.7, recoilShake: 0.18, knockback: 80,
     bulletColor: '#ffaa55',
     sfxId: 'ar',
   },
@@ -59,11 +62,11 @@ export const WEAPONS = {
   sniper: {
     id: 'sniper', name: 'Sniper Rifle',
     ammoType: AMMO.HEAVY,
-    magSize: 5, startReserve: 20,
+    magSize: 5, startReserve: 12,
     fireRate: 0.9, fireMode: 'semi',
     damage: 60, pellets: 1,
     spreadRad: 0.0, projectileSpeed: 2200, projectileLife: 0.5, projectileR: 4,
-    reloadTime: 2.2, recoilShake: 0.55, hitStop: 0.04,
+    reloadTime: 2.2, recoilShake: 0.55, hitStop: 0.04, knockback: 400,
     pierce: 3,                            // skewers a small line
     bulletColor: '#88ccff',
     sfxId: 'sniper',
@@ -72,7 +75,7 @@ export const WEAPONS = {
   rocket: {
     id: 'rocket', name: 'Rocket Launcher',
     ammoType: AMMO.ROCKET,
-    magSize: 1, startReserve: 5,
+    magSize: 1, startReserve: 3,
     fireRate: 0.7, fireMode: 'semi',
     damage: 0,                            // direct hit body damage; AoE does the work
     pellets: 1,
@@ -86,7 +89,7 @@ export const WEAPONS = {
   flame: {
     id: 'flame', name: 'Flamethrower',
     ammoType: AMMO.FUEL,
-    magSize: 80, startReserve: 200,
+    magSize: 80, startReserve: 120,
     fireRate: 22.0, fireMode: 'auto',
     damage: 4,                            // per fuel-tick (so DPS depends on hold time)
     pellets: 1,
@@ -101,7 +104,7 @@ export const WEAPONS = {
   mine: {
     id: 'mine', name: 'Proximity Mine',
     ammoType: AMMO.EXPLOSIVE,
-    magSize: 1, startReserve: 4,
+    magSize: 1, startReserve: 2,
     fireRate: 1.2, fireMode: 'semi',
     damage: 0, pellets: 1,
     spreadRad: 0, projectileSpeed: 0, projectileLife: 0, projectileR: 0,
@@ -114,7 +117,7 @@ export const WEAPONS = {
   grenade: {
     id: 'grenade', name: 'Frag Grenade',
     ammoType: AMMO.EXPLOSIVE,
-    magSize: 1, startReserve: 3,
+    magSize: 1, startReserve: 2,
     fireRate: 1.0, fireMode: 'semi',
     damage: 0, pellets: 1,
     spreadRad: 0.05, projectileSpeed: 520, projectileLife: 1.4, projectileR: 5,

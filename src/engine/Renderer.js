@@ -27,6 +27,14 @@ export class Renderer {
     this._caGradR = null;
     this._caGradW = 0;
 
+    // Dread-driven post-process modulation. Combat scene writes these each
+    // frame; menus/maps leave them at defaults.
+    //   dreadVignette: target alpha for the outer vignette ring (0–1)
+    //   dreadCA:       slow heartbeat-rate CA pulse on top of caTimer spikes
+    this.dreadVignette = 0.72;
+    this.dreadCA = 0;
+    this._vignetteIntensityCached = -1;
+
     events.on('SCREEN_SHAKE', ({ duration, intensity }) => {
       this.shakeDuration = Math.max(this.shakeDuration - this.shakeElapsed, duration);
       this.shakeIntensity = Math.max(this.shakeIntensity, intensity);
@@ -97,28 +105,40 @@ export class Renderer {
   }
 
   // ── Cached screen vignette ──
-  _buildVignette() {
+  // Cache key includes the current dreadVignette intensity so the cache is
+  // only rebuilt when the dread bucket actually changes (every ~0.05 step).
+  // That keeps us off the per-frame `createRadialGradient` allocation path.
+  _buildVignette(intensity) {
     const off = document.createElement('canvas');
     off.width = this.width; off.height = this.height;
     const ctx = off.getContext('2d');
     const cx = this.width / 2, cy = this.height / 2;
     const grad = ctx.createRadialGradient(cx, cy, this.height * 0.22, cx, cy, this.height * 0.85);
     grad.addColorStop(0, 'rgba(0,0,0,0)');
-    grad.addColorStop(1, 'rgba(0,0,0,0.72)');
+    grad.addColorStop(1, `rgba(0,0,0,${intensity.toFixed(3)})`);
     ctx.fillStyle = grad;
     ctx.fillRect(0, 0, this.width, this.height);
     this._vignetteCanvas = off;
+    this._vignetteIntensityCached = intensity;
   }
 
   drawVignette() {
-    if (!this._vignetteCanvas || this._vignetteCanvas.width !== this.width) this._buildVignette();
+    const target = Math.max(0.5, Math.min(0.95, this.dreadVignette));
+    const stale = !this._vignetteCanvas
+      || this._vignetteCanvas.width !== this.width
+      || Math.abs(target - this._vignetteIntensityCached) > 0.05;
+    if (stale) this._buildVignette(target);
     this.ctx.drawImage(this._vignetteCanvas, 0, 0);
   }
 
-  // ── Edge CA flash — emit 'CA_FLASH' on heavy hits / explosions ──
+  // ── Edge CA flash — combines impact-spike (caTimer, set by CA_FLASH
+  // events) with a slow dread-driven heartbeat pulse (dreadCA, written by
+  // CombatScene each frame). Spike dominates when both are active.
   drawCAFlash() {
-    if (this.caTimer <= 0) return;
-    const p = this.caTimer / this._caMaxTime;
+    const spike = this.caTimer > 0 ? this.caTimer / this._caMaxTime : 0;
+    const dread = Math.max(0, Math.min(1, this.dreadCA || 0));
+    const p = Math.max(spike, dread * 0.7);
+    if (p <= 0) return;
     const w = this.width, h = this.height;
     if (!this._caGradL || this._caGradW !== w) {
       this._caGradW = w;

@@ -122,7 +122,13 @@ export class WireCutGame extends Minigame {
   }
 
   getResult() {
-    return { tier: this._tier, score: this._score, misses: this.misses, reason: this._reason };
+    return {
+      tier: this._tier,
+      score: this._score,
+      missed: this.misses,
+      timeUsed: this.totalElapsed,
+      reason: this._reason,
+    };
   }
 
   _wireAtMouse(input) {

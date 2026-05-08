@@ -2,11 +2,13 @@
 // in the corners so the center of the screen stays clean for action.
 
 import { PALETTE, PLAYER, NIGHT } from '../Config.js';
+import { truncateToWidth } from '../util/text.js';
 
 export class HUD {
   constructor() {
-    this.toast = null;       // { text, color, life, maxLife }
-    this.waveLabel = null;   // { text, color, life, maxLife }
+    this.toast = null;       // { text, color, life, maxLife } — gameplay hint, top-center bottom-mid
+    this.waveLabel = null;   // { text, color, life, maxLife } — wave / clear / respawn label, top-center
+    this.loreToast = null;   // { lines, life, maxLife }       — narrative pickup, lower-third italic
   }
 
   setToast(text, color, dur) {
@@ -17,9 +19,17 @@ export class HUD {
     this.waveLabel = { text, color: color || PALETTE.uiAccent, life: dur || 2.2, maxLife: dur || 2.2 };
   }
 
+  // Distinct slot from setToast so a note pickup doesn't clobber a
+  // gameplay hint (or vice-versa). Multi-line text is split on '\n'.
+  setLoreToast(text, dur) {
+    const lines = String(text || '').split('\n').filter(s => s.length > 0);
+    this.loreToast = { lines, life: dur || 5.0, maxLife: dur || 5.0 };
+  }
+
   update(dt) {
     if (this.toast)      { this.toast.life      -= dt; if (this.toast.life      <= 0) this.toast = null; }
     if (this.waveLabel)  { this.waveLabel.life  -= dt; if (this.waveLabel.life  <= 0) this.waveLabel = null; }
+    if (this.loreToast)  { this.loreToast.life  -= dt; if (this.loreToast.life  <= 0) this.loreToast = null; }
   }
 
   draw(ctx, player, director) {
@@ -50,6 +60,55 @@ export class HUD {
     ctx.fillRect(hpX, hpY + hpH + 5, stW * (player.stamina / PLAYER.staminaMax), stH);
     ctx.globalAlpha = 1;
 
+    // ── Bottom-right: weapon ribbon (slot per inventory entry) ──
+    // Drawn first so the weapon name/ammo block below stays in the same
+    // place. Active slot has a green ring + filled background; inactive
+    // slots are dim. The first letter of each weapon name acts as a glyph
+    // (P/S/SH/A/...) and a tiny mag-bar shows mag-fullness at a glance.
+    if (player.inventory && player.inventory.length > 0) {
+      const slotW = 22, slotH = 22, slotGap = 4;
+      const ribbonY = h - 110;
+      const totalW = player.inventory.length * slotW + (player.inventory.length - 1) * slotGap;
+      const ribbonX = w - 14 - totalW;
+      for (let i = 0; i < player.inventory.length; i++) {
+        const sw = player.inventory[i];
+        const sx = ribbonX + i * (slotW + slotGap);
+        const active = i === player.currentWeaponIdx;
+        const empty = sw.mag <= 0 && sw.reserve <= 0 && sw.def.ammoType.id !== 'MELEE';
+
+        // Slot background
+        ctx.fillStyle = active ? 'rgba(126,255,102,0.22)' : 'rgba(20,22,26,0.7)';
+        ctx.fillRect(sx, ribbonY, slotW, slotH);
+        ctx.strokeStyle = active ? PALETTE.uiAccent : (empty ? PALETTE.uiDim : PALETTE.uiText);
+        ctx.lineWidth = active ? 2 : 1;
+        ctx.strokeRect(sx, ribbonY, slotW, slotH);
+
+        // Glyph: first letter (or two for 'sh', 'sn' if you want — keep
+        // single-letter for simplicity).
+        ctx.fillStyle = empty ? PALETTE.uiDim : (active ? PALETTE.uiAccent : PALETTE.uiText);
+        ctx.font = 'bold 12px monospace';
+        ctx.textAlign = 'center';
+        const glyph = sw.def.name[0].toUpperCase();
+        ctx.fillText(glyph, sx + slotW / 2, ribbonY + slotH / 2 + 4);
+
+        // Slot number, top-left corner of slot
+        ctx.fillStyle = PALETTE.uiDim;
+        ctx.font = '8px monospace';
+        ctx.textAlign = 'left';
+        ctx.fillText(String(i + 1), sx + 2, ribbonY + 8);
+
+        // Tiny mag-bar under the slot.
+        const barH = 2;
+        const magFrac = sw.def.magSize > 0 ? Math.max(0, Math.min(1, sw.mag / sw.def.magSize)) : 1;
+        ctx.fillStyle = 'rgba(20,22,26,0.7)';
+        ctx.fillRect(sx, ribbonY + slotH + 1, slotW, barH);
+        ctx.fillStyle = magFrac > 0.5 ? PALETTE.uiAccent
+                      : magFrac > 0.2 ? PALETTE.uiWarn
+                                      : PALETTE.uiDanger;
+        ctx.fillRect(sx, ribbonY + slotH + 1, slotW * magFrac, barH);
+      }
+    }
+
     // ── Bottom-right: weapon + ammo ──
     const wx = w - 14, wy = h - 50;
     ctx.textAlign = 'right';
@@ -57,7 +116,10 @@ export class HUD {
     const allDry = player._allDry && player._allDry();
     ctx.fillStyle = allDry ? PALETTE.uiWarn : PALETTE.uiText;
     ctx.font = 'bold 14px monospace';
-    ctx.fillText(allDry ? 'KNIFE (NO AMMO)' : wpn.name.toUpperCase(), wx, wy - 12);
+    // Truncate so unusually long weapon names (e.g. modded entries) can't
+    // bleed into the kills/scrap column on a narrow viewport.
+    const nameLabel = allDry ? 'KNIFE (NO AMMO)' : truncateToWidth(ctx, wpn.name.toUpperCase(), 200);
+    ctx.fillText(nameLabel, wx, wy - 12);
     ctx.font = 'bold 22px monospace';
     if (allDry) {
       ctx.fillStyle = PALETTE.uiWarn;
@@ -127,6 +189,28 @@ export class HUD {
       ctx.font = 'bold 28px monospace';
       ctx.textAlign = 'center';
       ctx.fillText(this.waveLabel.text, w / 2, 80);
+      ctx.globalAlpha = 1;
+    }
+
+    // ── Lore toast (lower-third, italic, multi-line) ──
+    // Distinct slot from .toast so a note pickup never collides with a
+    // wave/cycle/checkpoint hint. Lines stack upward from a baseline so
+    // long transcripts read top-to-bottom in reading order.
+    if (this.loreToast) {
+      const a = Math.min(1, this.loreToast.life / this.loreToast.maxLife * 1.4);
+      ctx.globalAlpha = a;
+      ctx.fillStyle = '#cdb88a';
+      ctx.font = 'italic 15px monospace';
+      ctx.textAlign = 'center';
+      const baseY = h - 170;
+      const lineH = 19;
+      const lines = this.loreToast.lines;
+      for (let i = 0; i < lines.length; i++) {
+        ctx.fillStyle = 'rgba(0,0,0,0.65)';
+        ctx.fillText(lines[i], w / 2 + 1, baseY + i * lineH + 1);
+        ctx.fillStyle = '#cdb88a';
+        ctx.fillText(lines[i], w / 2,     baseY + i * lineH);
+      }
       ctx.globalAlpha = 1;
     }
   }

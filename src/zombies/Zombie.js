@@ -28,12 +28,25 @@ export class Zombie extends Entity {
     this.hitFlash = 0;
     this.aim = 0;
     this.state = 'spawning';
+    // Knockback velocity in px/s. Applied each frame and decayed
+    // multiplicatively before arena.clamp so walls still resolve.
+    this.knockVx = 0;
+    this.knockVy = 0;
   }
 
-  takeDamage(amount) {
+  takeDamage(amount, fromX = 0, fromY = 0, force = 0) {
     if (this.spawnTimer > 0) return;          // invuln during spawn-in
     super.takeDamage(amount);
-    this.hitFlash = 0.12;
+    this.hitFlash = 0.22;
+    if (force > 0) {
+      const dx = this.x - fromX, dy = this.y - fromY;
+      const len = Math.hypot(dx, dy) || 1;
+      // Heavier zombies (Brute, Bloater, Boss) shrug more knockback off.
+      const massScale = 32 / Math.max(12, this.def.hp);
+      const f = force * massScale;
+      this.knockVx += (dx / len) * f;
+      this.knockVy += (dy / len) * f;
+    }
   }
 
   // Default AI: chase the player; melee when in range. Subclasses override.
@@ -63,6 +76,20 @@ export class Zombie extends Entity {
     if (this.hitFlash > 0) this.hitFlash = Math.max(0, this.hitFlash - dt);
 
     this.updateAI(dt, ctx.player, ctx.arena, ctx);
+
+    // Knockback applied AFTER AI so a hit visibly shoves them mid-chase.
+    // Decay is exponential per frame; with dt≈1/60 the multiplier ~0.78
+    // drains a 240 px/s shotgun shove to <10 px/s in ~0.25s.
+    if (this.knockVx !== 0 || this.knockVy !== 0) {
+      this.x += this.knockVx * dt;
+      this.y += this.knockVy * dt;
+      const decay = Math.pow(0.000012, dt);   // ~0.78 at 60fps
+      this.knockVx *= decay;
+      this.knockVy *= decay;
+      if (Math.abs(this.knockVx) < 4) this.knockVx = 0;
+      if (Math.abs(this.knockVy) < 4) this.knockVy = 0;
+    }
+
     ctx.arena.clamp(this);
   }
 
@@ -96,7 +123,7 @@ export class Zombie extends Entity {
     }
     this.drawBody(ctx);
     if (this.hitFlash > 0) {
-      ctx.globalAlpha = this.hitFlash / 0.12 * 0.6;
+      ctx.globalAlpha = this.hitFlash / 0.22 * 0.7;
       ctx.fillStyle = '#ffffff';
       ctx.beginPath();
       ctx.arc(0, 0, this.r, 0, Math.PI * 2);

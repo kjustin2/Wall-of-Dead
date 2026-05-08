@@ -44,8 +44,8 @@ export class BossPatientZero extends Zombie {
     this._enteredSummon = false;
   }
 
-  takeDamage(amount) {
-    super.takeDamage(amount);
+  takeDamage(amount, fromX = 0, fromY = 0, force = 0) {
+    super.takeDamage(amount, fromX, fromY, force);
     const ratio = this.hp / this.maxHp;
     if (this.phase === 1 && ratio <= 0.66) this._enterPhase(2);
     if (this.phase === 2 && ratio <= 0.33) this._enterPhase(3);

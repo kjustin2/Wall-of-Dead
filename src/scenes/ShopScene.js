@@ -39,16 +39,16 @@ export class ShopScene extends Scene {
       {
         id: 'ammo_light',
         title: '9MM AMMO',
-        desc: '40 rounds for pistol / SMG.',
+        desc: '28 rounds for pistol / SMG.',
         cost: 6 + n * 2,
-        apply: () => runState.giveAmmoByType('LIGHT', 40),
+        apply: () => runState.giveAmmoByType('LIGHT', 28),
       },
       {
         id: 'ammo_shell',
         title: 'SHELLS',
-        desc: '12 shotgun shells.',
+        desc: '8 shotgun shells.',
         cost: 8 + n * 2,
-        apply: () => runState.giveAmmoByType('SHELL', 12),
+        apply: () => runState.giveAmmoByType('SHELL', 8),
       },
       {
         id: 'medkit',
@@ -67,9 +67,9 @@ export class ShopScene extends Scene {
       } : {
         id: 'ammo_heavy',
         title: '7.62 AMMO',
-        desc: 'Big reserve top-up.',
+        desc: '40 rounds for AR / sniper.',
         cost: 12 + n * 3,
-        apply: () => runState.giveAmmoByType('HEAVY', 60),
+        apply: () => runState.giveAmmoByType('HEAVY', 40),
       },
     ];
   }
@@ -168,10 +168,11 @@ export class ShopScene extends Scene {
       ctx.textAlign = 'center';
       ctx.fillText(slot.title, x + cardW / 2, yTop + 32);
 
-      // Desc (wrapped)
+      // Desc (wrapped, capped at 4 lines so a long blurb can't bleed
+      // into the cost line at the bottom of the card).
       ctx.fillStyle = PALETTE.uiDim;
       ctx.font = '12px monospace';
-      drawWrapped(ctx, slot.desc, x + cardW / 2, yTop + 60, cardW - 30, 16);
+      drawWrapped(ctx, slot.desc, x + cardW / 2, yTop + 60, cardW - 30, 16, 4);
 
       // Cost / state
       ctx.fillStyle = slot.bought ? PALETTE.uiDim

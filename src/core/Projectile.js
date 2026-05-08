@@ -14,6 +14,7 @@ function makeProjectile() {
     x: 0, y: 0, vx: 0, vy: 0, r: 3,
     life: 0, maxLife: 0,
     damage: 1,
+    knockback: 0,         // px/s shove imparted to the hit target
     color: '#ffe066',
     weaponId: '',
     pierce: 0,
@@ -39,6 +40,7 @@ export class ProjectileManager {
     p.maxLife = opts.life != null ? opts.life : 0.7;
     p.life = p.maxLife;
     p.damage = opts.damage != null ? opts.damage : 1;
+    p.knockback = opts.knockback != null ? opts.knockback : 0;
     p.color = opts.color || '#ffe066';
     p.weaponId = opts.weaponId || '';
     p.pierce = opts.pierce || 0;

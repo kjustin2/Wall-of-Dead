@@ -47,6 +47,15 @@ export class Player extends Entity {
       swingT: 0,                   // visual swing animation timer (s)
       swingDuration: 0.18,
     };
+    // Transient burst-fire state: when a 'burst' weapon is fired, this
+    // queues the remaining intra-burst shots and ticks them down each
+    // update. Lives on the player (not the Weapon) because it depends on
+    // the live projectile manager / particles passed into update().
+    this._burstQueue = 0;
+    this._burstTimer = 0;
+    this._burstDef = null;
+    this._burstProjMgr = null;
+    this._burstParticles = null;
   }
 
   get weapon() { return this.inventory[this.currentWeaponIdx]; }
@@ -128,15 +137,47 @@ export class Player extends Entity {
     // a map node) auto-firing on the first combat frame.
     if (!this._fireArmed && !input.mouse.leftDown) this._fireArmed = true;
 
+    // Tick down any in-flight burst — each burst tick is one extra shot
+    // from the same trigger pull. Burst keeps firing even if the player
+    // releases the mouse mid-burst (true 3-round-burst feel).
+    if (this._burstQueue > 0) {
+      this._burstTimer -= dt;
+      if (this._burstTimer <= 0) {
+        if (this.weapon.def === this._burstDef && this.weapon.mag > 0) {
+          // Direct-consume one round and dispatch — bypassing tryFire's
+          // `cooldown` gate, which is set to gate the *next trigger pull*,
+          // not the intra-burst rounds.
+          this.weapon.mag -= 1;
+          this._dispatchFire(this._burstDef, this._burstProjMgr, this._burstParticles);
+        }
+        this._burstQueue -= 1;
+        this._burstTimer = this._burstDef ? this._burstDef.burst.intervalSec : 0;
+        if (this._burstQueue <= 0) {
+          this._burstDef = null;
+          this._burstProjMgr = null;
+          this._burstParticles = null;
+        }
+      }
+    }
+
     if (this._fireArmed) {
       const def = this.weapon.def;
       const isAuto = def.fireMode === 'auto';
       const wantFire = isAuto
         ? input.mouse.leftDown
         : (input.mouse.leftDown && !this._wasLeftDown);
-      if (wantFire) {
+      if (wantFire && this._burstQueue <= 0) {
         if (this.weapon.tryFire()) {
           this._dispatchFire(def, projMgr, particles);
+          // Burst weapons queue (count - 1) follow-up shots that fire on
+          // their own cadence regardless of mouse state.
+          if (def.fireMode === 'burst' && def.burst) {
+            this._burstQueue = Math.max(0, def.burst.count - 1);
+            this._burstTimer = def.burst.intervalSec;
+            this._burstDef = def;
+            this._burstProjMgr = projMgr;
+            this._burstParticles = particles;
+          }
         } else if (this._allDry()) {
           // Backup knife — only when EVERY weapon is empty. Forces a real
           // scavenge run rather than rewarding spam-melee mid-fight.
@@ -197,6 +238,10 @@ export class Player extends Entity {
     const px = this.x + Math.cos(this.aim) * muzzleDist;
     const py = this.y + Math.sin(this.aim) * muzzleDist;
     const pellets = def.pellets || 1;
+    // Per-pellet knockback for shotguns: the def value is the *total* shove
+    // a full body of pellets imparts, divided so a point-blank wall of
+    // shells doesn't catapult shamblers across the map.
+    const perPelletKnockback = (def.knockback || 0) / Math.max(1, pellets);
     for (let i = 0; i < pellets; i++) {
       const a = this.aim + (Math.random() - 0.5) * def.spreadRad;
       projMgr.spawn({
@@ -206,6 +251,7 @@ export class Player extends Entity {
         r: def.projectileR,
         life: def.projectileLife,
         damage: def.damage,
+        knockback: perPelletKnockback,
         color: def.bulletColor,
         weaponId: def.id,
         source: 'player',
@@ -213,7 +259,10 @@ export class Player extends Entity {
         aoe: def.aoe || null,
       });
     }
-    if (particles) particles.spawnMuzzleFlash(px, py, this.aim);
+    if (particles) {
+      particles.spawnMuzzleFlash(px, py, this.aim);
+      particles.spawnCasing(px, py, this.aim);
+    }
     events.emit('SCREEN_SHAKE', { duration: 0.08, intensity: def.recoilShake });
     events.emit('WEAPON_FIRED', { weaponId: def.id, x: px, y: py });
   }

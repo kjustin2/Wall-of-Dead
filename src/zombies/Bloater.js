@@ -27,8 +27,8 @@ export class Bloater extends Zombie {
     this._exploded = false;
   }
 
-  takeDamage(amount) {
-    super.takeDamage(amount);
+  takeDamage(amount, fromX = 0, fromY = 0, force = 0) {
+    super.takeDamage(amount, fromX, fromY, force);
     if (!this.alive && !this._exploded) {
       this._exploded = true;
       events.emit('AOE_EXPLOSION', {

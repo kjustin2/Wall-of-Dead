@@ -2,6 +2,7 @@ import { Scene } from './Scene.js';
 import { events } from '../engine/EventBus.js';
 import { runState } from '../world/RunState.js';
 import { MapUI } from '../ui/MapUI.js';
+import { truncateToWidth } from '../util/text.js';
 import { PALETTE, NIGHT } from '../Config.js';
 
 // Owns the run-graph navigation. Reads runState.graph and routes the user
@@ -82,7 +83,9 @@ export class MapScene extends Scene {
     ctx.fillText(`night ${runState.nightNum} / ${NIGHT.totalNights}`, w - 24, 68);
     ctx.fillText(`kills ${runState.player.kills}`, w - 24, 84);
 
-    // Inventory list
+    // Inventory list — names truncated so multi-word weapons (e.g.
+    // "Assault Rifle", "Proximity Mine") still fit alongside the ammo
+    // counts on narrower viewports.
     ctx.textAlign = 'right';
     ctx.fillStyle = PALETTE.uiDim;
     ctx.font = '11px monospace';
@@ -90,7 +93,8 @@ export class MapScene extends Scene {
     for (const wpn of runState.player.inventory) {
       const cur = wpn === runState.player.inventory[runState.player.currentWeaponIdx];
       ctx.fillStyle = cur ? PALETTE.uiText : PALETTE.uiDim;
-      ctx.fillText(`${wpn.name}  ${wpn.mag}/${wpn.reserve}`, w - 24, yy);
+      const shortName = truncateToWidth(ctx, wpn.name, 90);
+      ctx.fillText(`${shortName}  ${wpn.mag}/${wpn.reserve}`, w - 24, yy);
       yy += 14;
     }
   }

@@ -18,9 +18,30 @@ export class Lighting {
     this._lightCanvas = null;
     this._lightCtx = null;
     this._w = 0; this._h = 0;
-    this.darkness = 0.78;     // 0 = no shadows, 1 = pitch-black between lights
+    // Bumped from 0.78 → 0.84 for the horror tone shift. Per-floor themes
+    // can override via FloorDef.theme.darkness (e.g., basement = 0.92).
+    this.darkness = 0.84;     // 0 = no shadows, 1 = pitch-black between lights
     this.enabled = true;
     this._lightsThisFrame = 0;
+  }
+
+  // Deterministic flicker — returns a 0..1 modulation. Caller passes a
+  // unique seed string per light source so multiple flickering lights
+  // pulse out of phase with each other. Used by FuseBox shorts and any
+  // other "tube about to die" effects.
+  flicker(seed, freq = 6, depth = 0.5) {
+    let h = 0;
+    if (typeof seed === 'string') {
+      for (let i = 0; i < seed.length; i++) h = (h * 31 + seed.charCodeAt(i)) | 0;
+    } else if (typeof seed === 'number') {
+      h = seed | 0;
+    }
+    const t = performance.now() * 0.001 * freq + (h & 0xff) * 0.05;
+    // Two sines + a fast jitter — the jitter is what sells "fluorescent
+    // tube" rather than a smooth pulse.
+    const base = 0.5 + 0.5 * Math.sin(t);
+    const jitter = ((h ^ Math.floor(t * 13)) & 0xf) / 15;
+    return 1 - depth * (0.6 * base + 0.4 * jitter);
   }
 
   _ensure(w, h) {
