@@ -1,53 +1,27 @@
-// Pub/sub bus. Single shared instance — all cross-system messages flow through
-// this so systems don't hold direct references to each other.
-//
-// Ported verbatim from roguehero2/src/EventBus.js. The slice-on-emit guard
-// makes mid-dispatch removal (e.g. once()) safe; swap-remove keeps off() O(1).
+// Minimal pub/sub. Cross-system messages (sfx requests, screen shake, deaths)
+// flow through here so systems stay decoupled. Singleton `events`.
 
-export class EventBus {
+class EventBus {
   constructor() {
-    this.listeners = {};
+    this._map = new Map();
   }
 
-  on(event, callback) {
-    if (!this.listeners[event]) this.listeners[event] = [];
-    this.listeners[event].push(callback);
+  on(type, fn) {
+    let set = this._map.get(type);
+    if (!set) { set = new Set(); this._map.set(type, set); }
+    set.add(fn);
+    return fn;
   }
 
-  // Fire callback exactly once, then auto-remove it.
-  once(event, callback) {
-    const wrapper = (payload) => {
-      this.off(event, wrapper);
-      callback(payload);
-    };
-    this.on(event, wrapper);
+  off(type, fn) {
+    const set = this._map.get(type);
+    if (set) set.delete(fn);
   }
 
-  off(event, callback) {
-    const arr = this.listeners[event];
-    if (!arr) return;
-    // Swap-remove: O(1), avoids array allocation from filter().
-    const idx = arr.indexOf(callback);
-    if (idx !== -1) { arr[idx] = arr[arr.length - 1]; arr.pop(); }
-  }
-
-  emit(event, payload) {
-    const arr = this.listeners[event];
-    if (!arr || arr.length === 0) return;
-    // Fast path: single listener, no copy needed (no mid-dispatch removal possible).
-    if (arr.length === 1) { arr[0](payload); return; }
-    // Slice to allow safe removal mid-dispatch.
-    const cbs = arr.slice();
-    for (let i = 0; i < cbs.length; i++) cbs[i](payload);
-  }
-
-  // Diagnostic — used by _dev.eventListenerCounts() to detect leaks.
-  counts() {
-    const out = {};
-    for (const k of Object.keys(this.listeners)) {
-      out[k] = this.listeners[k].length;
-    }
-    return out;
+  emit(type, payload) {
+    const set = this._map.get(type);
+    if (!set) return;
+    for (const fn of set) fn(payload);
   }
 }
 

@@ -1,104 +1,68 @@
-// Single-player input. Stripped down from roguehero2/src/Input.js — no P2,
-// no card slots, no touch joystick (Wall of Dead is desktop-first; touch
-// support can be added later if needed).
+// Keyboard + mouse, desktop-first. The mouse position is reported in *canvas
+// space* (the fixed 1280x720 coordinate system) regardless of how the canvas
+// is scaled to the window — see _updateMouse.
 //
-// Per-frame consume pattern: main loop polls keys/mouse, calls consumeKey/
-// consumeClick to "eat" one-shot inputs, then clearFrame() at end of frame.
+// One-shot inputs (a key press, a click) are consumed via consumeKey/
+// consumeClick so a press fires exactly once; clearFrame() at end of frame
+// drops anything left unconsumed.
 
-export class InputManager {
+export class Input {
   constructor(canvas) {
     this.canvas = canvas;
     this.keys = new Set();
-    this.justPressed = new Set();
-    this.mouse = {
-      x: 0, y: 0,
-      leftDown: false, rightDown: false,
-      justClicked: false, justRightClicked: false,
-    };
-    this._wheelAccum = 0;
+    this.pressed = new Set();
+    this.mouse = { x: 640, y: 360, down: false, clicked: false };
+    this._wheel = 0;
 
-    window.addEventListener('keydown', e => {
+    addEventListener('keydown', (e) => {
       const k = e.key.toLowerCase();
+      if (!this.keys.has(k)) this.pressed.add(k);
       this.keys.add(k);
-      this.justPressed.add(k);
-      // Prevent space/arrows from scrolling the page.
-      if ([' ', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'].includes(k)) {
-        e.preventDefault();
-      }
+      if ([' ', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'].includes(k)) e.preventDefault();
     });
+    addEventListener('keyup', (e) => this.keys.delete(e.key.toLowerCase()));
 
-    window.addEventListener('keyup', e => {
-      this.keys.delete(e.key.toLowerCase());
+    // Stuck-key guard when the window loses focus.
+    addEventListener('blur', () => { this.keys.clear(); this.pressed.clear(); this.mouse.down = false; });
+
+    addEventListener('mousemove', (e) => this._updateMouse(e));
+    canvas.addEventListener('mousedown', (e) => {
+      this._updateMouse(e);
+      if (e.button === 0) { this.mouse.down = true; this.mouse.clicked = true; }
     });
-
-    // Releasing inputs on tab-blur prevents "stuck key" feel after switching back.
-    window.addEventListener('blur', () => {
-      this.keys.clear();
-      this.justPressed.clear();
-      this.mouse.leftDown = false;
-      this.mouse.rightDown = false;
-    });
-
-    window.addEventListener('mousemove', e => this._updateMousePos(e));
-
-    canvas.addEventListener('mousedown', e => {
-      this._updateMousePos(e);
-      if (e.button === 0) { this.mouse.leftDown = true; this.mouse.justClicked = true; }
-      if (e.button === 2) { this.mouse.rightDown = true; this.mouse.justRightClicked = true; }
-    });
-
-    window.addEventListener('mouseup', e => {
-      if (e.button === 0) this.mouse.leftDown = false;
-      if (e.button === 2) this.mouse.rightDown = false;
-    });
-
-    canvas.addEventListener('contextmenu', e => e.preventDefault());
-
-    // Wheel cycles weapon slot — emits pseudo-keys consumed by Player.
-    canvas.addEventListener('wheel', e => {
-      e.preventDefault();
-      this._wheelAccum += e.deltaY;
-      const step = 40;
-      while (this._wheelAccum >=  step) { this.justPressed.add('weaponnext'); this._wheelAccum -= step; }
-      while (this._wheelAccum <= -step) { this.justPressed.add('weaponprev'); this._wheelAccum += step; }
-    }, { passive: false });
+    addEventListener('mouseup', (e) => { if (e.button === 0) this.mouse.down = false; });
+    canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+    canvas.addEventListener('wheel', (e) => { e.preventDefault(); this._wheel += e.deltaY; }, { passive: false });
   }
 
-  _updateMousePos(e) {
-    const rect = this.canvas.getBoundingClientRect();
-    const scaleX = this.canvas.width / rect.width;
-    const scaleY = this.canvas.height / rect.height;
-    this.mouse.x = (e.clientX - rect.left) * scaleX;
-    this.mouse.y = (e.clientY - rect.top) * scaleY;
+  _updateMouse(e) {
+    const r = this.canvas.getBoundingClientRect();
+    this.mouse.x = (e.clientX - r.left) * (this.canvas.width / r.width);
+    this.mouse.y = (e.clientY - r.top) * (this.canvas.height / r.height);
   }
 
-  isDown(key) {
-    return this.keys.has(key);
-  }
+  isDown(k) { return this.keys.has(k); }
 
-  // Returns true ONCE per press, then "eats" the press so the next call is false.
-  consumeKey(key) {
-    if (this.justPressed.has(key)) {
-      this.justPressed.delete(key);
-      return true;
-    }
+  consumeKey(k) {
+    if (this.pressed.has(k)) { this.pressed.delete(k); return true; }
     return false;
   }
 
   consumeClick() {
-    if (this.mouse.justClicked) { this.mouse.justClicked = false; return true; }
+    if (this.mouse.clicked) { this.mouse.clicked = false; return true; }
     return false;
   }
 
-  consumeRightClick() {
-    if (this.mouse.justRightClicked) { this.mouse.justRightClicked = false; return true; }
-    return false;
+  // Returns -1 (scroll up / prev), +1 (scroll down / next), or 0.
+  consumeWheel() {
+    if (this._wheel <= -30) { this._wheel = 0; return -1; }
+    if (this._wheel >= 30) { this._wheel = 0; return 1; }
+    return 0;
   }
 
-  // Call at end of every frame to clear one-shot flags that weren't consumed.
   clearFrame() {
-    this.mouse.justClicked = false;
-    this.mouse.justRightClicked = false;
-    this.justPressed.clear();
+    this.mouse.clicked = false;
+    this.pressed.clear();
+    this._wheel = 0;
   }
 }

@@ -1,249 +1,104 @@
-// Slimmed particle system, derived from roguehero2/src/Particles.js. Keeps
-// the parts we need:
-//   - 400-cap object pool (free-list, zero alloc after warm-up)
-//   - Damage numbers (floating text)
-//   - Per-frame batched fillStyle/globalAlpha to minimize state changes
-//
-// Drops slash/ring/crashburst/etc. visuals — those will be re-added piecemeal
-// in M5/M6 polish only when actually needed.
-//
-// IMPORTANT: never `this.particles.push()` directly; call _pushParticle so
-// the cap is enforced. Pool reuse depends on it.
+// Fixed-cap particle pool. We never allocate during play — particles are
+// recycled from a ring buffer. Used for blood spray, muzzle sparks, gore
+// chunks, dust, and the dawn embers.
 
-import { PARTICLES } from '../Config.js';
+const CAP = 520;
 
-const PARTICLE_CAP = PARTICLES.cap;
-const _particlePool = [];
-
-// Module-level batch map — reset per frame, not replaced. Avoids GC pressure.
-const _batchGroups = Object.create(null);
-const _batchKeys = [];
-
-export class ParticleSystem {
+export class Particles {
   constructor() {
-    this.particles = [];
-    this.texts = [];
+    this.pool = new Array(CAP);
+    for (let i = 0; i < CAP; i++) {
+      this.pool[i] = { active: false, x: 0, y: 0, vx: 0, vy: 0, life: 0, maxLife: 1, size: 2, color: '#fff', grav: 0, fade: true, glow: false };
+    }
+    this.head = 0;
   }
 
-  clear() {
-    // Return all live particles to pool so an arena reset doesn't leak.
-    for (const p of this.particles) _particlePool.push(p);
-    this.particles.length = 0;
-    this.texts.length = 0;
+  _spawn() {
+    // Overwrite the oldest slot — visually fine, keeps allocation at zero.
+    const p = this.pool[this.head];
+    this.head = (this.head + 1) % CAP;
+    p.active = true;
+    return p;
   }
 
-  _pushParticle(opts) {
-    if (this.particles.length >= PARTICLE_CAP) return;
-    const p = _particlePool.length > 0 ? _particlePool.pop() : {};
+  // Generic emitter. opts: {x,y,vx,vy,life,size,color,grav,glow}
+  emit(opts) {
+    const p = this._spawn();
     p.x = opts.x; p.y = opts.y;
-    p.vx = opts.vx; p.vy = opts.vy;
-    p.r = opts.r; p.color = opts.color;
-    p.life = opts.life; p.maxLife = opts.maxLife;
-    p.drag = opts.drag != null ? opts.drag : 0.9;
-    this.particles.push(p);
+    p.vx = opts.vx || 0; p.vy = opts.vy || 0;
+    p.life = p.maxLife = opts.life ?? 0.5;
+    p.size = opts.size ?? 2;
+    p.color = opts.color ?? '#fff';
+    p.grav = opts.grav ?? 0;
+    p.glow = !!opts.glow;
+    p.fade = opts.fade !== false;
+  }
+
+  burst(x, y, n, baseOpts, spread = 120) {
+    for (let i = 0; i < n; i++) {
+      const a = Math.random() * Math.PI * 2;
+      const s = Math.random() * spread;
+      this.emit({
+        ...baseOpts,
+        x, y,
+        vx: Math.cos(a) * s,
+        vy: Math.sin(a) * s,
+      });
+    }
+  }
+
+  // Directional blood spray — biased along (dirx,diry) for bullet impacts.
+  blood(x, y, dirx, diry, n = 8) {
+    for (let i = 0; i < n; i++) {
+      const spread = 1.6;
+      const a = Math.atan2(diry, dirx) + (Math.random() - 0.5) * spread;
+      const s = 40 + Math.random() * 180;
+      this.emit({
+        x, y,
+        vx: Math.cos(a) * s,
+        vy: Math.sin(a) * s,
+        life: 0.35 + Math.random() * 0.45,
+        size: 1.5 + Math.random() * 2.5,
+        color: Math.random() < 0.3 ? '#3a060a' : '#7a0d10',
+        grav: 220,
+      });
+    }
   }
 
   update(dt) {
-    for (let i = this.particles.length - 1; i >= 0; i--) {
-      const p = this.particles[i];
+    for (let i = 0; i < CAP; i++) {
+      const p = this.pool[i];
+      if (!p.active) continue;
       p.life -= dt;
-      if (p.life <= 0) {
-        _particlePool.push(p);
-        this.particles[i] = this.particles[this.particles.length - 1];
-        this.particles.pop();
-      } else {
-        p.x += p.vx * dt;
-        p.y += p.vy * dt;
-        p.vx *= p.drag;
-        p.vy *= p.drag;
-      }
-    }
-
-    for (let i = this.texts.length - 1; i >= 0; i--) {
-      const t = this.texts[i];
-      t.life -= dt;
-      t.vy += 70 * dt;
-      t.x += (t.vx || 0) * dt;
-      t.y += t.vy * dt;
-      if (t.life <= 0) {
-        this.texts[i] = this.texts[this.texts.length - 1];
-        this.texts.pop();
-      }
+      if (p.life <= 0) { p.active = false; continue; }
+      p.vy += p.grav * dt;
+      p.x += p.vx * dt;
+      p.y += p.vy * dt;
     }
   }
 
-  draw(ctx, canvasW, canvasH) {
-    if (this.particles.length > 0) {
-      // Reset batch map without reallocating it.
-      for (let i = 0; i < _batchKeys.length; i++) _batchGroups[_batchKeys[i]].count = 0;
-      _batchKeys.length = 0;
-
-      const cW = canvasW || 9999, cH = canvasH || 9999;
-      for (const p of this.particles) {
-        if (p.x + p.r < 0 || p.x - p.r > cW || p.y + p.r < 0 || p.y - p.r > cH) continue;
-        const alpha = Math.round((p.life / p.maxLife) * 20) / 20;
-        const key = p.color + '|' + alpha;
-        let g = _batchGroups[key];
-        if (!g) {
-          g = { color: p.color, alpha, ps: [], count: 0 };
-          _batchGroups[key] = g;
-        }
-        if (g.count === 0) _batchKeys.push(key);
-        g.ps[g.count++] = p;
-      }
-      for (let k = 0; k < _batchKeys.length; k++) {
-        const g = _batchGroups[_batchKeys[k]];
-        ctx.fillStyle = g.color;
-        ctx.globalAlpha = g.alpha;
+  render(ctx) {
+    for (let i = 0; i < CAP; i++) {
+      const p = this.pool[i];
+      if (!p.active) continue;
+      const a = p.fade ? p.life / p.maxLife : 1;
+      ctx.globalAlpha = a < 0 ? 0 : a > 1 ? 1 : a;
+      if (p.glow) {
+        ctx.globalCompositeOperation = 'lighter';
+        ctx.fillStyle = p.color;
         ctx.beginPath();
-        for (let j = 0; j < g.count; j++) {
-          const p = g.ps[j];
-          const r = p.r * g.alpha;
-          if (r <= 0) continue;
-          ctx.moveTo(p.x + r, p.y);
-          ctx.arc(p.x, p.y, r, 0, Math.PI * 2);
-        }
+        ctx.arc(p.x, p.y, p.size, 0, 6.283);
         ctx.fill();
+        ctx.globalCompositeOperation = 'source-over';
+      } else {
+        ctx.fillStyle = p.color;
+        ctx.fillRect(p.x - p.size * 0.5, p.y - p.size * 0.5, p.size, p.size);
       }
-      ctx.globalAlpha = 1;
     }
-
-    if (this.texts.length > 0) {
-      ctx.textAlign = 'center';
-      ctx.fillStyle = 'rgba(0,0,0,0.75)';
-      let lastFont = null;
-      for (let i = 0; i < this.texts.length; i++) {
-        const t = this.texts[i];
-        ctx.globalAlpha = Math.max(0, t.life / t.maxLife);
-        const font = `bold ${t.size}px monospace`;
-        if (font !== lastFont) { ctx.font = font; lastFont = font; }
-        ctx.fillText(t.text, t.x + 1, t.y + 1);
-      }
-      lastFont = null;
-      for (let i = 0; i < this.texts.length; i++) {
-        const t = this.texts[i];
-        ctx.globalAlpha = Math.max(0, t.life / t.maxLife);
-        ctx.fillStyle = t.color;
-        const font = `bold ${t.size}px monospace`;
-        if (font !== lastFont) { ctx.font = font; lastFont = font; }
-        ctx.fillText(t.text, t.x, t.y);
-      }
-      ctx.globalAlpha = 1;
-    }
+    ctx.globalAlpha = 1;
   }
 
-  // ── Spawners ──
-
-  spawnBlood(x, y) {
-    const count = 9 + ((Math.random() * 5) | 0);
-    for (let i = 0; i < count; i++) {
-      const angle = Math.random() * Math.PI * 2;
-      const speed = 60 + Math.random() * 200;
-      this._pushParticle({
-        x, y,
-        vx: Math.cos(angle) * speed,
-        vy: Math.sin(angle) * speed,
-        r: 2 + Math.random() * 3,
-        color: Math.random() < 0.6 ? '#5a0a14' : '#3a060c',
-        life: 0.3 + Math.random() * 0.25,
-        maxLife: 0.55,
-        drag: 0.88,
-      });
-    }
-  }
-
-  spawnMuzzleFlash(x, y, angle) {
-    for (let i = 0; i < 5; i++) {
-      const a = angle + (Math.random() - 0.5) * 0.5;
-      const speed = 240 + Math.random() * 160;
-      this._pushParticle({
-        x, y,
-        vx: Math.cos(a) * speed,
-        vy: Math.sin(a) * speed,
-        r: 2 + Math.random() * 2,
-        color: Math.random() < 0.5 ? '#ffe066' : '#ffaa33',
-        life: 0.06 + Math.random() * 0.05,
-        maxLife: 0.12,
-        drag: 0.85,
-      });
-    }
-  }
-
-  spawnExplosion(x, y, radius) {
-    const count = 24;
-    for (let i = 0; i < count; i++) {
-      const angle = (i / count) * Math.PI * 2 + (Math.random() - 0.5) * 0.4;
-      const speed = radius * (2 + Math.random() * 2);
-      this._pushParticle({
-        x, y,
-        vx: Math.cos(angle) * speed,
-        vy: Math.sin(angle) * speed,
-        r: 3 + Math.random() * 4,
-        color: i < count * 0.5 ? '#ff8833' : '#ffaa33',
-        life: 0.4, maxLife: 0.55,
-        drag: 0.86,
-      });
-    }
-  }
-
-  // Heavy gore on overkill. Heavier drag, longer life than spawnBlood, and
-  // a small downward bias each frame so chunks "fall" to the ground rather
-  // than feathering away. Color is sampled from the zombie's body palette
-  // so different zombie types leave visually distinct chunks.
-  spawnChunks(x, y, color, count) {
-    const n = count != null ? count : 6;
-    const dark = '#2a050a';
-    for (let i = 0; i < n; i++) {
-      const angle = Math.random() * Math.PI * 2;
-      const speed = 90 + Math.random() * 220;
-      this._pushParticle({
-        x, y,
-        vx: Math.cos(angle) * speed,
-        vy: Math.sin(angle) * speed - 60,   // initial up-toss
-        r: 3 + Math.random() * 3,
-        color: Math.random() < 0.55 ? (color || '#5a0a14') : dark,
-        life: 0.45 + Math.random() * 0.30,
-        maxLife: 0.75,
-        drag: 0.85,
-      });
-    }
-  }
-
-  // Brass casing ejected perpendicular-ish to aim direction. Tiny visual
-  // garnish — one per shot is plenty without spamming the pool.
-  spawnCasing(x, y, aim) {
-    // Eject ~90° to the right of aim, with mild jitter.
-    const ejectAngle = aim + Math.PI / 2 + (Math.random() - 0.5) * 0.4;
-    const speed = 110 + Math.random() * 60;
-    this._pushParticle({
-      x, y,
-      vx: Math.cos(ejectAngle) * speed,
-      vy: Math.sin(ejectAngle) * speed - 30,
-      r: 1.4 + Math.random() * 0.6,
-      color: '#c69b3a',
-      life: 0.35 + Math.random() * 0.10,
-      maxLife: 0.45,
-      drag: 0.90,
-    });
-  }
-
-  spawnDamageNumber(x, y, amount) {
-    const isText = typeof amount === 'string';
-    const text = isText ? amount : String(amount);
-    const color = isText ? '#88ffaa' : (amount >= 15 ? '#ffaa66' : '#ffd699');
-    const size  = isText ? 13 : (amount >= 15 ? 18 : 14);
-    // Cap the damage-number queue. Without this, rocket spam during boss
-    // waves can pile up tens of floats per frame and tank framerate; the
-    // cap is generous enough that legitimate dense fights still feel
-    // responsive but bounds the worst case.
-    if (this.texts.length >= 80) this.texts.shift();
-    this.texts.push({
-      x: x + (Math.random() * 18 - 9),
-      y: y - 12,
-      vx: (Math.random() - 0.5) * 30,
-      vy: -75,
-      text, color, size,
-      life: 0.85, maxLife: 0.85,
-    });
+  clear() {
+    for (let i = 0; i < CAP; i++) this.pool[i].active = false;
   }
 }

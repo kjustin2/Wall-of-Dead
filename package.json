@@ -3,12 +3,13 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "description": "Top-down zombie survival horror roguelike — Canvas2D, no build step. Electron is dev-only packaging; the game source has zero runtime deps.",
+  "description": "Behind-the-wall zombie survival defense — hold the wall by night, scavenge by day, reach the safe zone. Canvas2D, no build step. Electron is dev-only packaging; the game source has zero runtime deps.",
   "main": "electron/main.cjs",
   "scripts": {
     "start": "electron .",
     "serve": "python -m http.server 8000",
-    "test": "node check-imports.mjs",
+    "test": "node check.mjs",
+    "test:play": "electron electron/test-runner.cjs",
     "dist": "electron-builder --win --publish never",
     "dist:mac": "electron-builder --mac --publish never",
     "dist:linux": "electron-builder --linux --publish never"

@@ -2,143 +2,198 @@
 
 ## Project
 
-Top-down zombie-apocalypse **survival horror** roguelike. v1 has shipped (8 milestones, 10 weapons, 8 zombie types, boss with 3 phases). The active agenda is the horror tone overhaul driven by `improve.md`: hand-authored floor layouts with scripted scares, environmental interactables, multi-gun cycling earlier with scarcer ammo, an atmospheric "apocalypse road" map, and a horror audio layer (BGM disabled until new music ships).
+A moody, behind-the-wall zombie **survival defense**. You stand at a barrier in
+2.5D, walk along it (A/D), and aim out into a dark field with the mouse. By
+**night** you hold the wall against escalating waves until dawn; by **day** you
+play a scavenging minigame, find weapons and survivors, and advance one leg
+down the road. Reach the **safe zone** (4 legs) to win. Rescued survivors become
+AI companions who hold the wall beside you.
 
-**Vanilla ES6 browser game, zero runtime dependencies.** Hand-rolled Canvas2D rendering and Web Audio synthesis. `package.json` exists *only* to declare Electron + electron-builder as dev-time tooling for the desktop wrapper — `index.html` and `src/**` import nothing from `node_modules` and still run as a static site. The sister directory `roguehero2/` is a *different* older project — its `.claude/CLAUDE.md` describes patterns that do **not** apply here. Do not copy from it without checking.
+This is a **from-scratch rebuild** (June 2026) that replaced an earlier
+top-down roguelike of the same name. Everything under `src/**`, the smoke test,
+and the docs are new. The sister directory `roguehero2/` is an unrelated older
+project — do not copy its patterns here.
+
+**Vanilla ES6 browser game, zero runtime dependencies.** Hand-rolled Canvas2D
+rendering and Web Audio synthesis (no audio assets — every sound is synthesized
+at play time). `package.json` declares Electron + electron-builder as *dev-only*
+tooling for the desktop wrapper; `index.html` and `src/**` import nothing from
+`node_modules` and run as a static site. **Never add a runtime import from
+`node_modules` into `src/**`** — the zero-deps invariant is the project's
+identity.
 
 ## Run / test
 
 ```powershell
-# Serve in browser (zero deps — primary dev flow)
-python -m http.server 8000
-# then open http://localhost:8000
+# Serve in the browser (zero deps — primary dev flow)
+python -m http.server 8000      # then open http://localhost:8000
 
 # Or run as a desktop app via the Electron wrapper
-npm install
-npm start
+npm install && npm start
 
-# Headless smoke test — checkpoints across import graph, scenes, combat,
-# save/resume, minigames, boss, dev console, FloorDef integrity
-node check-imports.mjs
+# Headless smoke test — drives a full run (title → 4 nights/days → victory)
+# plus the game-over paths, calling update() AND render() each frame against a
+# mock 2D context. Also validates content integrity (every weapon/cue sfx id).
+node check.mjs
+
+# Visual playthrough — launches the REAL Electron/Chromium renderer, plays
+# through every scene, captures uncaught errors + console, and writes
+# screenshots to shots/. Catches real-canvas issues the mock context cannot.
+npm run test:play          # → shots/01-title.png … 09-gameover.png
 ```
 
-The Electron wrapper (`electron/main.js`) is a packaging shell only. It loads `index.html` via `file://` the same way the static server does. Distributables: `npm run dist` (Win), `npm run dist:mac`, `npm run dist:linux`. **Never** add a runtime `import` from `node_modules` into `src/**` — the zero-deps invariant is the project's identity.
+**Two test layers, and you need both.** `check.mjs` is fast and runs against a
+*mock* 2D context — it proves the logic/flow runs and that content ids resolve,
+but it cannot see a real rendering bug. `npm run test:play` runs in a real
+renderer and is the only thing that catches canvas errors (e.g. a negative
+`ellipse`/`arc` radius throws an uncaught `IndexSizeError` mid-frame and blanks
+the screen — exactly the kind of bug the mock once hid). The mock in `check.mjs`
+now mimics the browser's radius validation as a cheap guard, but a real
+playthrough is still the source of truth for "does it actually draw".
 
-The smoke test is the regression net. Run it before claiming done. The Stop hook in `.claude/settings.json` runs it automatically at end of turn.
+The smoke test is the regression net — run it before claiming done. The Stop
+hook in `.claude/settings.json` runs `check-imports.mjs` at end of turn, which
+is a thin shim that runs `check.mjs` (the hook + permission predate the rename;
+the shim keeps them working without editing settings).
 
 ## Architecture map
 
 ```
-src/main.js          Entry wiring + scene registration (~lines 70–80). Stays small on purpose.
-src/Config.js        CANVAS dims, PALETTE, PLAYER constants.
-src/DevConsole.js    `window._dev` debug API (cheats, scene jump, spawn helpers).
-src/core/            Entity, Player, Projectile, Mine, Grenade.
-src/engine/          Engine loop, EventBus, Input, Renderer (with dread vignette + CA),
-                     SceneManager, SpatialHash, Particles (400-cap pool),
-                     Audio (Ambient horror scheduler, BGM gated by BGM_DISABLED),
-                     MetaProgress, Lighting (with `flicker()` helper).
-src/world/           Arena (legacy/sandbox), Floor (per-night runtime), FloorDefs (7 hand-authored
-                     layouts), Interactables (FuseBox/GasCan/HangingBody/Mannequin/RatNest/Door),
-                     ScareEvents (scripted trigger runner), NodeGraphGen, RunState, WaveDirector,
-                     WaveTemplates, EventDefs.
-src/scenes/          Scene base + Boot, Intro, BaseCamp, Map, Scavenge, Shop, Event,
-                     Combat, GameOver, Victory, Meta.
-src/zombies/         Zombie base + 8 subtypes (Shambler, Runner, Spitter, Bloater, Brute,
-                     Screamer, Crawler, BossPatientZero).
-src/weapons/         AmmoTypes, WeaponDefs (10 weapons), Weapon.
-src/minigames/       Minigame base + Lockpick, WireCut, Simon, Pipe (all four shipping).
-src/ui/              HUD (with multi-weapon ribbon), MapUI (apocalypse road).
-src/util/            geom (distance/angle), rng (mulberry32, seeded), text (word-wrap).
-electron/main.js     Desktop wrapper (BrowserWindow loading file:// index.html). Sandboxed.
-package.json         Electron + electron-builder devDependencies only. NO runtime deps.
+src/Config.js          VIEW dims, FIELD geometry (horizon/wall/player lanes),
+                       DEPTH scale, PAL palette, RUN pacing tunables.
+src/main.js            Entry: size canvas, build Game, start Engine loop.
+src/util/math.js       clamp/lerp/approach, dist², weightedPick, pointSegDist2.
+
+src/engine/
+  EventBus.js          Singleton pub/sub (`events`). SFX/SHAKE flow through it.
+  Engine.js            rAF loop with dt cap. Thin: owns timing only.
+  Input.js             Keyboard + mouse; pointer mapped into 1280×720 space.
+  Audio.js             Web Audio synth SFX table + Ambient (wind drone +
+                       stochastic horror cues + dread-driven heartbeat).
+                       Exports SFX_IDS for the smoke test.
+  Particles.js         520-cap recycling pool (blood, gore, muzzle, embers).
+  Camera.js            Screen shake (trauma model); listens for 'SHAKE'.
+
+src/game/
+  view.js              2.5D depth helpers: depthScale/Shade/Speed from screen-y.
+  Weapons.js           WEAPONS table (pistol/smg/shotgun/rifle) + makeLoadout.
+  Bullet.js            Projectile struct + step (player bullets & spitter acid).
+  Wall.js              12 segments; localized damage; breaches; setTotal/repair.
+  Player.js            Move/aim/fire/reload/swap, HP, lantern light.
+  Zombie.js            One class + TYPES (shambler/runner/brute/spitter); the
+                       advancing→attacking→crossing / standoff / fleeing FSM.
+  Companion.js         Rescued survivor AI: auto-target nearest, auto-fire.
+  WaveDirector.js      Per-night plan: dawn timer + escalating spawn stream.
+  Backdrop.js          Night field (sky/moon/treeline/fog), dread vignette.
+  Game.js              Controller: services + run state + scene transitions.
+
+src/minigames/
+  ScavengeMinigame.js  "Steady Hands" timing skill check (start/update/render/
+                       getResult → tier D..S). Built reusable for more games.
+
+src/scenes/
+  Scene.js             Base (enter/exit/update/render + service getters).
+  TitleScene.js        Logo + controls; click begins a run (unlocks audio).
+  NightScene.js        The defense — the heart. Wall/player/companions/zombies/
+                       bullets/acid/particles, dread, win/lose.
+  DayScene.js          report → scavenge minigame → loot (+ scripted find) →
+                       advance one leg.
+  GameOverScene.js     Death cause + stats; R restarts.
+  VictoryScene.js      Reached the safe zone; R replays.
+
+src/ui/HUD.js          Night HUD: night/dawn timer, road pips, HP, wall
+                       integrity, companions, weapon + ammo + ribbon.
+
+check.mjs              Headless smoke test (the real one).
+check-imports.mjs      Shim → check.mjs (kept for the Stop hook / permission).
+electron/main.cjs      Desktop wrapper (BrowserWindow → file:// index.html).
 ```
 
-Cross-system communication goes through `events` (EventBus) — see `src/engine/EventBus.js`. `window._wod` (set in `main.js`) exposes engine, sceneManager, runState, renderer, etc., for console debugging — `_wod.listenerCounts()` is what catches listener leaks.
+Cross-system communication goes through `events` (EventBus). `window._wod`
+(set in `main.js`) exposes `{ game, engine }` for console debugging.
 
-## Core invariants — read these before editing
+## Core invariants — read before editing
 
-1. **Scene registration is manual.** New scenes must be registered in `src/main.js` (~lines 70–80) via `sceneManager.register(name, instance)`. Missing → silent unreachable scene.
+1. **Zero runtime deps.** No npm imports in `src/**`. No build step. No
+   TypeScript. ES6 modules only. Match the surrounding style of the file.
 
-2. **EventBus subscriptions must be cleaned up.** Subclasses of `Scene` (`src/scenes/Scene.js`) subscribe via `this.bus(event, fn)` — that auto-tracks the `(event, fn)` pair in `_busSubs` so the base `exit()` calls `events.off()` for each. Never call `events.on()` directly inside a scene without arranging an `events.off()` in `exit()`. Leaks surface via `_wod.listenerCounts()` and the smoke test's listener-leak checkpoint.
+2. **The engine tick is synchronous.** No `async`/`await` on the update/render
+   path. Performance conventions: squared distance for range checks
+   (`dist2`/`pointSegDist2`), reuse the particle pool rather than allocating,
+   keep hot loops allocation-light.
 
-3. **Save format.** sessionStorage key is `wod_run_v1` (`src/world/RunState.js:16`). The snapshot persists `seed`, `resolvedIds`, `currentNodeId`, `nightNum`, `starterId`, and player state. **Weapons persist only `{id, mag, reserve}`** — `Weapon` instances are rebuilt from `WEAPONS[id]` on resume. **Floor identity is *not* persisted** — it's derived from the resolved node's nightNum at scene-enter time, so changing `FloorDefs.js` doesn't break old saves. Never persist class refs or behavioral tags. If you change the snapshot shape, bump the key (e.g. `wod_run_v2`).
+3. **`update(dt)` and `render(ctx)` must stay separable and headless-safe.** The
+   smoke test runs the whole game with a mock 2D context and no AudioContext.
+   Anything you draw must go through `ctx`; never read pixels back or require a
+   real canvas. Audio degrades to a silent no-op when `AudioContext` is absent —
+   keep that true (guard new audio on `this.ctx`).
 
-4. **SFX IDs.** `sfxId` on a weapon must match an audio key registered in `src/engine/Audio.js` (kebab-case). The horror layer adds 17 atmospheric sfxIds (`heartbeat_slow`/`fast`, `whisper_short`/`long`, `floor_creak`, `pipe_drip`, `music_box`, `breath_held`/`panic`, `radio_static`, `door_slam`, `glass_shatter`, `rat_skitter`, `body_drop`, `flicker_buzz`, `chain_drag`, `distant_scream`). FloorDef `ambientCues` and ScareEvent `do` keys must resolve to real entries — the smoke test validates both.
+4. **2.5D depth is a pure function of screen-y** (`src/game/view.js`). Field
+   entities (zombies, acid) scale/dim/slow by `depthScale/Shade/Speed(y)`. The
+   wall is drawn *between* non-crossing zombies and the defenders so the
+   "behind the wall" read holds — see `NightScene.render`'s crossing split.
 
-5. **BGM is gated.** `BGM_DISABLED = true` at the top of `src/engine/Audio.js` short-circuits `playBgm()` and `_loadAndPlay()` to no-ops. The pool/shuffle/lock implementation is intact — flip the flag back to false when new tracks land in `music/`. Don't reach around the flag with direct `<audio>` element creation.
+5. **SFX ids must resolve.** A weapon's `sfx`, and any `events.emit('SFX', id)`,
+   must match a key in the `SFX` table in `src/engine/Audio.js`. The smoke test
+   checks every weapon sfx + a required-cue list against `SFX_IDS`.
 
-6. **Performance conventions.** Use squared-distance for range checks (avoid `Math.sqrt` on hot paths). Reuse particles via the 400-cap pool in `src/engine/Particles.js` rather than allocating. Pre-allocate arrays in tight loops. The engine tick is **synchronous** — no `async`/`await` in the engine path. Floor wall-collision is linear in wall-count (≤30 per floor) and runs each frame for player + every zombie — fine in practice.
+6. **Run state lives on `game.run`.** Scenes hold their own transient state;
+   anything that must persist across nights/days (weapons, companions, wallHp,
+   playerHp, stats, progress) goes on `game.run`. Wall integrity persists as a
+   single `run.wallHp` total and is redistributed across segments via
+   `wall.setTotal()` at night start.
 
-7. **Module system & style.** ES6 `import`/`export` only. Plain JS, **no TypeScript**. No linter, no formatter — match the surrounding style of the file you're editing. One class per file is the dominant pattern. Heavy comments on physics/state-machine logic are welcome; avoid commenting trivial code.
-
-## Horror systems (added after v1)
-
-- **Floor layouts** — `src/world/Floor.js` extends Arena's API (clamp, perimeterSpawn, draw) with inner walls, authored spawn points, and a per-floor visual theme. CombatScene picks a `FloorDef` via `getFloorForNight(nightNum, isBoss)` when `runState.active`; sandbox launches and headless smoke fall back to plain `Arena`. Floor identity is derived, not stored.
-
-- **Interactables** — instantiated from `FloorDef.interactables` via `buildInteractable(spec)` in `src/world/Interactables.js`. Shootable interactables (FuseBox, GasCan) are checked in CombatScene's update loop after projectile updates. Proximity interactables (HangingBody, RatNest) self-trigger when the player gets within `triggerR`. Mannequins, Doors, RatNests are decorative state machines.
-
-- **Scare events** — `ScareEventRunner` ticks each frame and fires named action handlers (`flicker_lights`, `whisper_close`, `gas_leak`, `panic_pulse`, etc.) when their trigger condition (time / hp_below / kills_remaining / wave) is met. Each trigger latches `fired = true` so it runs at most once per level.
-
-- **Ambient horror** — `audio.ambient` is a stochastic scheduler. Scenes call `start(<sceneKey-or-pool-array>)` on enter, `stop()` on exit, `tick(dt, dread01)` per frame. Below dread 0.4 the heartbeat layer is silent; above, it ramps from `heartbeat_slow` to `heartbeat_fast`. Cue frequency tightens from ~1/8–14s (calm) to ~1/3–5s (peak).
-
-- **Dread post-process** — CombatScene writes `renderer.dreadVignette` and `renderer.dreadCA` per frame from a smoothed `_dread01` (low-HP + nearby zombies + boss baseline). Renderer's `drawVignette` rebuilds its cached gradient only when intensity drifts > 0.05; `drawCAFlash` blends impact-spike (caTimer) with dread-pulse, spike-dominates.
-
-- **Map rendering** — `src/ui/MapUI.js` renders the apocalypse road. Backend graph data (`NodeGraphGen`, `RunState.resolvedIds`) is unchanged; only visual layout + iconography differs. **Map rendering is decoupled from save shape** — change MapUI freely without touching `wod_run_v1`.
+7. **Scene transitions are explicit `Game` methods** (`toNight`, `toDay`,
+   `toGameOver`, `toVictory`, `toTitle`, `startRun`). `setScene` calls the old
+   scene's `exit()` and the new one's `enter()` and clears the particle pool.
+   Always subscribe to events you `off()` again — but scenes here use the bus
+   only via the engine singletons (Audio/Camera), so per-scene listener leaks
+   aren't currently a risk; if you add `events.on()` in a scene, remove it in
+   `exit()`.
 
 ## Adding content — quick recipes
 
-### New scene
-1. Create `src/scenes/MyScene.js`, `export class MyScene extends Scene` (`./Scene.js`).
-2. Implement `enter(params)`, `exit()` (call `super.exit()`), `update(dt, realDt)`, `render(ctx)`. Optionally `engineState()` returning `'menu' | 'combat' | 'minigame' | 'paused'`.
-3. Subscribe to events via `this.bus(...)`, never `events.on(...)` directly.
-4. Import + register in `src/main.js` next to the other scenes (~lines 70–80).
-5. Trigger a transition: `events.emit('SCENE_CHANGE', { name: 'myScene', params })`.
-
 ### New weapon
-1. Add an entry to `WEAPONS` in `src/weapons/WeaponDefs.js`. Required keys (see existing entries): `id, name, ammoType, magSize, startReserve, fireRate, fireMode, damage, pellets, spreadRad, projectileSpeed, projectileLife, projectileR, reloadTime, recoilShake, bulletColor, sfxId`.
-2. Optional behavior tags (each routes to a specialized fire path in `Player.js`): `burst`, `pierce`, `aoe`, `flame`, `placesMine`, `thrown`, `melee`, `hitStop`.
-3. Add the SFX entry in `src/engine/Audio.js` if `sfxId` is new.
-4. If the weapon should appear in scavenge loot, add its id to `RARE_WEAPON_POOL` in `src/scenes/ScavengeScene.js`.
-5. Tune against the reference HP: shambler 32, runner 14, spitter 22.
-6. Default `startReserve` should be on the lean side — the horror scarcity tuning expects ammo to feel meaningful.
+Add an entry to `WEAPONS` in `src/game/Weapons.js` (`fireRate, mag, reload,
+damage, pellets, spread, speed, auto, shake, color, tracerLen`, optional
+`pierce`). Ensure `sfx` exists in `Audio.js`. To grant it, `run.weapons.push(
+makeLoadout(id, reserve))` (DayScene does this for the scripted finds). Tune
+against reference HP: shambler 30, runner 14, spitter 22, brute 135.
+
+### New zombie type
+Add to `TYPES` in `src/game/Zombie.js` (`hp, speed, radius, claw, clawCD, touch,
+touchCD, body, head, eye, groan`; optional `targetsPlayer`, `heavy`,
+`standoffY`/`spitDmg`/`spitCD`/`spitSpeed` for ranged). Add it to a night's
+`mix` in `WaveDirector.js` `NIGHT_PLAN`. New behavior → extend the state switch
+in `Zombie.update`.
 
 ### New minigame
-1. Create `src/minigames/MyGame.js`, `export class MyGame extends Minigame` (`./Minigame.js`).
-2. Implement `start(opts)`, `update(dt, input)`, `render(ctx)`, `getResult()` returning `{ tier: 'D'|'C'|'B'|'A'|'S' }`.
-3. Set `this.done = true` when the player can no longer affect the score.
-4. Register a factory lambda in `MINIGAME_POOL` in `src/scenes/ScavengeScene.js`. The pool now has four entries (Lockpick, WireCut, Simon, Pipe).
+Mirror `ScavengeMinigame`'s shape: `update(dt, input)`, `render(ctx, cx, cy)`,
+set `this.done = true`, expose `getResult() → { tier }`. Wire it into
+`DayScene`'s `scavenge` phase (or add a phase).
 
-### New event
-1. In `src/world/EventDefs.js`, add an OUTCOME entry: `{ resultText: string, apply(rs) { /* mutate runState */ } }`.
-2. Add an EVENT entry to the events array: `{ id, title, blurb, choices: [{ label, outcome: 'OUTCOME_KEY' }, ...] }`.
+### New scene
+`export class X extends Scene`, implement `enter/exit/update/render`, add a
+transition method on `Game`, and call it. Read services via the `Scene` getters
+(`this.input/audio/particles/camera/run`).
 
-### New floor
-1. Add an entry to `FLOORS` in `src/world/FloorDefs.js`. Required: `id, name, blurb, theme, dims, walls, spawnPoints, interactables, scareEvents, ambientCues`.
-2. Coordinates are 1280×720 with a 36px outer wall margin (interior x=36–1244, y=36–684).
-3. Every `interactable.type` must resolve to a class exported from `src/world/Interactables.js`. Every `scareEvent.do` must resolve to a handler in `src/world/ScareEvents.js` `ACTIONS`. Every `ambientCues` entry must be a real `sfxId` in `Audio.js`. The smoke test validates all three.
-4. Update `getFloorForNight` if the new floor should be picked for a specific night (currently it's `FLOORS[nightNum-1]` for nights 1–6, last entry for boss).
-
-### New scare action
-1. Add a function to `ACTIONS` in `src/world/ScareEvents.js` taking `(scene)`. Route work through `scene.audio.playSfx`, `events.emit`, or by mutating `scene.interactables`.
-2. Reference the action's name from any FloorDef's `scareEvents.do` field.
-
-### New interactable type
-1. Create a class in `src/world/Interactables.js` with `update(dt, scene)`, `draw(ctx)`, optional `onShot(scene)` / `onPlayerNear(scene)`. Set `this.alive = true` initially; flip to `false` to remove. `shootable = true` opts into projectile collision.
-2. Add the class to the `REGISTRY` map at the bottom of the file so `buildInteractable({ type: 'MyThing', ... })` resolves.
+### New zombie/scare sfx
+Add a function to the `SFX` table in `src/engine/Audio.js` (build from `tone`/
+`noise` primitives). Reference it via `events.emit('SFX', 'id')`.
 
 ## Before claiming done
+- [ ] `node check.mjs` — all checks pass.
+- [ ] `npm run test:play` — booted with **0 page errors**; skim `shots/` to
+      confirm scenes actually draw. Do this whenever you touch any `render()`.
+- [ ] Added a weapon/cue? Its `sfx` resolves in `Audio.js`.
+- [ ] Touched the night/day flow? A full run still reaches victory in the test.
+- [ ] Added a runtime dependency? **Don't.** The zero-deps invariant is core.
 
-- [ ] `node check-imports.mjs` — all checkpoints pass.
-- [ ] Edited a scene? Confirm `_wod.listenerCounts()` doesn't grow across enter/exit cycles.
-- [ ] Changed the save snapshot shape? Bumped the `SESSION_KEY` version.
-- [ ] Added a weapon? `sfxId` resolves to a real audio key.
-- [ ] Added a floor? Every `interactable.type`, `scareEvent.do`, and `ambientCues` entry resolves.
-- [ ] Added a runtime dependency? **Don't.** Push back; the zero-deps invariant is core.
+> Serve over http (or `npm start` / Electron) — **don't open `index.html` by
+> double-clicking it.** ES modules are blocked over `file://` in a plain
+> browser; you'd get a blank screen. The Electron wrapper loads `file://` fine.
 
 ## What this codebase is NOT
-
-No Phaser / Pixi / Babylon / Three. No runtime npm deps (Electron is dev-only). No TypeScript. No Jest / Vitest / Playwright (the smoke test in `check-imports.mjs` is the only test harness). No async/await on the engine path. No React / Vue / DOM-driven UI — all UI is canvas-drawn.
-
-## Current focus
-
-`improve.md` is the active iteration agenda. The horror tone overhaul (BGM silenced, hand-authored floors with scripted scares, multi-gun cycling, ammo scarcity, apocalypse road map, dread-driven post-process) is shipping in phases. Treat that file as the priority list when scope is unclear.
+No Phaser/Pixi/Three/WebGL. No runtime npm deps (Electron is dev-only). No
+TypeScript. No Jest/Vitest/Playwright (`check.mjs` is the only harness). No
+async on the engine path. No DOM/React UI — everything is canvas-drawn.

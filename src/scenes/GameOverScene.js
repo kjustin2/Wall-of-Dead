@@ -1,66 +1,50 @@
-import { Scene } from './Scene.js';
-import { events } from '../engine/EventBus.js';
-import { runState } from '../world/RunState.js';
-import { meta } from '../engine/MetaProgress.js';
-import { PALETTE } from '../Config.js';
+// Death screen. Shows how you fell and how far you got, then R restarts.
 
-// End-of-run summary on death. Records the run to MetaProgress and resets
-// the in-progress sessionStorage so CONTINUE doesn't offer a dead run.
+import { Scene } from './Scene.js';
+import { VIEW, PAL } from '../Config.js';
+import { drawVignette } from '../game/Backdrop.js';
 
 export class GameOverScene extends Scene {
-  constructor(input) {
-    super();
-    this.input = input;
-    this.t = 0;
-    this.recap = null;
-  }
-
-  enter() {
-    this.t = 0;
-    if (runState.active) {
-      const kills = runState.player.kills | 0;
-      const scrap = runState.player.scrap | 0;
-      meta.recordRun({ won: false, nightReached: runState.nightNum, kills, scrapEarned: Math.floor(scrap / 4) });
-      this.recap = { kills, scrap, nights: runState.nightNum };
-      runState.end('died');
-    } else {
-      this.recap = null;
-    }
-  }
+  enter() { this.t = 0; this.audio.ambient.stop(); }
 
   update(dt) {
     this.t += dt;
-    if (this.t > 0.6 && (this.input.consumeClick()
-        || this.input.consumeKey('r') || this.input.consumeKey('enter') || this.input.consumeKey(' '))) {
-      events.emit('SCENE_CHANGE', { name: 'intro' });
+    if (this.t > 0.6 && (this.input.consumeKey('r') || this.input.consumeKey(' ') || this.input.consumeClick())) {
+      this.audio.play('ui_confirm');
+      this.game.toTitle();
     }
   }
 
   render(ctx) {
-    const w = ctx.canvas.width, h = ctx.canvas.height;
-    ctx.fillStyle = '#000';
-    ctx.globalAlpha = Math.min(0.88, this.t * 1.4);
-    ctx.fillRect(0, 0, w, h);
-    ctx.globalAlpha = 1;
-    if (this.t > 0.4) {
-      ctx.fillStyle = PALETTE.uiDanger;
-      ctx.font = 'bold 56px monospace';
-      ctx.textAlign = 'center';
-      ctx.fillText('YOU DIED', w / 2, h * 0.36);
+    ctx.fillStyle = '#0a0406';
+    ctx.fillRect(0, 0, VIEW.W, VIEW.H);
+    // Slow red bleed.
+    const g = ctx.createRadialGradient(VIEW.W / 2, VIEW.H / 2, 60, VIEW.W / 2, VIEW.H / 2, 600);
+    g.addColorStop(0, `rgba(90,8,10,${0.25 + 0.1 * Math.sin(this.t)})`);
+    g.addColorStop(1, 'rgba(20,0,0,0)');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, VIEW.W, VIEW.H);
+    drawVignette(ctx, 0.7);
 
-      if (this.recap) {
-        ctx.fillStyle = PALETTE.uiText;
-        ctx.font = 'bold 16px monospace';
-        ctx.fillText(`${this.recap.nights} nights survived`, w / 2, h * 0.50);
-        ctx.fillText(`${this.recap.kills} kills`,            w / 2, h * 0.54);
-        ctx.fillText(`${Math.floor(this.recap.scrap / 4)} scrap salvaged`, w / 2, h * 0.58);
-      }
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#b0201c';
+    ctx.font = 'bold 72px monospace';
+    ctx.fillText('OVERRUN', VIEW.W / 2, 280);
 
-      ctx.fillStyle = PALETTE.uiDim;
-      ctx.font = '12px monospace';
-      ctx.fillText('click / R / enter to return to title', w / 2, h - 30);
+    ctx.fillStyle = PAL.hud;
+    ctx.font = '17px monospace';
+    ctx.fillText(this.run.deathReason || 'The wall did not hold.', VIEW.W / 2, 330);
+
+    const s = this.run.stats;
+    ctx.fillStyle = PAL.hudDim;
+    ctx.font = '14px monospace';
+    ctx.fillText(`Nights survived: ${s.nightsSurvived}     Dead put down: ${s.kills}`, VIEW.W / 2, 372);
+
+    if (this.t > 0.6) {
+      const pulse = 0.5 + 0.5 * Math.sin(this.t * 3);
+      ctx.fillStyle = `rgba(207,232,208,${0.4 + pulse * 0.5})`;
+      ctx.font = 'bold 18px monospace';
+      ctx.fillText('Press R to try again', VIEW.W / 2, 450);
     }
   }
-
-  engineState() { return 'menu'; }
 }

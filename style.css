@@ -1,16 +1,27 @@
 * { margin: 0; padding: 0; box-sizing: border-box; }
+
+html, body {
+  background: #000;
+  height: 100vh;
+  overflow: hidden;
+}
+
 body {
-  background: #050306;
-  display: flex; justify-content: center; align-items: center;
-  height: 100vh; overflow: hidden;
+  display: flex;
+  justify-content: center;
+  align-items: center;
   cursor: crosshair;
 }
+
+/* Fixed 16:9 internal resolution, scaled to the largest box that fits the
+   window. The element's box matches the rendered image (no internal
+   letterboxing), so pointer→canvas coordinate mapping stays exact. */
 canvas {
+  aspect-ratio: 16 / 9;
+  width: min(100vw, calc(100vh * 16 / 9));
+  height: auto;
   display: block;
   image-rendering: auto;
-  max-width: 100vw;
-  max-height: 100vh;
-  box-shadow: 0 0 30px rgba(0,0,0,0.9), 0 0 80px rgba(60,200,80,0.04);
-  border: 1px solid #1a1218;
-  border-radius: 4px;
+  background: #070a0d;
+  box-shadow: 0 0 40px rgba(0, 0, 0, 0.9), 0 0 120px rgba(60, 180, 80, 0.05);
 }

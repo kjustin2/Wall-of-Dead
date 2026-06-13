@@ -1,87 +1,68 @@
-// Single source of truth for tunable values. Touch numbers here, not in
-// individual systems. Balancing is faster when one file owns the dials.
+// Central tunables for Wall of Dead.
+//
+// The game is a "behind-the-wall" 2.5D defense: a horizontal barrier sits
+// across the lower screen, the player walks along it (A/D), and zombies
+// emerge from the dark horizon at the top and advance downward toward the
+// wall. Everything below is laid out against a fixed 1280x720 canvas; the
+// renderer letterboxes/scales it to fit the window.
 
-export const CANVAS = {
-  width: 1280,
-  height: 720,
+export const VIEW = {
+  W: 1280,
+  H: 720,
 };
 
-// Dark/scary palette — desaturated, low-light, neon-accent. Drawn programmatically.
-export const PALETTE = {
-  bgDeep: '#050306',
-  bgFloor: '#10090c',
-  bgFloorHi: '#1a1218',
-  wall: '#22141a',
-  wallHi: '#2c1c24',
-  player: '#d8e0d0',
-  playerOutline: '#3a4a32',
-  bullet: '#ffe066',
-  bulletGlow: '#ffaa33',
-  bloodCore: '#5a0a14',
-  bloodSplat: '#3a060c',
-  zombieGreen: '#6a8c40',
-  zombieDark: '#22301a',
-  shamblerBody: '#5a7a38',
-  runnerBody: '#7aa838',
-  spitterBody: '#88a040',
-  bloaterBody: '#5a8c3a',
-  bruteBody: '#3a5a26',
-  screamerBody: '#9c8a3a',
-  crawlerBody: '#42501e',
-  uiText: '#cdd6c0',
-  uiDim: '#6e7a64',
-  uiAccent: '#7eff66',
-  uiDanger: '#ff5a55',
-  uiWarn: '#ffaa33',
-  hpBar: '#7eff66',
-  hpBarBg: '#240a10',
+// Field geometry. The "field" is the dark kill-zone zombies cross.
+//   HORIZON_Y  ── where zombies fade in and spawn
+//   WALL_Y     ── the front face of the wall; zombies stop here to claw it
+//   WALL_BOTTOM── bottom of the wall structure
+//   PLAYER_Y   ── the lane the player walks behind the wall
+export const FIELD = {
+  HORIZON_Y: 96,
+  WALL_Y: 556,
+  WALL_BOTTOM: 628,
+  PLAYER_Y: 602,
+  MARGIN_X: 64,        // player can't walk past this from either edge
+  SPAWN_PAD: 60,       // zombies can spawn this far outside the visible x
 };
 
-// Engine timing — see roguehero2/src/Engine.js. Full-fps states burn fewer frames.
-export const FULL_FPS_STATES = new Set([
-  'combat', 'minigame', 'paused',
-]);
+// Depth scaling: a zombie at the horizon is small/dim, at the wall it's
+// full-size. lerp factor t = (y - HORIZON_Y) / (WALL_Y - HORIZON_Y).
+export const DEPTH = {
+  scaleNear: 1.28,     // at the wall
+  scaleFar: 0.42,      // at the horizon
+};
+
+// Horror palette — desaturated, cold, with a sickly green accent.
+export const PAL = {
+  skyTop: '#070a0d',
+  skyHorizon: '#13202a',
+  fieldNear: '#0c1410',
+  fieldFar: '#0a1018',
+  wall: '#23211f',
+  wallEdge: '#3a362f',
+  wallDmg: '#5a1410',
+  player: '#cfe8d0',
+  playerDark: '#6f8f78',
+  muzzle: '#ffd27a',
+  bullet: '#fff2c4',
+  blood: '#7a0d10',
+  bloodDark: '#3a060a',
+  hud: '#9fb8a6',
+  hudDim: '#4a5a4f',
+  warn: '#d8662e',
+  good: '#5fbf6a',
+  accent: '#7fff8a',
+  fog: 'rgba(120,150,140,0.05)',
+};
 
 export const ENGINE = {
-  maxDt: 0.05,
+  maxDt: 1 / 20,       // clamp dt so a tab-blur doesn't teleport entities
 };
 
-export const PLAYER = {
-  radius: 14,
-  speed: 220,             // px/sec walking
-  sprintMult: 1.45,
-  staminaMax: 100,
-  staminaDrainSprint: 18, // per second sprinting
-  staminaRegen: 26,       // per second not sprinting
-  hpMax: 100,
-  iframeOnHit: 0.25,      // seconds invulnerable after taking damage
-};
-
-export const ARENA = {
-  width: 1280,
-  height: 720,
-  wall: 36,
-};
-
-export const SPATIAL_HASH = {
-  cellSize: 64,
-};
-
-export const PARTICLES = {
-  cap: 400,
-};
-
-// Wave / night scaling — used by WaveDirector to scale budgets per night.
-export const NIGHT = {
-  totalNights: 7,
-  baseBudget: 12,
-  budgetPerNight: 6,
-  ambientSpawnPerSec: 0.0,   // M1 = 0; later milestones raise this
-};
-
-// Tunables for M0 — the title pulse, etc.
-export const INTRO = {
-  titlePulseSpeed: 1.6,
-  titleColor: '#7eff66',
-  titleDripColor: '#5a0a14',
+// Run-wide pacing. The slice is a 4-leg road to the safe zone: survive a
+// night, scavenge by day, advance one leg. Reach the end → victory.
+export const RUN = {
+  legsToSafeZone: 4,
+  wallMaxHp: 360,      // 12 segments → 30 HP each; a brute claw is ~16
+  dawnRepair: 40,      // free patch applied to the wall each dawn
 };

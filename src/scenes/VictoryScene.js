@@ -1,82 +1,78 @@
+// Win screen — you reached the safe zone. Warm dawn light, your final tally,
+// R to play again.
+
 import { Scene } from './Scene.js';
-import { events } from '../engine/EventBus.js';
-import { runState } from '../world/RunState.js';
-import { meta } from '../engine/MetaProgress.js';
-import { PALETTE } from '../Config.js';
-
-// Reached the freedom zone. Records the run, awards meta scrap,
-// unlocks the next starter weapon if any are still locked.
-
-const STARTER_UNLOCK_ORDER = ['smg', 'shotgun']; // pistol always unlocked
+import { VIEW, PAL } from '../Config.js';
+import { TAU } from '../util/math.js';
 
 export class VictoryScene extends Scene {
-  constructor(input) {
-    super();
-    this.input = input;
-    this.t = 0;
-    this.recap = null;
-    this.unlockedThisRun = null;
-  }
-
   enter() {
     this.t = 0;
-    const kills = runState.player.kills | 0;
-    const scrap = runState.player.scrap | 0;
-    meta.recordRun({ won: true, nightReached: runState.nightNum, kills, scrapEarned: scrap });
-    this.unlockedThisRun = null;
-    for (const id of STARTER_UNLOCK_ORDER) {
-      if (meta.unlockStarter(id)) { this.unlockedThisRun = id; break; }
+    this.audio.ambient.stop();
+    this.audio.play('dawn_chime');
+    this.embers = [];
+    for (let i = 0; i < 40; i++) {
+      this.embers.push({ x: Math.random() * VIEW.W, y: Math.random() * VIEW.H, s: 6 + Math.random() * 16, ph: Math.random() * TAU });
     }
-    this.recap = { kills, scrap, nights: runState.nightNum };
-    runState.end('won');
   }
 
   update(dt) {
     this.t += dt;
-    if (this.t > 0.6 && (this.input.consumeClick() || this.input.consumeKey('enter') || this.input.consumeKey(' '))) {
-      events.emit('SCENE_CHANGE', { name: 'intro' });
+    if (this.t > 0.8 && (this.input.consumeKey('r') || this.input.consumeKey(' ') || this.input.consumeClick())) {
+      this.audio.play('ui_confirm');
+      this.game.toTitle();
     }
   }
 
   render(ctx) {
-    const w = ctx.canvas.width, h = ctx.canvas.height;
-    ctx.fillStyle = '#000';
-    ctx.fillRect(0, 0, w, h);
-    // Sunrise gradient — dark to gold
-    const grad = ctx.createLinearGradient(0, h, 0, 0);
-    grad.addColorStop(0, 'rgba(255,140,40,0.45)');
-    grad.addColorStop(1, 'rgba(0,0,0,0)');
-    ctx.fillStyle = grad;
-    ctx.fillRect(0, 0, w, h);
+    const sky = ctx.createLinearGradient(0, 0, 0, VIEW.H);
+    sky.addColorStop(0, '#3a2a20');
+    sky.addColorStop(0.5, '#a06a3a');
+    sky.addColorStop(1, '#d8a05a');
+    ctx.fillStyle = sky;
+    ctx.fillRect(0, 0, VIEW.W, VIEW.H);
+
+    // Rising sun.
+    ctx.globalCompositeOperation = 'lighter';
+    const sun = ctx.createRadialGradient(VIEW.W / 2, 460, 20, VIEW.W / 2, 460, 420);
+    sun.addColorStop(0, 'rgba(255,240,200,0.9)');
+    sun.addColorStop(1, 'rgba(255,200,120,0)');
+    ctx.fillStyle = sun;
+    ctx.fillRect(0, 0, VIEW.W, VIEW.H);
+
+    // Drifting embers.
+    for (const e of this.embers) {
+      const a = 0.4 + 0.4 * Math.sin(this.t * 1.5 + e.ph);
+      ctx.fillStyle = `rgba(255,220,150,${a * 0.5})`;
+      const y = (e.y - this.t * e.s) % VIEW.H;
+      ctx.fillRect(e.x, (y + VIEW.H) % VIEW.H, 2, 2);
+    }
+    ctx.globalCompositeOperation = 'source-over';
 
     ctx.textAlign = 'center';
-    ctx.fillStyle = PALETTE.uiAccent;
-    ctx.font = 'bold 56px monospace';
-    ctx.fillText('FREEDOM ZONE', w / 2, h * 0.30);
-    ctx.fillStyle = PALETTE.uiText;
-    ctx.font = '14px monospace';
-    ctx.fillText('the wall holds. you make it through.', w / 2, h * 0.36);
+    ctx.fillStyle = '#2a1a10';
+    ctx.font = 'bold 60px monospace';
+    ctx.fillText('THE SAFE ZONE', VIEW.W / 2, 230);
+    ctx.fillStyle = '#fff2d8';
+    ctx.fillText('THE SAFE ZONE', VIEW.W / 2, 227);
 
-    if (this.recap) {
-      ctx.fillStyle = PALETTE.uiText;
+    ctx.fillStyle = '#1a120a';
+    ctx.font = '18px monospace';
+    ctx.fillText('You held every wall on the road. The gates open for you.', VIEW.W / 2, 280);
+
+    const s = this.run.stats;
+    ctx.fillStyle = '#2a1a10';
+    ctx.font = '15px monospace';
+    ctx.fillText(`Nights survived: ${s.nightsSurvived}     Dead put down: ${s.kills}`, VIEW.W / 2, 330);
+    if (this.run.companions.length) {
+      ctx.fillText(`Survivors brought home: ${this.run.companions.map(c => c.name).join(', ')}`, VIEW.W / 2, 356);
+    }
+
+    if (this.t > 0.8) {
+      const pulse = 0.5 + 0.5 * Math.sin(this.t * 3);
+      ctx.fillStyle = `rgba(40,26,16,${0.5 + pulse * 0.4})`;
       ctx.font = 'bold 18px monospace';
-      ctx.fillText(`${this.recap.nights} nights survived`, w / 2, h * 0.52);
-      ctx.fillText(`${this.recap.kills} kills`,            w / 2, h * 0.56);
-      ctx.fillText(`${this.recap.scrap} scrap recovered`,  w / 2, h * 0.60);
-    }
-
-    if (this.unlockedThisRun) {
-      ctx.fillStyle = PALETTE.uiAccent;
-      ctx.font = 'bold 16px monospace';
-      ctx.fillText(`UNLOCKED: ${this.unlockedThisRun.toUpperCase()}`, w / 2, h * 0.72);
-    }
-
-    if (this.t > 0.5) {
-      ctx.fillStyle = PALETTE.uiDim;
-      ctx.font = '11px monospace';
-      ctx.fillText('click / enter / space to continue', w / 2, h - 30);
+      ctx.fillText('Press R to play again', VIEW.W / 2, 430);
     }
   }
-
-  engineState() { return 'menu'; }
 }
