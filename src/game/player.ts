@@ -28,7 +28,7 @@ export class Player {
   private lantern: THREE.PointLight;
   private muzzleLight: THREE.PointLight;
   private muzzleGlow: THREE.Sprite;
-  private beamMat!: THREE.MeshBasicMaterial;
+  private aimMarker = new THREE.Group();
   private muzzle = 0; // 0..1 flash
   private fireCd = 0;
   private reloadTimer = 0;
@@ -137,24 +137,6 @@ export class Player {
     this.aimRig.add(this.flashlight);
     this.aimRig.add(this.flashlight.target);
 
-    // Volumetric beam cone (fake light scatter in the air)
-    const beam = new THREE.Mesh(
-      new THREE.ConeGeometry(6.5, 58, 24, 1, true),
-      new THREE.MeshBasicMaterial({
-        color: 0xfff0d0,
-        transparent: true,
-        opacity: 0.05,
-        depthWrite: false,
-        blending: THREE.AdditiveBlending,
-        side: THREE.DoubleSide,
-        fog: true,
-      })
-    );
-    beam.rotation.x = -Math.PI / 2; // narrow at the gun, widening into the field
-    beam.position.set(0.16, 0, -29);
-    this.beamMat = beam.material as THREE.MeshBasicMaterial;
-    this.aimRig.add(beam);
-
     this.lantern = new THREE.PointLight(0xffb060, 1.6, 11, 2);
     this.lantern.position.set(0, 1.4, 0.3);
     this.group.add(this.lantern);
@@ -167,7 +149,30 @@ export class Player {
     this.muzzleGlow.position.set(0.16, 0, -1.15);
     this.aimRig.add(this.muzzleGlow);
 
+    // World-space aim reticle on the field — shows exactly where shots land.
+    const aimMat = new THREE.MeshBasicMaterial({
+      color: 0xff6347,
+      transparent: true,
+      opacity: 0.85,
+      depthWrite: false,
+      depthTest: false,
+      fog: false,
+      side: THREE.DoubleSide,
+    });
+    const ring = new THREE.Mesh(new THREE.RingGeometry(0.5, 0.62, 28), aimMat);
+    ring.rotation.x = -Math.PI / 2;
+    const dot = new THREE.Mesh(new THREE.CircleGeometry(0.1, 12), aimMat);
+    dot.rotation.x = -Math.PI / 2;
+    this.aimMarker.add(ring, dot);
+    this.aimMarker.renderOrder = 5;
+    this.aimMarker.visible = false;
+    scene.add(this.aimMarker);
+
     scene.add(this.group);
+  }
+
+  setAimVisible(b: boolean): void {
+    this.aimMarker.visible = b;
   }
 
   private get loadout(): Loadout | undefined {
@@ -209,11 +214,15 @@ export class Player {
     this.yaw = Math.atan2(-dx, -dz);
     this.aimRig.rotation.y = this.yaw;
 
+    // World aim reticle follows the cursor on the field
+    this.aimMarker.position.set(input.aimWorld.x, 0.08, input.aimWorld.z);
+    const pulse = 1 + Math.sin(this.t * 8) * 0.08;
+    this.aimMarker.scale.set(pulse, pulse, pulse);
+
     // Flashlight intensity tracks the meter + muzzle flash
     const lightMul = this.ctx.adrenaline.lightMult();
     this.flashlight.intensity = (12 + this.muzzle * 30) * lightMul;
     this.flashlight.castShadow = this.ctx.stage.quality !== "low";
-    this.beamMat.opacity = (0.045 + this.muzzle * 0.06) * lightMul;
     this.lantern.intensity = 1.5 + Math.sin(this.t * 7) * 0.15;
 
     // Weapon handling

@@ -473,6 +473,7 @@ ctx.stage.renderer.setAnimationLoop(() => {
     hud.update(dt);
   }
 
+  ctx.player.setAimVisible(state === "night");
   // Gameplay FX freeze with the game clock; camera/world/post run real-time so
   // feedback stays smooth even mid hit-stop.
   ctx.fx.update(dt);

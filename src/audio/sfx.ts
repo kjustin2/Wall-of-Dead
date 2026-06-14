@@ -148,19 +148,29 @@ export class Sfx {
       case "swap":
         this.tone(520, 0.06, "triangle", 0.12, 780);
         break;
-      case "zombie_hit":
-        this.burst(0.08, 0.3, 900);
+      case "zombie_hit": {
+        // wet flesh impact: a low body thump + a short squelch (no tonal beep)
+        const f = 130 + Math.random() * 40;
+        this.tone(f, 0.1, "sine", 0.34, f * 0.4);
+        this.burst(0.09, 0.2, 640);
         break;
+      }
       case "zombie_head":
-        this.burst(0.1, 0.45, 1400);
-        this.tone(160, 0.08, "square", 0.16, 60);
+        // sharper crack + squelch tail
+        this.tone(180, 0.08, "sine", 0.34, 60);
+        this.burst(0.05, 0.42, 2400);
+        this.burst(0.13, 0.24, 480);
         break;
       case "zombie_die":
-        this.tone(160, 0.4, "sawtooth", 0.22, 50);
-        this.burst(0.3, 0.3, 700);
+        // collapsing groan + wet thud
+        this.tone(150, 0.42, "sawtooth", 0.18, 42);
+        this.tone(90, 0.32, "sine", 0.2, 38, 0.04);
+        this.burst(0.34, 0.26, 560);
         break;
       case "zombie_claw":
-        this.burst(0.12, 0.28, 500);
+        // dull thwack against the barricade
+        this.tone(95, 0.08, "sine", 0.24, 52);
+        this.burst(0.1, 0.2, 420);
         break;
       case "brute_slam":
         this.tone(70, 0.5, "sawtooth", 0.4, 40);
@@ -183,11 +193,14 @@ export class Sfx {
         this.tone(400, 0.18, "sine", 0.1, 120);
         break;
       case "wall_breach":
-        this.tone(80, 0.7, "sawtooth", 0.45, 40);
-        this.burst(0.6, 0.5, 500);
+        this.tone(78, 0.7, "sawtooth", 0.45, 36);
+        this.burst(0.6, 0.5, 460);
+        this.burst(0.16, 0.4, 2500); // splintering wood crack
         break;
       case "player_hurt":
-        this.tone(200, 0.25, "sawtooth", 0.3, 90);
+        // heavy impact + grunt, less tonal
+        this.tone(165, 0.22, "sawtooth", 0.26, 70);
+        this.burst(0.18, 0.3, 520);
         break;
       case "thunder":
         this.tone(48, 1.1, "sawtooth", 0.3, 28);
@@ -260,7 +273,7 @@ export class Sfx {
 
     // Low dread drone (two detuned saws through a lowpass)
     const drone = this.ac.createGain();
-    drone.gain.value = 0.08;
+    drone.gain.value = 0.03;
     const lp = this.ac.createBiquadFilter();
     lp.type = "lowpass";
     lp.frequency.value = 220;
@@ -284,11 +297,11 @@ export class Sfx {
     bp.frequency.value = 500;
     bp.Q.value = 0.6;
     const wg = this.ac.createGain();
-    wg.gain.value = 0.05;
+    wg.gain.value = 0.012;
     const lfo = this.ac.createOscillator();
     lfo.frequency.value = 0.1;
     const lfoGain = this.ac.createGain();
-    lfoGain.gain.value = 0.03;
+    lfoGain.gain.value = 0.008;
     lfo.connect(lfoGain);
     lfoGain.connect(wg.gain);
     wind.connect(bp);

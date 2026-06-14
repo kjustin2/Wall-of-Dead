@@ -43,9 +43,10 @@ export class Music {
   }
 
   setVolume(v: number): void {
-    this.master = v;
+    // Cap so even slider-at-middle stays a quiet underscore behind the SFX.
+    this.master = v * 0.4;
     const a = this.slots[this.active];
-    if (a.el && a.target > 0) a.target = v;
+    if (a.el && a.target > 0) a.target = this.master;
   }
 
   resume(): void {
