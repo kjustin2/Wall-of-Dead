@@ -65,14 +65,18 @@ src/main.js            Entry: size canvas, build Game, start Engine loop.
 src/util/math.js       clamp/lerp/approach, dist², weightedPick, pointSegDist2.
 
 src/engine/
-  EventBus.js          Singleton pub/sub (`events`). SFX/SHAKE flow through it.
-  Engine.js            rAF loop with dt cap. Thin: owns timing only.
+  EventBus.js          Singleton pub/sub (`events`). SFX/SHAKE/HITSTOP flow here.
+  Engine.js            rAF loop with dt cap + hit-stop freeze (HITSTOP event).
   Input.js             Keyboard + mouse; pointer mapped into 1280×720 space.
   Audio.js             Web Audio synth SFX table + Ambient (wind drone +
                        stochastic horror cues + dread-driven heartbeat).
-                       Exports SFX_IDS for the smoke test.
-  Particles.js         520-cap recycling pool (blood, gore, muzzle, embers).
-  Camera.js            Screen shake (trauma model); listens for 'SHAKE'.
+                       Reads Settings for volume/mute. Exports SFX_IDS.
+  Particles.js         520-cap recycling pool (blood, gore, muzzle, casings).
+  Camera.js            Screen shake (trauma model + roll); scaled by Settings.
+  Lighting.js          Darkness overlay w/ flashlight cone + radial lights
+                       punched out (destination-out). Headless-safe (no-op).
+  PostFX.js            Film grain + impact chromatic aberration. Headless-safe.
+  Settings.js          Persisted volume/mute/shake (localStorage, guarded).
 
 src/game/
   view.js              2.5D depth helpers: depthScale/Shade/Speed from screen-y.
@@ -84,29 +88,49 @@ src/game/
                        advancing→attacking→crossing / standoff / fleeing FSM.
   Companion.js         Rescued survivor AI: auto-target nearest, auto-fire.
   WaveDirector.js      Per-night plan: dawn timer + escalating spawn stream.
-  Backdrop.js          Night field (sky/moon/treeline/fog), dread vignette.
-  Game.js              Controller: services + run state + scene transitions.
+  Backdrop.js          Layered night field pre-rendered to an offscreen canvas
+                       (skyline/stars/moon/treeline) + animated fog/embers;
+                       dread vignette. Cached once; headless falls back simple.
+  Game.js              Controller: services (incl. Lighting/PostFX) + run state
+                       + scene transitions + ESC pause overlay + fade-in.
 
-src/minigames/
-  ScavengeMinigame.js  "Steady Hands" timing skill check (start/update/render/
-                       getResult → tier D..S). Built reusable for more games.
+src/minigames/      (the day scavenging — a CHOICE of playable runs)
+  Minigame.js          Base contract (start/update/render/getResult{tier,frac})
+                       + tierFromFrac. Each minigame owns its full screen.
+  ArenaMinigame.js     Real-time top-down arena base: movable unarmed avatar,
+                       chasers (seek+separation+shove-stun), crates, touch
+                       resolution, countdown, scoring hooks, polished render.
+  EvasionRun.js        "Outrun the Pack" — survive unarmed, don't get caught.
+  GrabAndGo.js         "Smash & Grab" — collect crates under pressure.
+  HoldZone.js          "Fuel Siphon" — hold a zone to fill; SPACE shoves.
+  SteadyHands.js       "Quiet Cache" — low-risk timing bar (no zombies).
+  Expeditions.js       EXPEDITIONS registry (risk/reward/mult/factory) +
+                       dayOptions(night) → the 3 choices offered that day.
 
 src/scenes/
   Scene.js             Base (enter/exit/update/render + service getters).
   TitleScene.js        Logo + controls; click begins a run (unlocks audio).
-  NightScene.js        The defense — the heart. Wall/player/companions/zombies/
-                       bullets/acid/particles, dread, win/lose.
-  DayScene.js          report → scavenge minigame → loot (+ scripted find) →
-                       advance one leg.
+  NightScene.js        The defense — the heart. Draw order matters: (1) world
+                       lit, (2) Lighting darkness w/ flashlight cone punched
+                       out, (3) emissive pass (glowing eyes/muzzle/tracers/acid
+                       via 'lighter'), (4) vignette + aberration. Win/lose.
+  DayScene.js          report → choose expedition (3 risk/reward cards) → play
+                       minigame → loot (mult = tier × expedition, scripted find,
+                       injury on a botched risky run) → advance one leg.
   GameOverScene.js     Death cause + stats; R restarts.
   VictoryScene.js      Reached the safe zone; R replays.
 
-src/ui/HUD.js          Night HUD: night/dawn timer, road pips, HP, wall
-                       integrity, companions, weapon + ammo + ribbon.
+src/ui/
+  HUD.js               Night HUD (framed panels): dawn timeline, road pips, HP,
+                       wall, companion strip, weapon + ammo pips + slots.
+  MenuList.js          Keyboard+mouse vertical menu (main + pause menus).
+  SettingsPanel.js     Volume/mute/shake UI; mutates+persists Settings.
+  PauseMenu.js         ESC overlay (Resume/Restart/Settings/Main Menu).
 
 check.mjs              Headless smoke test (the real one).
 check-imports.mjs      Shim → check.mjs (kept for the Stop hook / permission).
 electron/main.cjs      Desktop wrapper (BrowserWindow → file:// index.html).
+electron/test-runner.cjs  Visual harness (npm run test:play) + test-preload.cjs.
 ```
 
 Cross-system communication goes through `events` (EventBus). `window._wod`
@@ -124,9 +148,14 @@ Cross-system communication goes through `events` (EventBus). `window._wod`
 
 3. **`update(dt)` and `render(ctx)` must stay separable and headless-safe.** The
    smoke test runs the whole game with a mock 2D context and no AudioContext.
-   Anything you draw must go through `ctx`; never read pixels back or require a
-   real canvas. Audio degrades to a silent no-op when `AudioContext` is absent —
-   keep that true (guard new audio on `this.ctx`).
+   Anything you draw must go through `ctx`; never read pixels back. Audio
+   degrades to a silent no-op when `AudioContext` is absent — keep that true
+   (guard new audio on `this.ctx`). Likewise, any **offscreen canvas**
+   (`document.createElement('canvas')` in Lighting/PostFX/Backdrop) must be
+   wrapped in try/catch and no-op when unavailable, and never feed `ctx`
+   negative/NaN arc/ellipse/gradient radii (a real canvas throws and blanks the
+   frame — the mock now validates this too). `localStorage` access is guarded in
+   `Settings.js` for the same reason.
 
 4. **2.5D depth is a pure function of screen-y** (`src/game/view.js`). Field
    entities (zombies, acid) scale/dim/slow by `depthScale/Shade/Speed(y)`. The
@@ -167,10 +196,17 @@ touchCD, body, head, eye, groan`; optional `targetsPlayer`, `heavy`,
 `mix` in `WaveDirector.js` `NIGHT_PLAN`. New behavior → extend the state switch
 in `Zombie.update`.
 
-### New minigame
-Mirror `ScavengeMinigame`'s shape: `update(dt, input)`, `render(ctx, cx, cy)`,
-set `this.done = true`, expose `getResult() → { tier }`. Wire it into
-`DayScene`'s `scavenge` phase (or add a phase).
+### New minigame / expedition
+Two routes. For a **real-time action run**, `extends ArenaMinigame` and override
+`configure()` (title/objective/controls/duration + spawn chasers/crates),
+`step(dt,input)`, `onTouch(z)`, `scoreFrac()→0..1`, `renderHud(ctx)` — the base
+handles movement, chasers, touches, timer, scoring, and the arena render. For a
+**static skill check**, `extends Minigame` directly (see `SteadyHands.js`) and
+draw your own full-screen layout. Either way: set `this.done = true` when
+finished and return `getResult() → { tier, frac }`. Then register it in
+`EXPEDITIONS` (id, title, loc, risk, reward, `mult`, `make`) and add its id to
+`dayOptions()` so it shows up on the choose screen. The smoke test auto-drives
+every entry in `EXPEDITIONS` to completion — no extra wiring needed there.
 
 ### New scene
 `export class X extends Scene`, implement `enter/exit/update/render`, add a

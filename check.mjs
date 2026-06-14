@@ -46,16 +46,30 @@ function makeCtx() {
   });
 }
 
-const mockCanvas = {
-  width: 1280, height: 720,
-  getContext: () => makeCtx(),
-  addEventListener: noop,
-  getBoundingClientRect: () => ({ left: 0, top: 0, width: 1280, height: 720 }),
-};
+function makeMockCanvas() {
+  return {
+    width: 1280, height: 720,
+    getContext: () => makeCtx(),
+    addEventListener: noop,
+    getBoundingClientRect: () => ({ left: 0, top: 0, width: 1280, height: 720 }),
+  };
+}
+const mockCanvas = makeMockCanvas();
 
 globalThis.addEventListener = noop;
 globalThis.window = { addEventListener: noop }; // no AudioContext → audio no-ops
-globalThis.document = { getElementById: () => mockCanvas };
+// createElement('canvas') returns a fresh mock canvas so Lighting/PostFX/
+// Backdrop exercise their real offscreen code paths (incl. radius validation).
+globalThis.document = {
+  getElementById: () => mockCanvas,
+  createElement: (tag) => (tag === 'canvas' ? makeMockCanvas() : { getContext: () => makeCtx() }),
+};
+const _store = new Map();
+globalThis.localStorage = {
+  getItem: (k) => (_store.has(k) ? _store.get(k) : null),
+  setItem: (k, v) => _store.set(k, String(v)),
+  removeItem: (k) => _store.delete(k),
+};
 if (!globalThis.performance) globalThis.performance = { now: () => 0 };
 globalThis.requestAnimationFrame = noop;
 
@@ -79,11 +93,24 @@ const { NightScene } = await import('./src/scenes/NightScene.js');
 const { DayScene } = await import('./src/scenes/DayScene.js');
 const { VictoryScene } = await import('./src/scenes/VictoryScene.js');
 const { GameOverScene } = await import('./src/scenes/GameOverScene.js');
+const { EXPEDITIONS, dayOptions } = await import('./src/minigames/Expeditions.js');
+const { tierFromFrac } = await import('./src/minigames/Minigame.js');
 
 // ── Helpers to drive input ──────────────────────────────────────────────
 const press = (g, k) => g.input.pressed.add(k);
 const click = (g) => { g.input.mouse.clicked = true; };
 function step(g, dt = 0.05) { g.update(dt); g.render(); }
+
+// A standalone input shim for driving a minigame directly (outside a Game).
+function makeFakeInput() {
+  return {
+    keys: new Set(), pressed: new Set(),
+    mouse: { x: 640, y: 360, down: false, clicked: false },
+    isDown(k) { return this.keys.has(k); },
+    consumeKey(k) { if (this.pressed.has(k)) { this.pressed.delete(k); return true; } return false; },
+    consumeClick() { if (this.mouse.clicked) { this.mouse.clicked = false; return true; } return false; },
+  };
+}
 
 // ════════════════════════════════════════════════════════════════════════
 section('Content integrity');
@@ -106,10 +133,11 @@ section('Boot + title');
 const game = new Game(mockCanvas);
 game.toTitle();
 check('starts on TitleScene', game.scene instanceof TitleScene);
-step(game); // render the title once
-click(game);
-step(game); // click begins the run
-check('click begins a run → NightScene', game.scene instanceof NightScene);
+step(game); // render the title once (lays out menu hit rects)
+// Hover + click the PLAY item (top of the menu) to begin a run.
+game.input.mouse.x = 640; game.input.mouse.y = 320; click(game);
+step(game);
+check('menu PLAY begins a run → NightScene', game.scene instanceof NightScene);
 check('starts on night 1', game.run.night === 1);
 check('starts with the pistol only', game.run.weapons.length === 1 && game.run.weapons[0].id === 'pistol');
 
@@ -147,9 +175,12 @@ for (let night = 1; night <= 4; night++) {
   if (night < 4) {
     check(`day ${night}: in DayScene`, game.scene instanceof DayScene);
     const day = game.scene;
-    // Drive report → minigame (3 rounds) → loot → advance by hammering space.
+    check(`day ${night}: offers 3 expeditions`, day.options.length === 3);
+    // Drive report → choose (press 1 = safe cache) → minigame → loot → advance.
+    // Pressing both '1' and ' ' each frame covers every phase: '1' picks the
+    // cache on the choose screen, ' ' advances report/locks SteadyHands/loot.
     guard = 0;
-    while (game.scene === day && guard++ < 3000) { press(game, ' '); step(game, 0.05); }
+    while (game.scene === day && guard++ < 3000) { press(game, '1'); press(game, ' '); step(game, 0.05); }
     check(`day ${night}: advanced to the next leg`, game.scene !== day);
     if (night === 1) sawShotgun = game.run.weapons.some(w => w.id === 'shotgun');
     if (night === 2) sawMara = game.run.companions.some(c => c.name === 'Mara');
@@ -187,6 +218,61 @@ ns3.player.iframe = 0;
 ns3.player.hurt(99999);
 step(g3, 0.05);
 check('player death → GameOverScene', g3.scene instanceof GameOverScene);
+
+// ════════════════════════════════════════════════════════════════════════
+section('Menus, pause, settings');
+const g4 = new Game(mockCanvas);
+g4.startRun();
+g4.input.mouse.x = 4; g4.input.mouse.y = 4;     // park the mouse off the menu
+for (let i = 0; i < 12; i++) step(g4, 0.05);   // let the fade-in finish
+check('night is pausable', g4.scene.pausable === true);
+press(g4, 'escape'); step(g4, 0.05);
+check('ESC opens the pause overlay', g4.paused === true);
+// Navigate to Settings (3rd item) by keyboard and back, then resume.
+g4.overlay.menu.sel = 2; press(g4, 'enter'); step(g4, 0.05);
+check('pause → Settings sub-view', g4.overlay.view === 'settings');
+press(g4, 'escape'); step(g4, 0.05);
+check('settings → back to pause menu', g4.overlay.view === 'menu');
+press(g4, 'escape'); step(g4, 0.05);
+check('ESC resumes the game', g4.paused === false);
+// Adjusting volume persists to localStorage.
+const { settings } = await import('./src/engine/Settings.js');
+const before = settings.volume;
+g4.audio.setVolume(0.3);
+check('audio setVolume updates settings store path', g4.audio.volume === 0.3);
+settings.volume = before;
+
+// ════════════════════════════════════════════════════════════════════════
+section('Scavenge expeditions + minigames');
+check('tierFromFrac maps extremes', tierFromFrac(1) === 'S' && tierFromFrac(0) === 'D');
+for (let n = 1; n <= 4; n++) {
+  const opts = dayOptions(n);
+  const ids = opts.map(o => o.id);
+  check(`night ${n}: 3 distinct expeditions, cache first`,
+    opts.length === 3 && ids[0] === 'cache' && new Set(ids).size === 3);
+}
+
+// Drive every minigame to completion with synthetic movement + actions, calling
+// update() AND render() (real-canvas radius validation) each frame.
+const mgCtx = makeCtx();
+for (const id of Object.keys(EXPEDITIONS)) {
+  const mg = EXPEDITIONS[id].make();
+  mg.start();
+  const fi = makeFakeInput();
+  let frame = 0, dirT = 0;
+  const DIRS = [['w'], ['s'], ['a'], ['d'], ['w', 'd'], ['s', 'a'], []];
+  while (!mg.done && frame++ < 1400) {
+    // Re-roll a movement direction every ~12 frames.
+    if (--dirT <= 0) { dirT = 12; fi.keys.clear(); for (const k of DIRS[frame % DIRS.length]) fi.keys.add(k); }
+    if (frame % 7 === 0) { fi.pressed.add(' '); fi.mouse.clicked = true; }   // lock / shove
+    mg.update(0.05, fi);
+    mg.render(mgCtx);
+    fi.pressed.clear();
+  }
+  const res = mg.getResult();
+  check(`minigame '${id}' completes`, mg.done === true);
+  check(`minigame '${id}' returns a valid tier`, 'DCBAS'.includes(res.tier) && res.frac >= 0 && res.frac <= 1);
+}
 
 // ════════════════════════════════════════════════════════════════════════
 console.log(`\n${'='.repeat(48)}`);

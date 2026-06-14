@@ -11,6 +11,7 @@
 // AudioContext) every method degrades to a silent no-op.
 
 import { events } from './EventBus.js';
+import { settings } from './Settings.js';
 
 const SFX_DEDUPE_MS = 16;
 
@@ -18,8 +19,8 @@ export class Audio {
   constructor() {
     this.ctx = null;
     this.master = null;
-    this.muted = false;
-    this.volume = 0.7;
+    this.muted = settings.muted;
+    this.volume = settings.volume;
     this._last = {};
     this._failed = false;
     this.ambient = new Ambient(this);
@@ -35,7 +36,7 @@ export class Audio {
       if (!Ctx) { this._failed = true; return; }
       this.ctx = new Ctx();
       this.master = this.ctx.createGain();
-      this.master.gain.value = this.volume;
+      this.master.gain.value = this.muted ? 0 : this.volume;
       this.master.connect(this.ctx.destination);
     } catch (e) {
       this._failed = true;
@@ -43,6 +44,11 @@ export class Audio {
   }
 
   resume() { if (this.ctx && this.ctx.state === 'suspended') this.ctx.resume(); }
+
+  setVolume(v) {
+    this.volume = Math.max(0, Math.min(1, v));
+    if (this.master) this.master.gain.value = this.muted ? 0 : this.volume;
+  }
 
   setMuted(b) {
     this.muted = b;

@@ -74,7 +74,7 @@ async function run() {
 
   if (booted) {
     await ev(win, 'window._wod.game.startRun();');
-    await delay(300); await capture(win, '02-night-start');
+    await delay(500); await capture(win, '02-night-start');
 
     // Inject a varied horde so the action shot shows every zombie type.
     await delay(1200);
@@ -84,27 +84,43 @@ async function run() {
     await delay(1000); await capture(win, '03-night-action');
 
     // Move the player and keep firing for a second snapshot.
-    await ev(win, "const k=window._wod.game.input.keys; k.add('d'); const i=window._wod.game.input; i.mouse.x=820; i.mouse.y=340; i.mouse.clicked=true;");
+    await ev(win, "const k=window._wod.game.input.keys; k.add('d'); const i=window._wod.game.input; i.mouse.x=820; i.mouse.y=300; i.mouse.clicked=true;");
     await delay(1200); await capture(win, '04-night-firing');
-    await ev(win, "window._wod.game.input.keys.delete('d'); window._wod.game.input.mouse.down=false;");
+    await ev(win, "const k=window._wod.game.input.keys; k.delete('d'); window._wod.game.input.mouse.down=false;");
+
+    // Pause menu via a real Escape keydown, then the Settings sub-view.
+    // Park the cursor in a corner so keyboard selection isn't overridden by hover.
+    await ev(win, "const i=window._wod.game.input; i.mouse.x=4; i.mouse.y=4;");
+    await ev(win, "window.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape'}));");
+    await delay(250); await capture(win, '05-pause');
+    await ev(win, "window._wod.game.overlay.menu.sel=2; window.dispatchEvent(new KeyboardEvent('keydown',{key:'Enter'}));");
+    await delay(250); await capture(win, '06-settings');
+    await ev(win, "window._wod.game.resume();");
 
     // Force dawn → DayScene report.
     await ev(win, "const s=window._wod.game.scene; if(s&&s.director){s.director.elapsed=s.director.duration+1;}");
-    await delay(4200); await capture(win, '05-day-report');
+    await delay(4200); await capture(win, '07-day-report');
 
-    // Into the scavenge minigame.
-    await ev(win, "const s=window._wod.game.scene; if(s&&'phase'in s){s.phase='scavenge';}");
-    await delay(500); await capture(win, '06-day-scavenge');
+    // Expedition choice screen.
+    await ev(win, "window._wod.game.scene.phase='choose';");
+    await delay(300); await capture(win, '08-day-choose');
 
-    // Finish the minigame at top tier and show the loot screen.
-    await ev(win, "const s=window._wod.game.scene; if(s&&s.minigame){s.minigame.score=6; s.minigame.done=true; s._applyLoot(s.minigame.getResult()); s.phase='loot';}");
-    await delay(500); await capture(win, '07-day-loot');
+    // Pick the high-risk action run and play it for a couple of shots.
+    await ev(win, "window._wod.game.scene._choose(1);");
+    await delay(900); await capture(win, '09-minigame');
+    await ev(win, "const k=window._wod.game.input.keys; k.add('d'); k.add('w');");
+    await delay(1100); await capture(win, '10-minigame-action');
+    await ev(win, "const k=window._wod.game.input.keys; k.delete('d'); k.delete('w');");
+
+    // End the run and show the loot screen.
+    await ev(win, "const m=window._wod.game.scene.minigame; if(m){m.timeLeft=0;}");
+    await delay(600); await capture(win, '11-day-loot');
 
     // Win + lose screens.
     await ev(win, "window._wod.game.toVictory();");
-    await delay(600); await capture(win, '08-victory');
+    await delay(600); await capture(win, '12-victory');
     await ev(win, "window._wod.game.run.deathReason='The wall collapsed. The horde poured through.'; window._wod.game.toGameOver();");
-    await delay(600); await capture(win, '09-gameover');
+    await delay(600); await capture(win, '13-gameover');
 
     errors = (await ev(win, 'return window.__errors || [];')) || errors;
   }

@@ -79,57 +79,147 @@ export class Wall {
     const top = FIELD.WALL_Y;
     const bottom = FIELD.WALL_BOTTOM;
     const h = bottom - top;
+
+    // Cast shadow on the field in front of the wall.
+    ctx.fillStyle = 'rgba(0,0,0,0.4)';
+    ctx.fillRect(X_LEFT - 6, top - 14, X_RIGHT - X_LEFT + 12, 16);
+
     for (let i = 0; i < N_SEG; i++) {
       const s = this.seg[i];
       const x = X_LEFT + i * SEG_W;
       const frac = s.hp / s.max;
-      if (s.hp <= 0) {
-        // Breached: rubble gap, darker, jagged.
-        ctx.fillStyle = '#0b0c0a';
-        ctx.fillRect(x, top, SEG_W, h);
-        ctx.fillStyle = '#1a1714';
-        for (let r = 0; r < 5; r++) {
-          const rx = x + 3 + (r * 7919 % (SEG_W - 8));
-          const ry = bottom - 6 - (r * 104729 % (h - 8));
-          ctx.fillRect(rx, ry, 5, 4);
-        }
-        continue;
+
+      if (s.hp <= 0) { this._drawBreach(ctx, x, top, bottom, h, i); continue; }
+      this._drawSegment(ctx, s, x, top, bottom, h, frac, i);
+    }
+
+    // Barbed wire strung along the whole top (skips breached spans).
+    this._drawWire(ctx, top);
+
+    // Sandbag revetment along the base.
+    this._drawSandbags(ctx, bottom);
+
+    // Front shadow lip.
+    ctx.fillStyle = 'rgba(0,0,0,0.55)';
+    ctx.fillRect(X_LEFT, bottom, X_RIGHT - X_LEFT, 6);
+  }
+
+  _drawSegment(ctx, s, x, top, bottom, h, frac, i) {
+    const dmg = 1 - frac;
+    // Concrete body with vertical shading, reddening as it weakens.
+    const g = ctx.createLinearGradient(0, top, 0, bottom);
+    const lift = Math.round(dmg * 40);
+    g.addColorStop(0, `rgb(${0x3a + lift},${0x36 - dmg * 12},${0x30 - dmg * 12})`);
+    g.addColorStop(0.5, `rgb(${0x26 + lift},${0x23 - dmg * 10},${0x20 - dmg * 10})`);
+    g.addColorStop(1, `rgb(${0x16 + lift},${0x15 - dmg * 6},${0x13 - dmg * 6})`);
+    ctx.fillStyle = s.flash > 0 ? '#7a2a20' : g;
+    ctx.fillRect(x, top, SEG_W, h);
+
+    // Cap stone / lip you crouch behind.
+    ctx.fillStyle = s.flash > 0 ? '#b5402c' : '#43403a';
+    ctx.fillRect(x - 1, top - 6, SEG_W + 2, 8);
+    ctx.fillStyle = '#56524a';
+    ctx.fillRect(x - 1, top - 6, SEG_W + 2, 2);
+
+    // Block seams.
+    ctx.fillStyle = 'rgba(8,7,5,0.8)';
+    ctx.fillRect(x, top, 2, h);
+    ctx.fillRect(x, top + h * 0.5, SEG_W, 1);
+
+    // Rust/stain streaks (deterministic per segment).
+    const r = ((i * 374761393) >>> 0);
+    ctx.fillStyle = 'rgba(70,40,20,0.25)';
+    for (let k = 0; k < 3; k++) {
+      const sx = x + 6 + ((r >>> (k * 4)) % (SEG_W - 12));
+      ctx.fillRect(sx, top, 2, 8 + ((r >>> (k * 3)) % (h - 8)));
+    }
+
+    // Damage: cracks, then exposed rebar.
+    if (dmg > 0.3) {
+      ctx.strokeStyle = 'rgba(8,6,4,0.85)';
+      ctx.lineWidth = 1.5;
+      const cx = x + SEG_W * 0.5;
+      ctx.beginPath();
+      ctx.moveTo(cx, top); ctx.lineTo(cx - 6, top + h * 0.4);
+      ctx.lineTo(cx + 5, top + h * 0.7); ctx.lineTo(cx - 3, bottom);
+      ctx.stroke();
+    }
+    if (dmg > 0.6) {
+      ctx.strokeStyle = 'rgba(90,70,40,0.7)';
+      ctx.lineWidth = 1.5;
+      for (let b = 0; b < 2; b++) {
+        const bx = x + SEG_W * (0.3 + b * 0.4);
+        ctx.beginPath(); ctx.moveTo(bx, top + h * 0.3); ctx.lineTo(bx, bottom); ctx.stroke();
       }
-      // Body, tinted toward red as it weakens.
-      const dmg = 1 - frac;
-      const r = Math.round(0x23 + dmg * 0x37);
-      const g = Math.round(0x21 - dmg * 0x0d);
-      const b = Math.round(0x1f - dmg * 0x0d);
-      ctx.fillStyle = `rgb(${r},${g},${b})`;
-      ctx.fillRect(x, top, SEG_W, h);
-      // Top edge highlight (the lip you stand behind).
-      ctx.fillStyle = s.flash > 0 ? '#b5402c' : PAL.wallEdge;
-      ctx.fillRect(x, top - 5, SEG_W, 6);
-      // Vertical seam between blocks.
-      ctx.fillStyle = '#15130f';
-      ctx.fillRect(x, top, 2, h);
-      // Cracks appear as damage mounts.
-      if (dmg > 0.35) {
-        ctx.strokeStyle = 'rgba(10,8,6,0.8)';
-        ctx.lineWidth = 1.5;
+      // Blood smear near a heavily damaged segment.
+      ctx.fillStyle = 'rgba(90,12,12,0.4)';
+      ctx.beginPath(); ctx.ellipse(x + SEG_W * 0.5, top + 6, SEG_W * 0.3, 6, 0, 0, 6.2832); ctx.fill();
+    }
+  }
+
+  _drawBreach(ctx, x, top, bottom, h, i) {
+    // A jagged hole: dark gap, rubble pile, bent rebar.
+    ctx.fillStyle = '#090a08';
+    ctx.fillRect(x, top - 4, SEG_W, h + 4);
+    // Jagged remaining edges.
+    ctx.fillStyle = '#1a1612';
+    ctx.beginPath();
+    ctx.moveTo(x, top); ctx.lineTo(x + 6, top + 14); ctx.lineTo(x, top + 26); ctx.lineTo(x, top); ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(x + SEG_W, top); ctx.lineTo(x + SEG_W - 7, top + 18); ctx.lineTo(x + SEG_W, top + 30); ctx.fill();
+    // Rubble.
+    ctx.fillStyle = '#241f19';
+    for (let r = 0; r < 7; r++) {
+      const rx = x + 3 + ((r * 7919) % (SEG_W - 8));
+      const ry = bottom - 4 - ((r * 104729) % 18);
+      ctx.fillRect(rx, ry, 4 + (r % 3), 4);
+    }
+    // Bent rebar.
+    ctx.strokeStyle = '#5a4a30';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(x + 8, bottom); ctx.lineTo(x + 12, top + 12); ctx.lineTo(x + 18, top + 4);
+    ctx.moveTo(x + SEG_W - 10, bottom); ctx.lineTo(x + SEG_W - 14, top + 16);
+    ctx.stroke();
+  }
+
+  _drawWire(ctx, top) {
+    ctx.strokeStyle = 'rgba(150,155,150,0.55)';
+    ctx.lineWidth = 1;
+    const y = top - 12;
+    ctx.beginPath();
+    for (let x = X_LEFT; x < X_RIGHT; x += 14) {
+      const i = this.segIndexAt(x + 7);
+      if (this.seg[i].hp <= 0) continue;     // wire gone where breached
+      ctx.moveTo(x, y); ctx.lineTo(x + 7, y - 5); ctx.lineTo(x + 14, y);
+    }
+    ctx.stroke();
+    // Barbs.
+    ctx.beginPath();
+    for (let x = X_LEFT + 7; x < X_RIGHT; x += 28) {
+      const i = this.segIndexAt(x);
+      if (this.seg[i].hp <= 0) continue;
+      ctx.moveTo(x - 3, y - 7); ctx.lineTo(x + 3, y - 1);
+      ctx.moveTo(x + 3, y - 7); ctx.lineTo(x - 3, y - 1);
+    }
+    ctx.stroke();
+  }
+
+  _drawSandbags(ctx, bottom) {
+    const y = bottom - 6;
+    for (let bx = X_LEFT - 4; bx < X_RIGHT; bx += 26) {
+      const i = this.segIndexAt(bx + 13);
+      const breached = this.seg[i].hp <= 0;
+      // Two rows of bags.
+      for (let row = 0; row < 2; row++) {
+        const off = row * 13;
+        const by = y + 8 - row * 9;
+        ctx.fillStyle = breached ? '#2a2a22' : (row === 0 ? '#4a4a38' : '#54543f');
         ctx.beginPath();
-        const cx = x + SEG_W * 0.5;
-        ctx.moveTo(cx, top);
-        ctx.lineTo(cx - 6, top + h * 0.4);
-        ctx.lineTo(cx + 5, top + h * 0.7);
-        ctx.lineTo(cx - 3, bottom);
-        ctx.stroke();
-      }
-      if (dmg > 0.65) {
-        ctx.strokeStyle = 'rgba(10,8,6,0.7)';
-        ctx.beginPath();
-        ctx.moveTo(x + SEG_W * 0.25, top);
-        ctx.lineTo(x + SEG_W * 0.35, bottom);
-        ctx.stroke();
+        ctx.ellipse(bx + off, by, 15, 9, 0, 0, 6.2832); ctx.fill();
+        ctx.fillStyle = 'rgba(0,0,0,0.25)';
+        ctx.beginPath(); ctx.ellipse(bx + off, by + 3, 15, 5, 0, 0, 6.2832); ctx.fill();
       }
     }
-    // Continuous shadowed base line in front of the wall.
-    ctx.fillStyle = 'rgba(0,0,0,0.5)';
-    ctx.fillRect(X_LEFT, bottom, X_RIGHT - X_LEFT, 5);
   }
 }

@@ -20,6 +20,8 @@ import { clamp, approach, pointSegDist2, randInt, TAU } from '../util/math.js';
 export class NightScene extends Scene {
   enter() {
     const run = this.run;
+    this.pausable = true;
+    this.lighting = this.game.lighting;
     this.t = 0;
     this.wall = new Wall(run.wallMaxHp);
     this.wall.setTotal(run.wallHp);
@@ -200,15 +202,10 @@ export class NightScene extends Scene {
 
   render(ctx) {
     this.camera.begin(ctx);
+
+    // ── 1. World (fully lit colours) ──
     drawNightField(ctx, this.t);
 
-    // Additive light pools near the defenders.
-    ctx.globalCompositeOperation = 'lighter';
-    this.player.renderLight(ctx);
-    for (const co of this.companions) co.renderLight(ctx);
-    ctx.globalCompositeOperation = 'source-over';
-
-    // Zombies sorted far→near; crossing ones drawn in front of the wall.
     const sorted = this.zombies.slice().sort((a, b) => a.y - b.y);
     const crossing = [];
     for (const z of sorted) {
@@ -217,39 +214,60 @@ export class NightScene extends Scene {
     }
     this.wall.render(ctx);
     for (const z of crossing) z.render(ctx);
-
-    // Defenders in front of the wall.
     for (const co of this.companions) co.render(ctx);
     this.player.render(ctx);
+    this.particles.render(ctx);
 
-    // Bullets (tracers).
+    // ── 2. Lighting (darkness with the flashlight + lanterns punched out) ──
+    const lit = this.lighting;
+    if (lit && lit.ok) {
+      const dawn = this.director.isDawn;
+      const ambient = dawn ? 0.18 : 0.6 - this.dread * 0.08;
+      lit.begin(ambient);
+      lit.radial(972, 60, 300, 0.7);                 // moonlight
+      const p = this.player;
+      if (p.alive) {
+        lit.cone(p.x, p.y - 8, p.aim, 540, 0.42, 1);  // flashlight
+        lit.radial(p.x, p.y - 6, 150, 0.8);           // lantern
+        if (p.muzzle > 0) lit.radial(p.x + Math.cos(p.aim) * 28, p.y - 10 + Math.sin(p.aim) * 28, 150, 1);
+      }
+      for (const co of this.companions) {
+        if (co.downed) continue;
+        lit.radial(co.x, co.y - 6, 118, 0.7);
+        if (co.muzzle > 0) lit.radial(co.x + Math.cos(co.aim) * 22, co.y - 3 + Math.sin(co.aim) * 22, 90, 0.9);
+      }
+      lit.end(ctx);
+    }
+
+    // ── 3. Emissive pass (bright through the dark) ──
+    ctx.globalCompositeOperation = 'lighter';
+    for (const z of this.zombies) z.renderEyes(ctx);
+    for (const co of this.companions) co.renderMuzzle(ctx);
+    this.player.renderMuzzle(ctx);
     ctx.lineCap = 'round';
     for (const b of this.bullets) {
       if (!b.active) continue;
-      ctx.strokeStyle = b.color;
-      ctx.lineWidth = 2;
-      ctx.globalAlpha = 0.9;
-      ctx.beginPath();
       const len = Math.hypot(b.vx, b.vy) || 1;
+      ctx.strokeStyle = b.color;
+      ctx.lineWidth = 2.4;
+      ctx.beginPath();
       ctx.moveTo(b.x, b.y);
       ctx.lineTo(b.x - b.vx / len * b.tracerLen, b.y - b.vy / len * b.tracerLen);
       ctx.stroke();
     }
-    ctx.globalAlpha = 1;
-
-    // Acid globs.
-    ctx.globalCompositeOperation = 'lighter';
     for (const a of this.acid) {
       if (!a.active) continue;
-      ctx.fillStyle = 'rgba(155,216,74,0.9)';
-      ctx.beginPath(); ctx.arc(a.x, a.y, 4, 0, TAU); ctx.fill();
+      const g = ctx.createRadialGradient(a.x, a.y, 0, a.x, a.y, 9);
+      g.addColorStop(0, 'rgba(180,255,90,0.95)');
+      g.addColorStop(1, 'rgba(120,200,40,0)');
+      ctx.fillStyle = g;
+      ctx.beginPath(); ctx.arc(a.x, a.y, 9, 0, TAU); ctx.fill();
     }
     ctx.globalCompositeOperation = 'source-over';
 
-    this.particles.render(ctx);
+    // ── 4. Post / framing ──
     drawVignette(ctx, this.dread);
-
-    // Dawn wash.
+    this.game.postfx.aberration(ctx, this.dread > 0.55 ? this.dread - 0.4 : (this.player.hurtFlash > 0 ? 0.5 : 0));
     if (this.flash > 0) {
       ctx.fillStyle = `rgba(255,240,210,${Math.min(0.6, this.flash * 0.6)})`;
       ctx.fillRect(0, 0, 1280, 720);
@@ -264,11 +282,11 @@ export class NightScene extends Scene {
     if (this.director.isDawn) {
       ctx.textAlign = 'center';
       ctx.fillStyle = '#ffe8b0';
-      ctx.font = 'bold 40px monospace';
-      ctx.fillText('DAWN', 640, 300);
+      ctx.font = 'bold 44px monospace';
+      ctx.fillText('DAWN', 640, 296);
       ctx.fillStyle = '#9fb8a6';
-      ctx.font = '14px monospace';
-      ctx.fillText('You held the wall.', 640, 330);
+      ctx.font = '15px monospace';
+      ctx.fillText('You held the wall.', 640, 326);
     }
   }
 }

@@ -5,6 +5,7 @@
 export class Scene {
   constructor(game) {
     this.game = game;
+    this.pausable = false;   // set true on scenes where ESC opens the pause menu
   }
   get input() { return this.game.input; }
   get audio() { return this.game.audio; }

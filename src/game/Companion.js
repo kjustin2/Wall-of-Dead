@@ -93,62 +93,58 @@ export class Companion {
 
   render(ctx) {
     const x = this.x, y = this.y;
+
+    // Shadow.
+    ctx.fillStyle = 'rgba(0,0,0,0.4)';
+    ctx.beginPath(); ctx.ellipse(x, y + 12, 12, 4, 0, 0, TAU); ctx.fill();
+
     if (this.downed) {
-      // Crumpled on the ground.
-      ctx.fillStyle = '#4a4438';
-      ctx.beginPath();
-      ctx.ellipse(x, y + 8, 14, 6, 0, 0, TAU);
-      ctx.fill();
+      ctx.fillStyle = '#3a3630';
+      ctx.beginPath(); ctx.ellipse(x, y + 8, 15, 6, 0, 0, TAU); ctx.fill();
       ctx.fillStyle = '#7a3030';
-      ctx.font = '10px monospace';
-      ctx.textAlign = 'center';
-      ctx.fillText('DOWN', x, y - 6);
+      ctx.font = 'bold 9px monospace'; ctx.textAlign = 'center';
+      ctx.fillText('✚ ' + this.name, x, y - 4);
       return;
     }
     const flick = this.iframe > 0 && Math.floor(this.iframe * 30) % 2 === 0;
+    const facing = Math.cos(this.aim) >= 0 ? 1 : -1;
     if (!flick) {
-      ctx.fillStyle = this.hurtFlash > 0 ? '#e87a6a' : '#5a6f8f';
-      ctx.beginPath();
-      ctx.ellipse(x, y + 6, 10, 13, 0, 0, TAU);
-      ctx.fill();
-      ctx.fillStyle = this.hurtFlash > 0 ? '#f0a090' : '#b8c8d8';
-      ctx.beginPath();
-      ctx.arc(x, y - 9, 6.5, 0, TAU);
-      ctx.fill();
-      ctx.strokeStyle = '#2a2a28';
-      ctx.lineWidth = 3;
-      ctx.beginPath();
-      ctx.moveTo(x, y - 3);
-      ctx.lineTo(x + Math.cos(this.aim) * 20, y - 3 + Math.sin(this.aim) * 20);
-      ctx.stroke();
+      // Legs.
+      ctx.strokeStyle = '#23262a'; ctx.lineWidth = 4; ctx.lineCap = 'round';
+      ctx.beginPath(); ctx.moveTo(x - 3, y + 6); ctx.lineTo(x - 3, y + 17); ctx.moveTo(x + 3, y + 6); ctx.lineTo(x + 3, y + 17); ctx.stroke();
+      // Torso (blue jacket).
+      const g = ctx.createLinearGradient(x - 9, y - 6, x + 9, y + 8);
+      g.addColorStop(0, this.hurtFlash > 0 ? '#e08070' : '#4a6080');
+      g.addColorStop(1, this.hurtFlash > 0 ? '#b85a4c' : '#2e3e54');
+      ctx.fillStyle = g;
+      ctx.beginPath(); ctx.ellipse(x, y + 2, 10, 12, 0, 0, TAU); ctx.fill();
+      // Head + cap.
+      ctx.fillStyle = this.hurtFlash > 0 ? '#f0b0a4' : '#c8b496';
+      ctx.beginPath(); ctx.arc(x + facing, y - 10, 6.2, 0, TAU); ctx.fill();
+      ctx.fillStyle = '#34465a';
+      ctx.beginPath(); ctx.arc(x + facing, y - 12, 6.6, Math.PI, TAU); ctx.fill();
+      // Weapon toward target.
+      const ax = Math.cos(this.aim), ay = Math.sin(this.aim);
+      ctx.strokeStyle = '#222'; ctx.lineWidth = 4.5;
+      ctx.beginPath(); ctx.moveTo(x, y - 3); ctx.lineTo(x + ax * 19, y - 3 + ay * 19); ctx.stroke();
     }
-    if (this.muzzle > 0) {
-      const mx = x + Math.cos(this.aim) * 22, my = y - 3 + Math.sin(this.aim) * 22;
-      ctx.globalCompositeOperation = 'lighter';
-      ctx.fillStyle = 'rgba(255,210,140,0.8)';
-      ctx.beginPath(); ctx.arc(mx, my, 12, 0, TAU); ctx.fill();
-      ctx.globalCompositeOperation = 'source-over';
-    }
-    // Name tag.
-    ctx.fillStyle = 'rgba(150,180,200,0.7)';
-    ctx.font = '9px monospace';
-    ctx.textAlign = 'center';
-    ctx.fillText(this.name, x, y - 22);
-    // HP pip bar.
-    const w = 22, hpw = (this.hp / this.maxHp) * w;
-    ctx.fillStyle = 'rgba(0,0,0,0.5)';
-    ctx.fillRect(x - w / 2, y - 19, w, 3);
-    ctx.fillStyle = '#5fbf6a';
-    ctx.fillRect(x - w / 2, y - 19, hpw, 3);
+    // Name tag + HP.
+    ctx.fillStyle = 'rgba(160,190,210,0.75)';
+    ctx.font = '9px monospace'; ctx.textAlign = 'center';
+    ctx.fillText(this.name, x, y - 24);
+    const w = 24, hpw = (this.hp / this.maxHp) * w;
+    ctx.fillStyle = 'rgba(0,0,0,0.55)'; ctx.fillRect(x - w / 2, y - 21, w, 3);
+    ctx.fillStyle = '#5fbf6a'; ctx.fillRect(x - w / 2, y - 21, hpw, 3);
   }
 
-  renderLight(ctx) {
-    const g = ctx.createRadialGradient(this.x, this.y - 6, 6, this.x, this.y - 6, 120);
-    g.addColorStop(0, 'rgba(150,180,220,0.28)');
-    g.addColorStop(1, 'rgba(100,130,170,0)');
+  // Bright muzzle flash for the emissive pass.
+  renderMuzzle(ctx) {
+    if (this.downed || this.muzzle <= 0) return;
+    const mx = this.x + Math.cos(this.aim) * 22, my = this.y - 3 + Math.sin(this.aim) * 22;
+    const g = ctx.createRadialGradient(mx, my, 0, mx, my, 18);
+    g.addColorStop(0, 'rgba(255,210,140,0.85)');
+    g.addColorStop(1, 'rgba(255,170,70,0)');
     ctx.fillStyle = g;
-    ctx.beginPath();
-    ctx.arc(this.x, this.y - 6, 120, 0, TAU);
-    ctx.fill();
+    ctx.beginPath(); ctx.arc(mx, my, 18, 0, TAU); ctx.fill();
   }
 }

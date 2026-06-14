@@ -1,14 +1,13 @@
-// The player: walks the lane behind the wall (A/D), aims at the cursor, fires
-// the active weapon, reloads, and cycles weapons. Holds HP and a lantern that
-// lights the nearby field. Firing pushes bullets into a provided array and
-// asks for sfx/shake/particles via the event bus + passed pools — the night
-// scene owns those pools.
+// The player: walks the lane behind the wall with smooth acceleration, aims a
+// flashlight + weapon at the cursor, fires/reloads/swaps. Renders as a layered,
+// animated survivor. Its `aim` drives the flashlight cone in NightScene's
+// lighting pass; muzzle flashes are drawn in the emissive pass via renderMuzzle.
 
 import { FIELD, PAL } from '../Config.js';
 import { WEAPONS } from './Weapons.js';
 import { makeBullet } from './Bullet.js';
 import { events } from '../engine/EventBus.js';
-import { clamp, TAU } from '../util/math.js';
+import { clamp, approach, TAU } from '../util/math.js';
 
 const MOVE_SPEED = 360;
 
@@ -17,17 +16,20 @@ export class Player {
     this.run = run;
     this.x = 640;
     this.y = FIELD.PLAYER_Y;
+    this.vx = 0;
     this.maxHp = 100;
     this.hp = run.playerHp ?? 100;
     this.weaponIdx = 0;
     this.cool = 0;
-    this.reloadT = 0;       // >0 while reloading
-    this.muzzle = 0;        // flash timer
+    this.reloadT = 0;
+    this.muzzle = 0;
     this.aim = -Math.PI / 2;
-    this.iframe = 0;        // damage cooldown
+    this.iframe = 0;
     this.hurtFlash = 0;
     this.alive = true;
     this.recoil = 0;
+    this.walk = 0;        // walk-cycle phase
+    this.facing = 1;
   }
 
   get loadout() { return this.run.weapons[this.weaponIdx]; }
@@ -47,61 +49,55 @@ export class Player {
   }
 
   move(dt, dir) {
-    this.x = clamp(this.x + dir * MOVE_SPEED * dt, FIELD.MARGIN_X, 1280 - FIELD.MARGIN_X);
+    const target = dir * MOVE_SPEED;
+    this.vx = approach(this.vx, target, 13, dt);
+    this.x = clamp(this.x + this.vx * dt, FIELD.MARGIN_X, 1280 - FIELD.MARGIN_X);
+    if (Math.abs(this.vx) > 12) this.walk += Math.abs(this.vx) * dt * 0.03;
   }
 
   startReload() {
-    const lo = this.loadout;
-    const w = this.weapon;
+    const lo = this.loadout, w = this.weapon;
     if (this.reloadT > 0 || lo.ammo >= w.mag || lo.reserve <= 0) return;
     this.reloadT = w.reload;
     events.emit('SFX', 'reload_click');
   }
 
-  // Aim toward (tx,ty) in canvas space.
-  setAim(tx, ty) { this.aim = Math.atan2(ty - this.y, tx - this.x); }
+  setAim(tx, ty) {
+    this.aim = Math.atan2(ty - this.y, tx - this.x);
+    this.facing = Math.cos(this.aim) >= 0 ? 1 : -1;
+  }
 
-  // Attempt to fire at the cursor. Pushes bullets into `bullets`, spawns
-  // muzzle particles. Returns true if a shot left the barrel.
   fire(tx, ty, bullets, particles) {
     if (this.cool > 0 || this.reloadT > 0 || !this.alive) return false;
-    const lo = this.loadout;
-    const w = this.weapon;
-    if (lo.ammo <= 0) {
-      this.startReload();
-      events.emit('SFX', 'empty');
-      this.cool = 0.18;
-      return false;
-    }
+    const lo = this.loadout, w = this.weapon;
+    if (lo.ammo <= 0) { this.startReload(); events.emit('SFX', 'empty'); this.cool = 0.18; return false; }
     this.setAim(tx, ty);
-    const muzzleX = this.x + Math.cos(this.aim) * 22;
-    const muzzleY = this.y - 8 + Math.sin(this.aim) * 22;
+    const muzzleX = this.x + Math.cos(this.aim) * 26;
+    const muzzleY = this.y - 10 + Math.sin(this.aim) * 26;
     for (let p = 0; p < w.pellets; p++) {
       const a = this.aim + (Math.random() - 0.5) * w.spread * 2;
-      const vx = Math.cos(a) * w.speed;
-      const vy = Math.sin(a) * w.speed;
-      bullets.push(makeBullet(muzzleX, muzzleY, vx, vy, {
-        damage: w.damage, color: w.color, tracerLen: w.tracerLen,
-        pierce: w.pierce || 0, fromPlayer: true,
+      bullets.push(makeBullet(muzzleX, muzzleY, Math.cos(a) * w.speed, Math.sin(a) * w.speed, {
+        damage: w.damage, color: w.color, tracerLen: w.tracerLen, pierce: w.pierce || 0, fromPlayer: true,
       }));
     }
     lo.ammo--;
     this.cool = w.fireRate;
-    this.muzzle = 0.06;
-    this.recoil = Math.min(6, this.recoil + 3);
+    this.muzzle = 0.07;
+    this.recoil = Math.min(7, this.recoil + 3.5);
     events.emit('SFX', w.sfx);
     events.emit('SHAKE', w.shake);
-    // Muzzle sparks.
-    for (let i = 0; i < (w.pellets > 1 ? 8 : 4); i++) {
+    // Muzzle sparks + ejected casing.
+    for (let i = 0; i < (w.pellets > 1 ? 9 : 4); i++) {
       const a = this.aim + (Math.random() - 0.5) * 0.6;
-      const s = 120 + Math.random() * 180;
-      particles.emit({
-        x: muzzleX, y: muzzleY,
-        vx: Math.cos(a) * s, vy: Math.sin(a) * s,
-        life: 0.08 + Math.random() * 0.08, size: 2 + Math.random() * 2,
-        color: PAL.muzzle, glow: true,
-      });
+      const s = 120 + Math.random() * 200;
+      particles.emit({ x: muzzleX, y: muzzleY, vx: Math.cos(a) * s, vy: Math.sin(a) * s,
+        life: 0.08 + Math.random() * 0.08, size: 2 + Math.random() * 2, color: PAL.muzzle, glow: true });
     }
+    particles.emit({ x: this.x, y: this.y - 8, vx: -this.facing * (40 + Math.random() * 40), vy: -90 - Math.random() * 40,
+      life: 0.5, size: 1.6, color: '#d9b85a', grav: 320 });
+    // Smoke puff.
+    particles.emit({ x: muzzleX, y: muzzleY, vx: Math.cos(this.aim) * 30, vy: Math.sin(this.aim) * 30 - 14,
+      life: 0.4, size: 5, color: 'rgba(120,120,110,0.5)', grav: -20 });
     if (lo.ammo <= 0) this.startReload();
     return true;
   }
@@ -112,7 +108,8 @@ export class Player {
     this.iframe = 0.6;
     this.hurtFlash = 0.4;
     events.emit('SFX', sfx);
-    events.emit('SHAKE', 0.3);
+    events.emit('SHAKE', 0.32);
+    events.emit('HITSTOP', 0.05);
     if (this.hp <= 0) { this.hp = 0; this.alive = false; }
   }
 
@@ -126,72 +123,96 @@ export class Player {
       this.reloadT -= dt;
       if (this.reloadT <= 0) {
         const lo = this.loadout, w = this.weapon;
-        const need = w.mag - lo.ammo;
-        const take = Math.min(need, lo.reserve);
-        lo.ammo += take;
-        lo.reserve -= take;
+        const take = Math.min(w.mag - lo.ammo, lo.reserve);
+        lo.ammo += take; lo.reserve -= take;
         events.emit('SFX', 'reload_done');
       }
     }
-    // Persist HP back to run so it carries between scenes.
     this.run.playerHp = this.hp;
   }
 
-  reloadProgress() {
-    return this.reloadT > 0 ? 1 - this.reloadT / this.weapon.reload : 0;
-  }
+  reloadProgress() { return this.reloadT > 0 ? 1 - this.reloadT / this.weapon.reload : 0; }
 
   render(ctx) {
     const flick = this.iframe > 0 && Math.floor(this.iframe * 30) % 2 === 0;
-    const recoilDx = -Math.cos(this.aim) * this.recoil;
-    const recoilDy = -Math.sin(this.aim) * this.recoil;
-    const x = this.x + recoilDx;
-    const y = this.y + recoilDy;
+    if (flick) return;
+    const rx = -Math.cos(this.aim) * this.recoil;
+    const ry = -Math.sin(this.aim) * this.recoil;
+    const x = this.x + rx;
+    const y = this.y + ry;
+    const hurt = this.hurtFlash > 0;
+    const moving = Math.abs(this.vx) > 12;
+    const step = moving ? Math.sin(this.walk * 6) : 0;
 
-    // Body — hunched survivor silhouette.
-    if (!flick) {
-      ctx.fillStyle = this.hurtFlash > 0 ? '#e87a6a' : PAL.playerDark;
-      ctx.beginPath();
-      ctx.ellipse(x, y + 6, 11, 14, 0, 0, TAU);
-      ctx.fill();
-      // Head.
-      ctx.fillStyle = this.hurtFlash > 0 ? '#f0a090' : PAL.player;
-      ctx.beginPath();
-      ctx.arc(x, y - 10, 7, 0, TAU);
-      ctx.fill();
-      // Weapon — a line from shoulder toward the aim.
-      ctx.strokeStyle = '#2a2a28';
-      ctx.lineWidth = 4;
-      ctx.beginPath();
-      ctx.moveTo(x, y - 4);
-      ctx.lineTo(x + Math.cos(this.aim) * 24, y - 4 + Math.sin(this.aim) * 24);
-      ctx.stroke();
-    }
-    // Muzzle flash.
-    if (this.muzzle > 0) {
-      const mx = x + Math.cos(this.aim) * 26;
-      const my = y - 4 + Math.sin(this.aim) * 26;
-      ctx.globalCompositeOperation = 'lighter';
-      const g = ctx.createRadialGradient(mx, my, 0, mx, my, 26);
-      g.addColorStop(0, 'rgba(255,220,140,0.9)');
-      g.addColorStop(1, 'rgba(255,180,80,0)');
-      ctx.fillStyle = g;
-      ctx.beginPath();
-      ctx.arc(mx, my, 26, 0, TAU);
-      ctx.fill();
-      ctx.globalCompositeOperation = 'source-over';
-    }
+    // Shadow.
+    ctx.fillStyle = 'rgba(0,0,0,0.45)';
+    ctx.beginPath(); ctx.ellipse(this.x, this.y + 13, 14, 4.5, 0, 0, TAU); ctx.fill();
+
+    ctx.save();
+    ctx.translate(x, y);
+
+    // Legs (walk cycle).
+    ctx.strokeStyle = '#23262a';
+    ctx.lineWidth = 4.5; ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.moveTo(-3, 6); ctx.lineTo(-3 + step * 4, 18);
+    ctx.moveTo(3, 6); ctx.lineTo(3 - step * 4, 18);
+    ctx.stroke();
+
+    // Backpack.
+    ctx.fillStyle = '#3a4036';
+    ctx.fillRect(-this.facing * 9 - 3, -6, 8, 14);
+
+    // Torso / jacket with shading.
+    const g = ctx.createLinearGradient(-10, -8, 10, 8);
+    g.addColorStop(0, hurt ? '#e08070' : '#43544a');
+    g.addColorStop(1, hurt ? '#b85a4c' : '#2c3a32');
+    ctx.fillStyle = g;
+    ctx.beginPath(); ctx.ellipse(0, 2, 11, 13, 0, 0, TAU); ctx.fill();
+    // Chest strap.
+    ctx.strokeStyle = '#1c211d'; ctx.lineWidth = 2.5;
+    ctx.beginPath(); ctx.moveTo(-7, -4); ctx.lineTo(6, 9); ctx.stroke();
+
+    // Head with hood/beanie.
+    ctx.fillStyle = hurt ? '#f0b0a4' : '#cdb89a';
+    ctx.beginPath(); ctx.arc(this.facing * 1, -12, 7, 0, TAU); ctx.fill();
+    ctx.fillStyle = '#2f3a30';
+    ctx.beginPath(); ctx.arc(this.facing * 1, -14, 7.4, Math.PI, TAU); ctx.fill();
+    ctx.fillRect(this.facing * 1 - 7.4, -15, 14.8, 3);
+
+    // Arms + weapon aimed at the cursor.
+    const ax = Math.cos(this.aim), ay = Math.sin(this.aim);
+    const sx = 0, sy = -3;
+    const gunLen = 22;
+    ctx.strokeStyle = '#222';
+    ctx.lineWidth = 6;
+    ctx.beginPath();
+    ctx.moveTo(sx, sy);
+    ctx.lineTo(sx + ax * gunLen, sy + ay * gunLen);
+    ctx.stroke();
+    // Gun body highlight.
+    ctx.strokeStyle = '#3c3c40';
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    ctx.moveTo(sx + ax * 6, sy + ay * 6);
+    ctx.lineTo(sx + ax * (gunLen + 3), sy + ay * (gunLen + 3));
+    ctx.stroke();
+    // Forward hand.
+    ctx.fillStyle = hurt ? '#f0b0a4' : '#cdb89a';
+    ctx.beginPath(); ctx.arc(sx + ax * 14, sy + ay * 14, 2.6, 0, TAU); ctx.fill();
+
+    ctx.restore();
   }
 
-  // Lantern light — drawn in the lighting pass (additive).
-  renderLight(ctx) {
-    const g = ctx.createRadialGradient(this.x, this.y - 6, 8, this.x, this.y - 6, 190);
-    g.addColorStop(0, 'rgba(255,210,150,0.55)');
-    g.addColorStop(0.5, 'rgba(200,150,90,0.16)');
-    g.addColorStop(1, 'rgba(120,90,60,0)');
+  // Bright muzzle flash, drawn additively in the emissive pass.
+  renderMuzzle(ctx) {
+    if (this.muzzle <= 0) return;
+    const mx = this.x + Math.cos(this.aim) * 28;
+    const my = this.y - 10 + Math.sin(this.aim) * 28;
+    const g = ctx.createRadialGradient(mx, my, 0, mx, my, 30);
+    g.addColorStop(0, 'rgba(255,228,150,0.95)');
+    g.addColorStop(1, 'rgba(255,170,70,0)');
     ctx.fillStyle = g;
-    ctx.beginPath();
-    ctx.arc(this.x, this.y - 6, 190, 0, TAU);
-    ctx.fill();
+    ctx.beginPath(); ctx.arc(mx, my, 30, 0, TAU); ctx.fill();
   }
 }

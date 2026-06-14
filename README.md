@@ -24,9 +24,16 @@ npm start
 - **Night — hold the wall.** Zombies emerge from the dark horizon and advance on
   your barrier. Move along the wall, aim into the gloom, and thin the horde
   before it claws through. Survive until **dawn**.
-- **Day — scavenge & advance.** Play the Supply Run skill check for ammo and
-  repair materials, pick up the occasional weapon or **rescue a survivor**, then
-  travel one leg down the road.
+- **Day — choose a scavenge run.** Each morning you pick one of three
+  expeditions, trading risk for supplies:
+  - *Quiet Cache* (low risk) — a steady-hands timing check, no zombies.
+  - *Outrun the Pack* (high risk) — survive unarmed in an arena, don't get caught.
+  - *Smash & Grab* (med) — collect as many crates as you can before time's up.
+  - *Fuel Siphon* (med) — hold a zone to fill the can; SPACE shoves the dead back.
+
+  How well you do scales the haul (ammo, wall repair, healing); a botched risky
+  run can leave you bitten. You'll also pick up weapons and **rescue survivors**
+  along the way, then travel one leg down the road.
 - **Win** by reaching the safe zone (4 legs). **Lose** if you die or the wall is
   fully overrun.
 
@@ -39,7 +46,12 @@ npm start
 | Fire | Left click / hold |
 | Reload | `R` |
 | Swap weapon | `1` `2` `3` or scroll wheel |
+| Pause / menu | `Esc` |
 | Confirm / advance | `Space` / click |
+
+Day scavenge runs are unarmed and top-down: **WASD / arrows** to move, **Space**
+to shove (Fuel Siphon) or lock (Quiet Cache). A main menu, an ESC pause menu,
+and a settings panel (volume / mute / screen shake) are all in.
 
 ## Cast
 

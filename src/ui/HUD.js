@@ -1,129 +1,170 @@
-// Canvas HUD for the night defense. Everything is drawn in screen space after
-// the world (and after camera shake), so the readouts stay rock-steady. Pure
-// functions — state comes in via the data bag.
+// Night HUD — drawn in screen space after the world + post FX, so it stays
+// crisp. Framed translucent panels, a dawn timeline, road progress, vitals
+// with bars, a companion strip, and a weapon panel with ammo pips. Pure
+// functions; state arrives via the data bag.
 
 import { VIEW, PAL } from '../Config.js';
 import { WEAPONS } from '../game/Weapons.js';
 
-function bar(ctx, x, y, w, h, frac, color, bg = 'rgba(0,0,0,0.55)') {
-  ctx.fillStyle = bg;
+function panel(ctx, x, y, w, h) {
+  ctx.fillStyle = 'rgba(6,10,11,0.62)';
+  ctx.fillRect(x, y, w, h);
+  ctx.strokeStyle = 'rgba(127,255,138,0.16)';
+  ctx.lineWidth = 1;
+  ctx.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
+}
+
+function bar(ctx, x, y, w, h, frac, color) {
+  ctx.fillStyle = 'rgba(0,0,0,0.6)';
   ctx.fillRect(x, y, w, h);
   ctx.fillStyle = color;
   ctx.fillRect(x, y, w * Math.max(0, Math.min(1, frac)), h);
-  ctx.strokeStyle = 'rgba(255,255,255,0.12)';
+  ctx.strokeStyle = 'rgba(255,255,255,0.10)';
   ctx.lineWidth = 1;
   ctx.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
 }
 
 export function drawNightHUD(ctx, d) {
   const { run, player, wall, director, companions, kills } = d;
-  ctx.textAlign = 'left';
   ctx.textBaseline = 'alphabetic';
 
-  // ── Top-left: night + dawn timer ──
-  ctx.fillStyle = PAL.hud;
-  ctx.font = 'bold 20px monospace';
-  ctx.fillText(`NIGHT ${run.night}`, 20, 32);
-  ctx.font = '11px monospace';
-  ctx.fillStyle = PAL.hudDim;
-  ctx.fillText('HOLD UNTIL DAWN', 20, 48);
-  bar(ctx, 20, 54, 200, 8, director.progress01, director.isDawn ? '#ffe08a' : '#5a7da8');
-  // Sun creeps along the bar.
-  const sx = 20 + 200 * director.progress01;
-  ctx.fillStyle = '#ffe08a';
-  ctx.beginPath(); ctx.arc(sx, 58, 5, 0, 6.283); ctx.fill();
+  // ── Top bar: night · dawn timeline · road · kills ──
+  panel(ctx, 14, 12, VIEW.W - 28, 56);
 
-  // ── Top-center: road to the safe zone ──
-  const cx = VIEW.W / 2;
+  ctx.textAlign = 'left';
+  ctx.fillStyle = PAL.hud;
+  ctx.font = 'bold 22px monospace';
+  ctx.fillText(`NIGHT ${run.night}`, 28, 38);
+  ctx.fillStyle = PAL.hudDim;
+  ctx.font = '10px monospace';
+  ctx.fillText('HOLD UNTIL DAWN', 28, 54);
+
+  // Dawn timeline.
+  const tlx = 190, tlw = 360, tly = 40;
+  bar(ctx, tlx, tly, tlw, 7, director.progress01, director.isDawn ? '#ffe08a' : '#5a7da8');
+  const sx = tlx + tlw * director.progress01;
+  ctx.fillStyle = '#ffe49a';
+  ctx.beginPath(); ctx.arc(sx, tly + 3.5, 6, 0, 6.2832); ctx.fill();
+  ctx.fillStyle = PAL.hudDim;
+  ctx.font = '9px monospace';
+  ctx.fillText('☾', tlx - 2, tly - 4);
+  ctx.textAlign = 'right';
+  ctx.fillText('DAWN ☀', tlx + tlw + 2, tly - 4);
+
+  // Road progress (right of timeline).
   ctx.textAlign = 'center';
   ctx.fillStyle = PAL.hudDim;
-  ctx.font = '11px monospace';
-  ctx.fillText('ROAD TO THE SAFE ZONE', cx, 24);
-  const pips = run.legsTotal;
-  const pw = 26, gap = 8, totalW = pips * pw + (pips - 1) * gap;
-  let px = cx - totalW / 2;
+  ctx.font = '9px monospace';
+  const rcx = VIEW.W - 230;
+  ctx.fillText('ROAD TO SAFE ZONE', rcx, 28);
+  const pips = run.legsTotal, pw = 22, gap = 6;
+  let px = rcx - (pips * pw + (pips - 1) * gap) / 2;
   for (let i = 0; i < pips; i++) {
-    ctx.fillStyle = i < run.leg ? PAL.good : 'rgba(255,255,255,0.12)';
-    ctx.fillRect(px, 32, pw, 6);
+    ctx.fillStyle = i < run.leg ? PAL.good : 'rgba(255,255,255,0.14)';
+    ctx.fillRect(px, 36, pw, 6);
+    if (i === run.leg) { ctx.fillStyle = '#ffe49a'; ctx.fillRect(px, 36, pw, 6); }
     px += pw + gap;
   }
-  ctx.fillStyle = PAL.hudDim;
-  ctx.font = '10px monospace';
-  ctx.fillText(`${run.leg} / ${run.legsTotal} legs`, cx, 52);
 
-  // ── Top-right: kills ──
+  // Kills.
   ctx.textAlign = 'right';
   ctx.fillStyle = PAL.hud;
-  ctx.font = 'bold 16px monospace';
-  ctx.fillText(`${kills} killed`, VIEW.W - 20, 30);
+  ctx.font = 'bold 18px monospace';
+  ctx.fillText(`${kills}`, VIEW.W - 28, 38);
+  ctx.fillStyle = PAL.hudDim;
+  ctx.font = '9px monospace';
+  ctx.fillText('KILLED', VIEW.W - 28, 52);
 
-  // ── Bottom-left: health + wall ──
+  // ── Bottom-left: vitals ──
+  const vy = VIEW.H - 92;
+  panel(ctx, 14, vy, 286, 78);
   ctx.textAlign = 'left';
-  const by = VIEW.H - 70;
   ctx.fillStyle = PAL.hudDim;
   ctx.font = '10px monospace';
-  ctx.fillText('VITALS', 20, by - 6);
-  bar(ctx, 20, by, 220, 14, player.hp / player.maxHp,
-    player.hp / player.maxHp < 0.3 ? '#c0392b' : '#9e2b25');
+  ctx.fillText('♥ HEALTH', 26, vy + 20);
+  const hpf = player.hp / player.maxHp;
+  bar(ctx, 26, vy + 24, 262, 13, hpf, hpf < 0.3 ? '#c0392b' : '#9e2b25');
   ctx.fillStyle = '#fff';
-  ctx.font = 'bold 11px monospace';
-  ctx.fillText(`${Math.ceil(player.hp)}`, 26, by + 11);
+  ctx.font = 'bold 10px monospace';
+  ctx.fillText(`${Math.ceil(player.hp)}`, 30, vy + 34);
 
   ctx.fillStyle = PAL.hudDim;
-  ctx.fillText('WALL', 20, by + 28);
+  ctx.font = '10px monospace';
+  ctx.fillText('▣ WALL', 26, vy + 52);
   const integ = wall.integrity01();
-  bar(ctx, 20, by + 32, 220, 14, integ, integ < 0.3 ? '#8a5a20' : '#6a7a82');
+  bar(ctx, 26, vy + 56, 262, 13, integ, integ < 0.3 ? '#8a5a20' : '#6a7a82');
   if (wall.breachCount() > 0) {
     ctx.fillStyle = '#e0662e';
-    ctx.font = 'bold 10px monospace';
-    ctx.fillText(`${wall.breachCount()} BREACH`, 250, by + 43);
+    ctx.font = 'bold 9px monospace';
+    ctx.textAlign = 'right';
+    ctx.fillText(`⚠ ${wall.breachCount()} BREACH`, 288, vy + 66);
+    ctx.textAlign = 'left';
   }
 
-  // ── Companions roster ──
+  // Companion strip.
   if (companions && companions.length) {
-    let ry = by - 26;
-    ctx.font = '10px monospace';
+    let cx = 314;
     for (const co of companions) {
+      const w = 96;
+      ctx.fillStyle = 'rgba(6,10,11,0.6)';
+      ctx.fillRect(cx, VIEW.H - 40, w, 26);
+      ctx.strokeStyle = co.downed ? 'rgba(120,40,40,0.5)' : 'rgba(120,160,200,0.4)';
+      ctx.strokeRect(cx + 0.5, VIEW.H - 39.5, w, 26);
       ctx.fillStyle = co.downed ? '#7a3030' : '#8fb0c8';
-      ctx.fillText(`${co.downed ? '✖' : '◆'} ${co.name}`, 300, ry);
-      ry -= 14;
+      ctx.font = '10px monospace';
+      ctx.textAlign = 'left';
+      ctx.fillText(`${co.downed ? '✖' : '◆'} ${co.name}`, cx + 6, VIEW.H - 28);
+      if (!co.downed) bar(ctx, cx + 6, VIEW.H - 22, w - 12, 4, co.hp / co.maxHp, '#5fbf6a');
+      cx += w + 8;
     }
   }
 
-  // ── Bottom-right: weapon + ammo + ribbon ──
-  const lo = player.loadout;
-  const w = WEAPONS[lo.id];
-  ctx.textAlign = 'right';
+  // ── Bottom-right: weapon ──
+  const lo = player.loadout, w = WEAPONS[lo.id];
+  const px2 = VIEW.W - 300, py2 = VIEW.H - 92;
+  panel(ctx, px2, py2, 286, 78);
+
+  ctx.textAlign = 'left';
   ctx.fillStyle = PAL.hud;
-  ctx.font = 'bold 20px monospace';
-  ctx.fillText(w.name.toUpperCase(), VIEW.W - 20, VIEW.H - 52);
-  ctx.font = 'bold 22px monospace';
+  ctx.font = 'bold 19px monospace';
+  ctx.fillText(w.name.toUpperCase(), px2 + 14, py2 + 26);
+
   if (player.reloadT > 0) {
     ctx.fillStyle = '#ffd27a';
-    ctx.fillText('RELOADING', VIEW.W - 20, VIEW.H - 26);
-    bar(ctx, VIEW.W - 180, VIEW.H - 20, 160, 6, player.reloadProgress(), '#ffd27a');
+    ctx.font = 'bold 12px monospace';
+    ctx.textAlign = 'right';
+    ctx.fillText('RELOADING', px2 + 272, py2 + 24);
+    bar(ctx, px2 + 120, py2 + 30, 152, 6, player.reloadProgress(), '#ffd27a');
   } else {
-    ctx.fillStyle = lo.ammo === 0 ? '#c0392b' : '#fff';
-    ctx.fillText(`${lo.ammo}`, VIEW.W - 70, VIEW.H - 24);
+    // Ammo pips for the current mag.
+    const pipW = Math.min(12, (262) / w.mag);
+    let ax = px2 + 14;
+    for (let i = 0; i < w.mag; i++) {
+      ctx.fillStyle = i < lo.ammo ? '#ffe49a' : 'rgba(255,255,255,0.12)';
+      ctx.fillRect(ax, py2 + 34, pipW - 2, 9);
+      ax += pipW;
+    }
+    ctx.textAlign = 'right';
     ctx.fillStyle = PAL.hudDim;
-    ctx.font = '14px monospace';
-    ctx.fillText(`/ ${lo.reserve}`, VIEW.W - 20, VIEW.H - 24);
+    ctx.font = '13px monospace';
+    ctx.fillText(`${lo.ammo} / ${lo.reserve}`, px2 + 272, py2 + 26);
   }
 
-  // Weapon ribbon (active highlighted), drawn growing leftward.
-  const n = run.weapons.length;
-  let rx = VIEW.W - 20;
-  ctx.textAlign = 'right';
-  ctx.font = '11px monospace';
-  for (let i = n - 1; i >= 0; i--) {
+  // Weapon slots.
+  ctx.textAlign = 'left';
+  let wx = px2 + 14;
+  ctx.font = '10px monospace';
+  for (let i = 0; i < run.weapons.length; i++) {
     const wd = WEAPONS[run.weapons[i].id];
-    const label = `${i + 1}:${wd.name}`;
-    const wpx = ctx.measureText(label).width + 14;
     const active = i === player.weaponIdx;
+    const label = `${i + 1} ${wd.name}`;
+    const bw = ctx.measureText(label).width + 12;
     ctx.fillStyle = active ? 'rgba(127,255,138,0.18)' : 'rgba(0,0,0,0.4)';
-    ctx.fillRect(rx - wpx, VIEW.H - 92, wpx, 18);
+    ctx.fillRect(wx, py2 + 52, bw, 16);
+    ctx.strokeStyle = active ? PAL.accent : 'rgba(255,255,255,0.1)';
+    ctx.strokeRect(wx + 0.5, py2 + 52.5, bw, 16);
     ctx.fillStyle = active ? PAL.accent : PAL.hudDim;
-    ctx.fillText(label, rx - 7, VIEW.H - 79);
-    rx -= wpx + 6;
+    ctx.fillText(label, wx + 6, py2 + 63);
+    wx += bw + 6;
   }
 }
