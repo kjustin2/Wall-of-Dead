@@ -98,7 +98,13 @@ app.whenReady().then(async () => {
 
       // Let a wave build, then force some action
       await win.webContents.executeJavaScript(`window.__wod.spawnWave('shambler', 6); window.__wod.spawnWave('runner', 3); window.__wod.spawnWave('brute', 1); window.__wod.spawnWave('spitter', 2); window.__wod.spawnWave('crawler', 3); window.__wod.spawnWave('armored', 2); window.__wod.spawnWave('screamer', 1); window.__wod.spawnWave('tank', 1);`);
-      await sleep(3500);
+      await sleep(2000);
+      // Exercise the melee bash (Space) swing path
+      await win.webContents.executeJavaScript(`window.dispatchEvent(new KeyboardEvent('keydown',{code:'Space'}));`);
+      await sleep(120);
+      await shot(win, "03b-shove.png");
+      await win.webContents.executeJavaScript(`window.dispatchEvent(new KeyboardEvent('keyup',{code:'Space'}));`);
+      await sleep(1400);
       await shot(win, "03-night-action.png");
 
       // Aim downfield, charge the meter, throw the Last Stand grenade

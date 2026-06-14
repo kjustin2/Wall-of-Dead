@@ -8,6 +8,7 @@ import { clamp } from "../core/math";
 const MOVE_SPEED = 9.5;
 const GUN_REACH = 1.3;
 const FLY_Y = FIELD.fireY;
+const SHOVE_TIME = 0.28; // melee swing duration
 
 /**
  * The defender. Strafes the rampart (A/D), aims with the mouse, fires the
@@ -28,6 +29,7 @@ export class Player {
   private lantern: THREE.PointLight;
   private muzzleLight: THREE.PointLight;
   private muzzleGlow: THREE.Sprite;
+  private shoveGlow!: THREE.Sprite;
   private aimMarker = new THREE.Group();
   private muzzle = 0; // 0..1 flash
   private fireCd = 0;
@@ -36,6 +38,7 @@ export class Player {
   private yaw = Math.PI;
   private t = 0;
   private shoveCd = 0;
+  private shoveT = 0; // melee swing animation timer
   private heat = 0; // recoil climb on sustained auto fire
   repairing = false;
 
@@ -149,6 +152,11 @@ export class Player {
     this.muzzleGlow.position.set(0.16, 0, -1.15);
     this.aimRig.add(this.muzzleGlow);
 
+    // Impact flash for the melee bash, out in front of the swing.
+    this.shoveGlow = makeGlow(0xdfe9ff, 3.2, 0);
+    this.shoveGlow.position.set(0, 0, -1.7);
+    this.aimRig.add(this.shoveGlow);
+
     // World-space aim reticle on the field — shows exactly where shots land.
     const aimMat = new THREE.MeshBasicMaterial({
       color: 0xff6347,
@@ -255,6 +263,20 @@ export class Player {
       this.muzzleGlow.material.opacity = this.muzzle;
     }
 
+    // Melee bash swing: pitch the rifle down-and-forward, lunge, flash, recover.
+    if (this.shoveT > 0) {
+      this.shoveT -= dt;
+      const s = Math.sin(clamp(1 - this.shoveT / SHOVE_TIME, 0, 1) * Math.PI);
+      this.aimRig.rotation.x = -s * 1.2;
+      this.aimRig.position.z = -s * 0.4;
+      this.shoveGlow.material.opacity = s * 0.9;
+      if (this.shoveT <= 0) {
+        this.aimRig.rotation.x = 0;
+        this.aimRig.position.z = 0;
+        this.shoveGlow.material.opacity = 0;
+      }
+    }
+
     // Drive the camera
     this.ctx.cam.target.set(this.x, 0, this.z);
     this.ctx.cam.aimX = input.aimWorld.x;
@@ -326,18 +348,40 @@ export class Player {
     if (lo.ammo <= 0) this.startReload();
   }
 
-  /** Melee shove (Space): knocks attackers right in front of you off the wall. */
+  /** Melee bash (Space): a visible swing that knocks attackers off the wall. */
   private shove(): void {
     this.shoveCd = 1.1;
+    this.shoveT = SHOVE_TIME;
     this.ctx.events.emit("SFX", { id: "shove" });
-    this.ctx.cam.addTrauma(0.12);
-    this.ctx.fx.cone(this.x, 1.4, this.z - 1.5, 0, -1, 12, 0xbfd0e0, 13);
+    this.ctx.cam.addTrauma(0.18);
+
+    // Swing direction = where you're aiming.
+    const dx = this.ctx.input.aimWorld.x - this.x;
+    const dz = this.ctx.input.aimWorld.z - this.z;
+    const base = Math.atan2(dx, dz);
+    const sx = Math.sin(base);
+    const sz = Math.cos(base);
+
+    // A fan of debris sweeping across the swing + a bright impact burst.
+    for (let i = -2; i <= 2; i++) {
+      const a = base + i * 0.32;
+      this.ctx.fx.cone(this.x + Math.sin(a) * 1.4, 1.4, this.z + Math.cos(a) * 1.4, Math.sin(a), Math.cos(a), 4, 0xcfe0ff, 14);
+    }
+    this.ctx.fx.burst(this.x + sx * 2.2, 1.3, this.z + sz * 2.2, 16, 0xeaf2ff, { speed: 11, up: 3, life: 0.3, size: 7 });
+
+    let hit = false;
     for (const z of this.ctx.enemies.alive) {
       if (!z.killable) continue;
-      if (Math.abs(z.x - this.x) < 3.2 && z.z > -5.5) {
-        z.repel(6);
+      if (Math.abs(z.x - this.x) < 3.4 && z.z > -6) {
+        z.repel(8);
         this.ctx.combat.damageZombie(z, 12, false, true);
+        hit = true;
       }
+    }
+    // A tiny crunch on contact sells the bash.
+    if (hit) {
+      this.ctx.cam.addTrauma(0.15);
+      this.ctx.events.emit("TIME_HITSTOP", { s: 0.035 });
     }
   }
 
