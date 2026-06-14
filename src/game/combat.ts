@@ -23,6 +23,7 @@ export class Combat {
       ctx.stage.punch(0.35);
       ctx.adrenaline.drain(12);
       ctx.events.emit("SFX", { id: "wall_breach" });
+      ctx.events.emit("TIME_HITSTOP", { s: 0.05 });
     });
   }
 
@@ -61,6 +62,8 @@ export class Combat {
       this.ctx.fx.burst(z.x, 1.0, z.z, 24, PAL.blood, { speed: 12, up: 8, life: 0.7, size: 8 });
       this.ctx.events.emit("ZOMBIE_KILLED", { x: z.x, z: z.z, kind: z.kind });
       this.ctx.events.emit("SFX", { id: "zombie_die", pan });
+      // A brief crunch only on the meaty kills, so it reads as punch not lag.
+      if (z.heavy || headshot) this.ctx.events.emit("TIME_HITSTOP", { s: 0.04 });
       if (fromPlayer) this.ctx.adrenaline.gain(headshot ? 15 : 10);
     } else if (fromPlayer) {
       this.ctx.adrenaline.gain(2);

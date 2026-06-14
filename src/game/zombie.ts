@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import type { Ctx } from "./ctx";
 import { FIELD, PAL } from "../config";
 import { clamp } from "../core/math";
@@ -109,6 +110,60 @@ type State = "advancing" | "attacking" | "standoff" | "crossing" | "dying" | "fl
 
 let NEXT_ID = 1;
 
+// Per-type geometry is built once and shared across all zombies of that type:
+// the whole body is merged into a single BufferGeometry (one draw call) + a tiny
+// eyes geometry. This slashes draw calls (~24 meshes → 2) and per-spawn GC.
+const bodyGeoCache: Record<string, THREE.BufferGeometry> = {};
+const eyeGeoCache: Record<string, THREE.BufferGeometry> = {};
+const eyeMatCache: Record<string, THREE.MeshBasicMaterial> = {};
+
+function box(w: number, h: number, d: number, x: number, y: number, z: number, rx = 0): THREE.BufferGeometry {
+  const g = new THREE.BoxGeometry(w, h, d);
+  if (rx) g.rotateX(rx);
+  g.translate(x, y, z);
+  return g;
+}
+function ball(r: number, x: number, y: number, z: number): THREE.BufferGeometry {
+  const g = new THREE.SphereGeometry(r, 8, 8);
+  g.translate(x, y, z);
+  return g;
+}
+
+function buildZombieGeo(t: ZType): { body: THREE.BufferGeometry; eyes: THREE.BufferGeometry } {
+  if (bodyGeoCache[t.key]) return { body: bodyGeoCache[t.key], eyes: eyeGeoCache[t.key] };
+  const s = t.scale;
+  const lean = t.key === "runner" ? 0.32 : t.key === "brute" ? 0.1 : 0.2;
+  const p: THREE.BufferGeometry[] = [
+    box(0.78 * s, 1.15 * s, 0.5 * s, 0, 0.95 * s, 0, lean),
+    box(0.92 * s, 0.34 * s, 0.5 * s, 0, 1.42 * s, 0.12 * s, lean),
+    box(0.46 * s, 0.46 * s, 0.48 * s, 0, 1.62 * s, 0.18 * s),
+    box(0.34 * s, 0.16 * s, 0.3 * s, 0, 1.45 * s, 0.34 * s),
+    box(0.72 * s, 0.5 * s, 0.06 * s, 0, 0.5 * s, 0.28 * s, 0.3),
+  ];
+  for (const ax of [-0.52, 0.52]) {
+    p.push(box(0.2 * s, 0.92 * s, 0.2 * s, ax * s, 1.0 * s, 0.42 * s, -1.1));
+    p.push(box(0.2 * s, 0.2 * s, 0.24 * s, ax * s, 0.58 * s, 0.92 * s));
+    for (const fx of [-0.06, 0, 0.06]) p.push(box(0.04 * s, 0.04 * s, 0.18 * s, (ax + fx) * s, 0.56 * s, 1.08 * s, 0.5));
+  }
+  for (const lx of [-0.22, 0.22]) {
+    p.push(box(0.24 * s, 0.85 * s, 0.24 * s, lx * s, 0.42 * s, 0));
+    p.push(box(0.26 * s, 0.14 * s, 0.42 * s, lx * s, 0.07 * s, 0.12 * s));
+  }
+  if (t.key === "brute") {
+    for (const sx of [-0.6, 0.6]) p.push(box(0.42 * s, 0.42 * s, 0.6 * s, sx * s, 1.5 * s, 0.1 * s));
+    p.push(box(0.7 * s, 0.7 * s, 0.25 * s, 0, 1.2 * s, -0.3 * s));
+  } else if (t.key === "spitter") {
+    p.push(ball(0.42 * s, 0, 1.1 * s, -0.34 * s));
+  }
+  const body = mergeGeometries(p, false) as THREE.BufferGeometry;
+  for (const g of p) g.dispose();
+  const eyes = mergeGeometries([ball(0.1 * s, -0.12 * s, 1.66 * s, 0.42 * s), ball(0.1 * s, 0.12 * s, 1.66 * s, 0.42 * s)], false) as THREE.BufferGeometry;
+  bodyGeoCache[t.key] = body;
+  eyeGeoCache[t.key] = eyes;
+  eyeMatCache[t.key] = new THREE.MeshBasicMaterial({ color: t.eye, fog: false });
+  return { body, eyes };
+}
+
 export class Zombie {
   id = NEXT_ID++;
   kind: string;
@@ -153,107 +208,21 @@ export class Zombie {
     this.headY = 1.7 * t.scale;
 
     const s = t.scale;
-    const lean = t.key === "runner" ? 0.32 : t.key === "brute" ? 0.1 : 0.2;
+    const geo = buildZombieGeo(t);
     this.bodyMat = new THREE.MeshStandardMaterial({
       color: t.body,
       roughness: 1,
       flatShading: true,
       emissive: new THREE.Color(0x000000),
     });
-    const limbMat = new THREE.MeshStandardMaterial({ color: t.body, roughness: 1, flatShading: true });
-    const headMat = new THREE.MeshStandardMaterial({ color: t.head, roughness: 1, flatShading: true });
-
-    // Torso (hunched) + shoulders
-    this.body = new THREE.Mesh(new THREE.BoxGeometry(0.78 * s, 1.15 * s, 0.5 * s), this.bodyMat);
-    this.body.position.y = 0.95 * s;
-    this.body.rotation.x = lean;
+    this.body = new THREE.Mesh(geo.body, this.bodyMat);
     this.body.castShadow = true;
     this.group.add(this.body);
-    const shoulders = new THREE.Mesh(new THREE.BoxGeometry(0.92 * s, 0.34 * s, 0.5 * s), limbMat);
-    shoulders.position.set(0, 1.42 * s, 0.12 * s);
-    shoulders.rotation.x = lean;
-    shoulders.castShadow = true;
-    this.group.add(shoulders);
-
-    // Head + jaw
-    const head = new THREE.Mesh(new THREE.BoxGeometry(0.46 * s, 0.46 * s, 0.48 * s), headMat);
-    head.position.set(0, 1.62 * s, 0.18 * s);
-    head.castShadow = true;
-    this.group.add(head);
-    const jaw = new THREE.Mesh(new THREE.BoxGeometry(0.34 * s, 0.16 * s, 0.3 * s), headMat);
-    jaw.position.set(0, 1.45 * s, 0.34 * s);
-    this.group.add(jaw);
-
-    // Glowing eyes + a halo so they read through fog and dark
-    const eyeMat = new THREE.MeshBasicMaterial({ color: t.eye, fog: false });
-    const eyeGeo = new THREE.SphereGeometry(0.1 * s, 7, 7);
-    for (const ex of [-0.12, 0.12]) {
-      const eye = new THREE.Mesh(eyeGeo, eyeMat);
-      eye.position.set(ex * s, 1.66 * s, 0.42 * s);
-      this.group.add(eye);
-    }
+    const eyes = new THREE.Mesh(geo.eyes, eyeMatCache[t.key]);
+    this.group.add(eyes);
     this.glow = makeGlow(t.eye, 1.7 * s, 0.6);
     this.glow.position.set(0, 1.66 * s, 0.4 * s);
     this.group.add(this.glow);
-
-    // Reaching arms
-    const armGeo = new THREE.BoxGeometry(0.2 * s, 0.92 * s, 0.2 * s);
-    for (const ax of [-0.52, 0.52]) {
-      const arm = new THREE.Mesh(armGeo, limbMat);
-      arm.position.set(ax * s, 1.0 * s, 0.42 * s);
-      arm.rotation.x = -1.1;
-      arm.castShadow = true;
-      this.group.add(arm);
-    }
-    const legGeo = new THREE.BoxGeometry(0.24 * s, 0.85 * s, 0.24 * s);
-    for (const lx of [-0.22, 0.22]) {
-      const leg = new THREE.Mesh(legGeo, limbMat);
-      leg.position.set(lx * s, 0.42 * s, 0);
-      this.group.add(leg);
-      const foot = new THREE.Mesh(new THREE.BoxGeometry(0.26 * s, 0.14 * s, 0.42 * s), limbMat);
-      foot.position.set(lx * s, 0.07 * s, 0.12 * s);
-      this.group.add(foot);
-    }
-
-    // Clawed hands at the ends of the reaching arms
-    const clawMat = new THREE.MeshStandardMaterial({ color: 0xc2b7a6, roughness: 1, flatShading: true });
-    for (const ax of [-0.52, 0.52]) {
-      const hand = new THREE.Mesh(new THREE.BoxGeometry(0.2 * s, 0.2 * s, 0.24 * s), limbMat);
-      hand.position.set(ax * s, 0.58 * s, 0.92 * s);
-      this.group.add(hand);
-      for (const fx of [-0.06, 0, 0.06]) {
-        const claw = new THREE.Mesh(new THREE.BoxGeometry(0.04 * s, 0.04 * s, 0.18 * s), clawMat);
-        claw.position.set((ax + fx) * s, 0.56 * s, 1.08 * s);
-        claw.rotation.x = 0.5;
-        this.group.add(claw);
-      }
-    }
-
-    // Torn cloth flap
-    const cloth = new THREE.Mesh(new THREE.BoxGeometry(0.72 * s, 0.5 * s, 0.06 * s), this.bodyMat);
-    cloth.position.set(0, 0.5 * s, 0.28 * s);
-    cloth.rotation.x = 0.3;
-    this.group.add(cloth);
-
-    // Type-specific silhouette
-    if (t.key === "brute") {
-      for (const sx of [-0.6, 0.6]) {
-        const pad = new THREE.Mesh(new THREE.BoxGeometry(0.42 * s, 0.42 * s, 0.6 * s), limbMat);
-        pad.position.set(sx * s, 1.5 * s, 0.1 * s);
-        pad.castShadow = true;
-        this.group.add(pad);
-      }
-      const slab = new THREE.Mesh(new THREE.BoxGeometry(0.7 * s, 0.7 * s, 0.25 * s), headMat);
-      slab.position.set(0, 1.2 * s, -0.3 * s);
-      this.group.add(slab);
-    } else if (t.key === "spitter") {
-      const sac = new THREE.Mesh(
-        new THREE.SphereGeometry(0.42 * s, 10, 10),
-        new THREE.MeshStandardMaterial({ color: 0x4a6a22, emissive: new THREE.Color(PAL.acid), emissiveIntensity: 0.6, roughness: 0.7, flatShading: true })
-      );
-      sac.position.set(0, 1.1 * s, -0.34 * s);
-      this.group.add(sac);
-    }
 
     this.group.position.set(this.x, 0, this.z);
   }
@@ -331,7 +300,7 @@ export class Zombie {
     // Walk bob (skip while dying)
     if (this.state !== "dying") {
       this.bob += dt * this.t.speed * 1.4;
-      this.body.position.y = 0.95 * this.t.scale + Math.sin(this.bob) * 0.05;
+      this.body.position.y = Math.sin(this.bob) * 0.05;
     }
   }
 
@@ -460,6 +429,9 @@ export class Zombie {
 
   dispose(scene: THREE.Scene): void {
     scene.remove(this.group);
+    // Geometry + eye material are shared/cached; only free per-instance bits.
+    this.bodyMat.dispose();
+    this.glow.material.dispose();
   }
 }
 

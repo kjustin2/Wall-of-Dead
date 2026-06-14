@@ -110,6 +110,8 @@ export class GrenadeManager {
     this.ctx.stage.punch(0.6);
     this.ctx.cam.pulseFov(0.8);
     this.ctx.events.emit("SFX", { id: "explosion" });
+    this.ctx.events.emit("TIME_HITSTOP", { s: 0.06 });
+    this.ctx.events.emit("TIME_SLOWMO", { s: 0.3, strength: 0.4 });
   }
 
   update(dt: number): void {

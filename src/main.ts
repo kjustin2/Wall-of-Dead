@@ -181,6 +181,7 @@ function onDawn(): void {
   ctx.stats.wallHeld = ctx.wall.integrityFrac() * 100;
   ctx.world.setDawn(0.7);
   ctx.events.emit("SFX", { id: "dawn_sting" });
+  requestSlowmo(0.7, 0.45);
   hud.setMode("hidden");
   const lines = [
     `Kills tonight — ${ctx.stats.kills}`,
@@ -304,8 +305,30 @@ ctx.events.on("PLAYER_DIED", () => {
 });
 ctx.events.on("DAY_DONE", ({ tier, frac }) => onDayDone(tier, frac));
 ctx.events.on("ADRENALINE_ZONE", ({ zone, prev }) => {
-  if (zone === "surge" && prev !== "surge") ctx.events.emit("SFX", { id: "meter_full" });
+  if (zone === "surge" && prev !== "surge") {
+    ctx.events.emit("SFX", { id: "meter_full" });
+    requestSlowmo(0.22, 0.55);
+  }
 });
+
+// ---------------------------------------------------------------- time feel
+// Hit-stop = a very short full freeze (capped so it never reads as lag).
+// Slow-mo = a brief, intentional dilation on big moments. Game systems run on a
+// scaled dt; camera/world/UI/music run on real dt so feedback stays smooth.
+let hitStop = 0;
+let slowmo = 0;
+let slowmoStrength = 1;
+function requestHitStop(s: number): void {
+  hitStop = Math.min(0.09, Math.max(hitStop, s));
+}
+function requestSlowmo(s: number, strength: number): void {
+  if (s > slowmo) {
+    slowmo = s;
+    slowmoStrength = strength;
+  }
+}
+ctx.events.on("TIME_HITSTOP", ({ s }) => requestHitStop(s));
+ctx.events.on("TIME_SLOWMO", ({ s, strength }) => requestSlowmo(s, strength));
 
 window.addEventListener("keydown", (e) => {
   if (e.code === "Escape") {
@@ -316,11 +339,42 @@ window.addEventListener("keydown", (e) => {
 
 // ---------------------------------------------------------------- frame loop
 let last = performance.now();
+let fpsAccum = 0;
+let fpsFrames = 0;
+let qualityNudged = false;
 ctx.stage.renderer.setAnimationLoop(() => {
   const now = performance.now();
-  const dt = Math.min(0.05, (now - last) / 1000);
+  const realDt = Math.min(0.05, (now - last) / 1000);
   last = now;
   ctx.playing = state === "night" || state === "day";
+
+  // Resolve time scale: hit-stop freezes, then slow-mo, else normal.
+  let scale = 1;
+  if (hitStop > 0) {
+    hitStop -= realDt;
+    scale = 0;
+  } else if (slowmo > 0) {
+    slowmo -= realDt;
+    scale = slowmoStrength;
+  }
+  const dt = realDt * scale;
+
+  // Adaptive quality: if sustained FPS is poor, step quality down once so the
+  // game never *feels* like it's lagging. Never below the user's choice floor.
+  if (ctx.playing) {
+    fpsAccum += realDt;
+    fpsFrames++;
+    if (fpsAccum >= 2 && !qualityNudged) {
+      const fps = fpsFrames / fpsAccum;
+      if (fps < 45) {
+        if (ctx.stage.quality === "high") ctx.stage.applyQuality("medium");
+        else if (ctx.stage.quality === "medium") ctx.stage.applyQuality("low");
+        qualityNudged = true;
+      }
+      fpsAccum = 0;
+      fpsFrames = 0;
+    }
+  }
 
   if (state === "night" && director) {
     ctx.stats.time += dt;
@@ -358,14 +412,16 @@ ctx.stage.renderer.setAnimationLoop(() => {
     hud.update(dt);
   }
 
-  ctx.world.update(dt);
+  // Gameplay FX freeze with the game clock; camera/world/post run real-time so
+  // feedback stays smooth even mid hit-stop.
   ctx.fx.update(dt);
   ctx.tele.update(dt);
-  ctx.floaters.update(dt);
-  ctx.cam.update(dt);
-  ctx.music.update(dt);
-  ctx.stage.update(dt);
-  ctx.stage.render(dt);
+  ctx.floaters.update(realDt);
+  ctx.world.update(realDt);
+  ctx.cam.update(realDt);
+  ctx.music.update(realDt);
+  ctx.stage.update(realDt);
+  ctx.stage.render(realDt);
   ctx.input.endFrame();
 });
 

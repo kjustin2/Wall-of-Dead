@@ -37,6 +37,11 @@ export interface EventMap {
   ADRENALINE_ZONE: { zone: AdrenalineZone; prev: AdrenalineZone };
   LAST_STAND: { x: number; z: number };
 
+  /** Brief full freeze for impact (capped short so it reads as juice). */
+  TIME_HITSTOP: { s: number };
+  /** Brief slow-motion (strength = time scale, e.g. 0.4). */
+  TIME_SLOWMO: { s: number; strength: number };
+
   NIGHT_START: { night: number };
   DAWN: Record<string, never>;
   DAY_DONE: { tier: string; frac: number };
