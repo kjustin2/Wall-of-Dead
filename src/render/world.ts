@@ -24,6 +24,13 @@ export class World {
   private embers: THREE.Points;
   private emberVel: Float32Array;
   private flicker: { light: THREE.PointLight; glow: THREE.Sprite; base: number; phase: number; x: number; z: number }[] = [];
+  private mist: { mesh: THREE.Mesh; speed: number }[] = [];
+  private clouds: { sprite: THREE.Sprite; speed: number }[] = [];
+  private searchlights: { pivot: THREE.Group; phase: number; speed: number }[] = [];
+  private lightningTimer = 9;
+  private flashT = 0;
+  /** main sets this to play thunder when a flash fires. */
+  onFlash: (() => void) | null = null;
   private rng = new Rng(1337);
   private t = 0;
   private dawn = 0;
@@ -44,6 +51,7 @@ export class World {
     this.buildTreeline();
     this.buildRocks();
     this.buildProps();
+    this.buildAtmosphere();
     const e = this.buildEmbers();
     this.embers = e.points;
     this.emberVel = e.vel;
@@ -244,13 +252,29 @@ export class World {
   private buildMoon(): THREE.Group {
     const g = new THREE.Group();
     const moon = new THREE.Mesh(
-      new THREE.SphereGeometry(7, 24, 24),
+      new THREE.SphereGeometry(10, 32, 32),
       new THREE.MeshBasicMaterial({ color: PAL.moon, fog: false })
     );
-    const glow = makeGlow(0xdfeaff, 46, 0.8);
+    g.add(moon);
+    // Craters on the visible face (toward +Z, where the field looks from).
+    const craterMat = new THREE.MeshBasicMaterial({ color: 0xb7c0ad, fog: false });
+    const craters: [number, number, number, number][] = [
+      [-2.5, 2, 9.4, 1.6],
+      [3, -1, 9.3, 2.2],
+      [0.5, 3.5, 9.2, 1.1],
+      [-3.5, -3, 9.0, 1.3],
+      [2, 4.5, 8.9, 0.9],
+    ];
+    for (const [cx, cy, cz, r] of craters) {
+      const crater = new THREE.Mesh(new THREE.CircleGeometry(r, 12), craterMat);
+      crater.position.set(cx, cy, cz);
+      crater.lookAt(cx * 2, cy * 2, cz + 6);
+      g.add(crater);
+    }
+    const glow = makeGlow(0xdfeaff, 64, 0.85);
     glow.material.depthWrite = false;
-    g.add(moon, glow);
-    g.position.set(-58, 64, -150);
+    g.add(glow);
+    g.position.set(-62, 66, -150);
     this.group.add(g);
     return g;
   }
@@ -286,6 +310,97 @@ export class World {
       rock.castShadow = true;
       this.group.add(rock);
     }
+  }
+
+  private buildAtmosphere(): void {
+    // Low-lying drifting ground mist
+    const mistTex = makeGlow(0xffffff, 1).material.map;
+    for (let i = 0; i < 8; i++) {
+      const mat = new THREE.MeshBasicMaterial({
+        map: mistTex,
+        color: 0x3b4654,
+        transparent: true,
+        opacity: 0.12,
+        depthWrite: false,
+        fog: true,
+      });
+      const m = new THREE.Mesh(new THREE.PlaneGeometry(46, 46), mat);
+      m.rotation.x = -Math.PI / 2;
+      m.position.set(this.rng.range(-50, 50), this.rng.range(0.4, 1.4), this.rng.range(-70, -4));
+      this.group.add(m);
+      this.mist.push({ mesh: m, speed: this.rng.range(0.6, 1.8) });
+    }
+
+    // Drifting dark clouds across the upper sky
+    for (let i = 0; i < 6; i++) {
+      const mat = new THREE.SpriteMaterial({
+        map: mistTex,
+        color: 0x12161f,
+        transparent: true,
+        opacity: 0.5,
+        depthWrite: false,
+        fog: false,
+      });
+      const s = new THREE.Sprite(mat);
+      s.scale.set(this.rng.range(50, 90), this.rng.range(20, 34), 1);
+      s.position.set(this.rng.range(-120, 120), this.rng.range(48, 92), -150 - this.rng.range(0, 30));
+      this.group.add(s);
+      this.clouds.push({ sprite: s, speed: this.rng.range(1.2, 3) });
+    }
+
+    // Distant sweeping searchlight beams
+    const beamMat = new THREE.MeshBasicMaterial({
+      color: 0xbcd6ff,
+      transparent: true,
+      opacity: 0.05,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+      side: THREE.DoubleSide,
+      fog: false,
+    });
+    const spots: [number, number, number][] = [
+      [-95, -120, 0.34],
+      [82, -135, -0.4],
+    ];
+    for (const [sx, sz, tilt] of spots) {
+      const pivot = new THREE.Group();
+      pivot.position.set(sx, 1, sz);
+      const beam = new THREE.Mesh(new THREE.ConeGeometry(4.5, 80, 18, 1, true), beamMat);
+      beam.position.y = 40;
+      beam.rotation.x = Math.PI; // wide at top, narrow at the source
+      beam.position.z = 6;
+      pivot.rotation.z = tilt;
+      pivot.add(beam);
+      // A bright source at the base
+      const src = makeGlow(0xcfe0ff, 4, 0.7);
+      src.position.set(0, 1.5, 0);
+      pivot.add(src);
+      this.group.add(pivot);
+      this.searchlights.push({ pivot, phase: this.rng.range(0, 6), speed: this.rng.range(0.25, 0.45) });
+    }
+
+    // A crashed transit bus near the wall — a focal landmark
+    const bus = new THREE.Group();
+    const bodyMat = new THREE.MeshStandardMaterial({ color: 0x6a5a26, roughness: 1, flatShading: true });
+    const body = new THREE.Mesh(new THREE.BoxGeometry(3, 3, 11), bodyMat);
+    body.position.y = 1.5;
+    body.castShadow = true;
+    const windows = new THREE.Mesh(
+      new THREE.BoxGeometry(3.05, 0.9, 9),
+      new THREE.MeshStandardMaterial({ color: 0x0c1418, roughness: 0.5, metalness: 0.3 })
+    );
+    windows.position.y = 2.2;
+    bus.add(body, windows);
+    for (const wz of [-3.6, 0, 3.6])
+      for (const wx of [-1.5, 1.5]) {
+        const wheel = new THREE.Mesh(new THREE.CylinderGeometry(0.6, 0.6, 0.4, 12), new THREE.MeshStandardMaterial({ color: 0x0a0a0c, roughness: 1 }));
+        wheel.rotation.z = Math.PI / 2;
+        wheel.position.set(wx, 0.5, wz);
+        bus.add(wheel);
+      }
+    bus.position.set(-21, 0, -7);
+    bus.rotation.set(0, 0.5, 0.18);
+    this.group.add(bus);
   }
 
   private buildEmbers(): { points: THREE.Points; vel: Float32Array } {
@@ -366,6 +481,41 @@ export class World {
       f.glow.material.opacity = (0.55 * n + 0.2) * (1 - this.dawn * 0.5);
       const s = 2.0 + n * 0.7;
       f.glow.scale.set(s, s, 1);
+    }
+
+    // Drifting mist + clouds (wrap across the field/sky)
+    for (const m of this.mist) {
+      m.mesh.position.x += m.speed * dt;
+      if (m.mesh.position.x > 60) m.mesh.position.x = -60;
+      (m.mesh.material as THREE.MeshBasicMaterial).opacity = (0.06 + 0.08 * (0.5 + 0.5 * Math.sin(this.t * 0.3 + m.speed))) * (1 - this.dawn * 0.4);
+    }
+    for (const c of this.clouds) {
+      c.sprite.position.x += c.speed * dt;
+      if (c.sprite.position.x > 140) c.sprite.position.x = -140;
+    }
+
+    // Sweeping searchlights
+    for (const s of this.searchlights) {
+      s.pivot.rotation.y = Math.sin(this.t * s.speed + s.phase) * 0.9;
+      const vis = 1 - this.dawn;
+      (s.pivot.children[0] as THREE.Mesh).visible = vis > 0.3;
+    }
+
+    // Distant lightning (night only): a quick flash + delayed thunder
+    if (this.dawn < 0.55) {
+      this.lightningTimer -= dt;
+      if (this.lightningTimer <= 0) {
+        this.lightningTimer = this.rng.range(11, 26);
+        this.flashT = 0.2;
+        this.onFlash?.();
+      }
+    }
+    if (this.flashT > 0) {
+      this.flashT -= dt;
+      const f = Math.max(0, this.flashT) / 0.2;
+      const boost = f * (0.55 + 0.45 * Math.sin(this.t * 70));
+      this.stage.hemiLight.intensity += boost * 1.8;
+      this.stage.keyLight.intensity += boost * 1.4;
     }
   }
 }

@@ -41,8 +41,10 @@ export class Hud {
       </div>
       <div class="companions"></div>
       <div class="day-hud">
+        <div class="day-title">SUPPLY RUN</div>
         <div class="day-crates">SUPPLIES 0/0</div>
         <div class="bar bar-day"><div class="bar-fill"></div></div>
+        <div class="day-obj">▼ Grab the lit crates · avoid the dead · beat the clock</div>
       </div>
       <div class="kills">0</div>
       <div class="banner"></div>

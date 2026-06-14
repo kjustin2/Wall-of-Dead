@@ -72,6 +72,27 @@ export class Player {
     const shoulders = new THREE.Mesh(new THREE.BoxGeometry(0.96, 0.22, 0.46), coat);
     shoulders.position.y = 1.46;
     this.group.add(shoulders);
+    // Scarf
+    const scarf = new THREE.Mesh(
+      new THREE.BoxGeometry(0.5, 0.2, 0.5),
+      new THREE.MeshStandardMaterial({ color: 0x7a2e22, roughness: 1, flatShading: true })
+    );
+    scarf.position.y = 1.52;
+    this.group.add(scarf);
+    // Shoulder lamp (emissive) + glow
+    const lamp = new THREE.Mesh(
+      new THREE.BoxGeometry(0.12, 0.12, 0.12),
+      new THREE.MeshStandardMaterial({ color: 0x223, emissive: new THREE.Color(0x66ffcc), emissiveIntensity: 1 })
+    );
+    lamp.position.set(-0.44, 1.5, -0.08);
+    this.group.add(lamp);
+    const lampGlow = makeGlow(0x66ffcc, 0.8, 0.85);
+    lampGlow.position.set(-0.44, 1.5, -0.08);
+    this.group.add(lampGlow);
+    // Holster on the hip
+    const holster = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.3, 0.16), dark);
+    holster.position.set(0.34, 0.72, 0.1);
+    this.group.add(holster);
     for (const lx of [-0.18, 0.18]) {
       const leg = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.88, 0.26), dark);
       leg.position.set(lx, 0.44, 0);

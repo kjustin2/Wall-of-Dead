@@ -210,7 +210,30 @@ export class Zombie {
       const leg = new THREE.Mesh(legGeo, limbMat);
       leg.position.set(lx * s, 0.42 * s, 0);
       this.group.add(leg);
+      const foot = new THREE.Mesh(new THREE.BoxGeometry(0.26 * s, 0.14 * s, 0.42 * s), limbMat);
+      foot.position.set(lx * s, 0.07 * s, 0.12 * s);
+      this.group.add(foot);
     }
+
+    // Clawed hands at the ends of the reaching arms
+    const clawMat = new THREE.MeshStandardMaterial({ color: 0xc2b7a6, roughness: 1, flatShading: true });
+    for (const ax of [-0.52, 0.52]) {
+      const hand = new THREE.Mesh(new THREE.BoxGeometry(0.2 * s, 0.2 * s, 0.24 * s), limbMat);
+      hand.position.set(ax * s, 0.58 * s, 0.92 * s);
+      this.group.add(hand);
+      for (const fx of [-0.06, 0, 0.06]) {
+        const claw = new THREE.Mesh(new THREE.BoxGeometry(0.04 * s, 0.04 * s, 0.18 * s), clawMat);
+        claw.position.set((ax + fx) * s, 0.56 * s, 1.08 * s);
+        claw.rotation.x = 0.5;
+        this.group.add(claw);
+      }
+    }
+
+    // Torn cloth flap
+    const cloth = new THREE.Mesh(new THREE.BoxGeometry(0.72 * s, 0.5 * s, 0.06 * s), this.bodyMat);
+    cloth.position.set(0, 0.5 * s, 0.28 * s);
+    cloth.rotation.x = 0.3;
+    this.group.add(cloth);
 
     // Type-specific silhouette
     if (t.key === "brute") {

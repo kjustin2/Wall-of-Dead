@@ -66,6 +66,8 @@ ctx.companions = new CompanionManager(ctx, ctx.stage.scene);
 ctx.player = new Player(ctx, ctx.stage.scene);
 ctx.run = new RunManager(ctx);
 
+ctx.world.onFlash = () => window.setTimeout(() => ctx.events.emit("SFX", { id: "thunder" }), 650);
+
 const scavenge = new Scavenge(ctx, ctx.stage.scene);
 const hud = new Hud(ctx);
 hud.bindScavenge(scavenge);
@@ -183,7 +185,7 @@ function startDay(): void {
   ctx.input.enabled = true;
   scavenge.start();
   state = "day";
-  hud.banner("SUPPLY RUN", "Grab what you can");
+  hud.banner("GRAB THE SUPPLIES", "Reach the lit crates · avoid the dead");
 }
 
 function onDayDone(tier: string, frac: number): void {

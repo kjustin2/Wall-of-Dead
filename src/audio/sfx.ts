@@ -165,6 +165,11 @@ export class Sfx {
       case "player_hurt":
         this.tone(200, 0.25, "sawtooth", 0.3, 90);
         break;
+      case "thunder":
+        this.tone(48, 1.1, "sawtooth", 0.3, 28);
+        this.burst(1.0, 0.45, 320);
+        this.burst(0.3, 0.3, 1200, 0.05);
+        break;
       case "dawn_chime":
         this.tone(523, 0.6, "sine", 0.2, 784);
         this.tone(659, 0.7, "sine", 0.18, 988, 0.15);
