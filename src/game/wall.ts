@@ -163,6 +163,16 @@ export class Wall {
     return this.totalHp() / RUN.wallMaxHp;
   }
 
+  /** Per-segment integrity 0..1 (for the HUD wall map). */
+  segmentFracs(out: number[]): number[] {
+    for (let i = 0; i < SEG; i++) out[i] = Math.max(0, this.hp[i]) / MAX_PER;
+    return out;
+  }
+
+  get segments(): number {
+    return SEG;
+  }
+
   damageAt(x: number, dmg: number): void {
     const i = this.segAt(x);
     if (this.hp[i] <= 0) return;

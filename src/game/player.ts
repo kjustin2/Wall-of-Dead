@@ -31,10 +31,12 @@ export class Player {
   private muzzle = 0; // 0..1 flash
   private fireCd = 0;
   private reloadTimer = 0;
+  private reloadTotal = 1;
   private yaw = Math.PI;
   private t = 0;
   private shoveCd = 0;
   private heat = 0; // recoil climb on sustained auto fire
+  repairing = false;
 
   constructor(private ctx: Ctx, scene: THREE.Scene) {
     const y = FIELD.rampartHeight;
@@ -195,7 +197,15 @@ export class Player {
       this.reloadTimer -= dt;
       if (this.reloadTimer <= 0) this.finishReload();
     }
-    if (this.alive) this.handleInput(dt);
+    // Mid-night repair: hold E at a breach to plug the gap (can't fire meanwhile)
+    this.repairing = this.alive && input.down("KeyE") && this.ctx.wall.isBrokenAt(this.x);
+    if (this.repairing) {
+      this.ctx.wall.repair(18 * dt);
+      if (Math.random() < 0.3) {
+        this.ctx.fx.burst(this.x, 0.5, FIELD.wallZ, 2, 0xffcf6a, { speed: 4, up: 3, life: 0.25, size: 4 });
+      }
+    }
+    if (this.alive && !this.repairing) this.handleInput(dt);
 
     // Muzzle flash decay
     if (this.muzzle > 0) {
@@ -290,6 +300,7 @@ export class Player {
     if (!lo || this.reloadTimer > 0) return;
     if (lo.ammo >= lo.def.mag || lo.reserve <= 0) return;
     this.reloadTimer = lo.def.reload * this.ctx.adrenaline.reloadMult();
+    this.reloadTotal = this.reloadTimer;
     this.ctx.events.emit("RELOAD", { weapon: lo.def.id });
     this.ctx.events.emit("SFX", { id: "reload" });
   }
@@ -314,5 +325,10 @@ export class Player {
   /** True if the current mag is reloading (for the HUD). */
   get reloading(): boolean {
     return this.reloadTimer > 0;
+  }
+
+  /** Reload completion 0..1 (for the HUD bar). */
+  get reloadFrac(): number {
+    return this.reloadTimer > 0 ? 1 - this.reloadTimer / this.reloadTotal : 1;
   }
 }

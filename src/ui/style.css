@@ -130,6 +130,10 @@ body {
   overflow: hidden;
   margin-top: 3px;
 }
+.wall-pips { display: flex; gap: 2px; margin-top: 4px; width: 240px; }
+.pip { flex: 1; height: 5px; border-radius: 2px; background: #69d08a; transition: background 0.2s, opacity 0.2s; }
+.reload-bar { width: 120px; height: 5px; margin: 4px 0 0 auto; background: var(--panel); border-radius: 3px; overflow: hidden; }
+.reload-fill { height: 100%; width: 0%; background: linear-gradient(90deg, #ffce5a, #fff); }
 .bar-hp .bar-fill { background: linear-gradient(90deg, #b53030, #ff6b5a); }
 .bar-wall .bar-fill { background: linear-gradient(90deg, #3a6b8a, #69d0c0); }
 .bar-fill {

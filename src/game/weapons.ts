@@ -86,6 +86,23 @@ export const WEAPONS: Record<string, WeaponDef> = {
     color: 0xfff0c0,
     sfx: "shot_rifle",
   },
+  lmg: {
+    id: "lmg",
+    name: "LMG",
+    fireRate: 0.07,
+    mag: 60,
+    reload: 2.7,
+    damage: 12,
+    pellets: 1,
+    spread: 0.05,
+    speed: 175,
+    auto: true,
+    shake: 0.06,
+    pierce: 1,
+    tracer: 3.4,
+    color: 0xffe08a,
+    sfx: "shot_smg",
+  },
 };
 
 export interface Loadout {

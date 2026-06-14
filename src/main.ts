@@ -89,6 +89,7 @@ let surgeMusic = false;
 let heartbeatTimer = 0;
 let streak = 0;
 let streakTimer = 0;
+let fHeld = false;
 
 // Audio unlock on first gesture
 const unlock = () => {
@@ -221,8 +222,9 @@ function onDayDone(tier: string, frac: number): void {
 
   const repair = Math.round(40 + 220 * frac);
   ctx.run.wallHp = clamp(ctx.run.wallHp + repair, 0, RUN.wallMaxHp);
-  const foundRifle = !ctx.run.weapons.some((w) => w.def.id === "rifle");
-  if (foundRifle) ctx.run.grantWeapon("rifle");
+  const finds = ["rifle", "lmg"];
+  const found = finds.find((id) => !ctx.run.weapons.some((w) => w.def.id === id)) ?? null;
+  if (found) ctx.run.grantWeapon(found);
   else ctx.run.grantWeapon("shotgun");
 
   ctx.run.leg += 1;
@@ -230,7 +232,7 @@ function onDayDone(tier: string, frac: number): void {
   const lines = [
     `Run rating — ${tier}  (${Math.round(frac * 100)}% supplies)`,
     `Wall repaired to ${Math.round((ctx.run.wallHp / RUN.wallMaxHp) * 100)}%`,
-    foundRifle ? "Found a RIFLE in the wreckage!" : "Restocked shotgun shells.",
+    found ? `Found a ${found.toUpperCase()} in the wreckage!` : "Restocked ammo from the cache.",
   ];
 
   lootContinue = () => {
@@ -313,6 +315,9 @@ ctx.events.on("PLAYER_DIED", () => {
   if (state === "night") defeat("You fell at the wall.");
 });
 ctx.events.on("DAY_DONE", ({ tier, frac }) => onDayDone(tier, frac));
+ctx.events.on("WALL_BREACH", () => {
+  if (state === "night") hud.banner("BREACH!", "Plug the gap — hold E");
+});
 ctx.events.on("MINIBOSS", ({ name }) => {
   hud.banner(name, "It'll smash the wall — focus fire");
   ctx.events.emit("SFX", { id: "brute_slam" });
@@ -416,7 +421,17 @@ ctx.stage.renderer.setAnimationLoop(() => {
     ctx.grenades.update(dt);
     ctx.companions.update(dt);
     ctx.adrenaline.update(dt);
-    if (ctx.input.pressed("KeyF")) doLastStand();
+    // Hold F to aim the frag (landing ring preview), release to throw.
+    if (ctx.adrenaline.canCrash() && ctx.input.down("KeyF")) {
+      const tx = clamp(ctx.input.aimWorld.x, -FIELD.wallHalf + 2, FIELD.wallHalf - 2);
+      const tz = clamp(ctx.input.aimWorld.z, -62, FIELD.attackZ - 1);
+      ctx.grenades.showPreview(tx, tz);
+      fHeld = true;
+    } else {
+      if (fHeld) doLastStand();
+      fHeld = false;
+      ctx.grenades.hidePreview();
+    }
     if (streakTimer > 0) {
       streakTimer -= dt;
       if (streakTimer <= 0) streak = 0;

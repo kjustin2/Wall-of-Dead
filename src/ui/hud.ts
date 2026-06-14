@@ -28,6 +28,7 @@ export class Hud {
         <div class="hud-left">
           <div class="stat"><span class="stat-tag">HEALTH</span><div class="bar bar-hp"><div class="bar-fill"></div></div></div>
           <div class="stat"><span class="stat-tag">WALL</span><div class="bar bar-wall"><div class="bar-fill"></div></div></div>
+          <div class="wall-pips"></div>
         </div>
         <div class="hud-center">
           <div class="adr"><div class="adr-fill"></div><div class="adr-tick"></div></div>
@@ -36,6 +37,7 @@ export class Hud {
         <div class="hud-right">
           <div class="weapon-name">—</div>
           <div class="ammo"><span class="ammo-mag">0</span><span class="ammo-res">/0</span></div>
+          <div class="reload-bar"><div class="reload-fill"></div></div>
           <div class="slots"></div>
         </div>
       </div>
@@ -59,6 +61,9 @@ export class Hud {
       dawnLabel: q(".dawn-label"),
       hpFill: q(".bar-hp .bar-fill"),
       wallFill: q(".bar-wall .bar-fill"),
+      wallPips: q(".wall-pips"),
+      reloadBar: q(".reload-bar"),
+      reloadFill: q(".reload-fill"),
       adr: q(".adr"),
       adrFill: q(".adr-fill"),
       adrTick: q(".adr-tick"),
@@ -95,6 +100,7 @@ export class Hud {
 
   private cx = window.innerWidth / 2;
   private cy = window.innerHeight / 2;
+  private segFracs: number[] = [];
 
   private fireKick(): void {
     if (this.mode !== "night") return;
@@ -163,6 +169,26 @@ export class Hud {
     const c = this.ctx;
     this.el.hpFill.style.width = `${(c.player.hp / c.player.maxHp) * 100}%`;
     this.el.wallFill.style.width = `${c.wall.integrityFrac() * 100}%`;
+
+    // Per-segment wall map
+    const fracs = c.wall.segmentFracs(this.segFracs);
+    if (this.el.wallPips.children.length !== fracs.length) {
+      this.el.wallPips.innerHTML = fracs.map(() => '<span class="pip"></span>').join("");
+    }
+    for (let i = 0; i < fracs.length; i++) {
+      const p = this.el.wallPips.children[i] as HTMLElement;
+      const f = fracs[i];
+      p.style.background = f <= 0 ? "#3a0a0a" : `hsl(${Math.round(f * 120)}, 70%, 50%)`;
+      p.style.opacity = f <= 0 ? "0.45" : "1";
+    }
+
+    // Reload bar
+    if (c.player.reloading) {
+      this.el.reloadBar.style.display = "";
+      this.el.reloadFill.style.width = `${c.player.reloadFrac * 100}%`;
+    } else {
+      this.el.reloadBar.style.display = "none";
+    }
 
     const adr = c.adrenaline;
     this.el.adrFill.style.width = `${adr.value}%`;

@@ -31,6 +31,8 @@ export class GrenadeManager {
   private ring: THREE.Mesh;
   private ringMat: THREE.MeshBasicMaterial;
   private ringT = 0;
+  private preview: THREE.Mesh;
+  private previewMat: THREE.MeshBasicMaterial;
   private t = 0;
 
   constructor(private ctx: Ctx, scene: THREE.Scene) {
@@ -63,6 +65,32 @@ export class GrenadeManager {
     this.ring.position.y = 0.12;
     this.ring.visible = false;
     this.group.add(this.ring);
+
+    // Landing-target preview (shown while you hold the throw key).
+    this.previewMat = new THREE.MeshBasicMaterial({
+      color: 0xffd27a,
+      transparent: true,
+      opacity: 0,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+      side: THREE.DoubleSide,
+      fog: false,
+    });
+    this.preview = new THREE.Mesh(new THREE.RingGeometry(RADIUS * 0.5, RADIUS * 0.58, 44), this.previewMat);
+    this.preview.rotation.x = -Math.PI / 2;
+    this.preview.position.y = 0.1;
+    this.preview.visible = false;
+    this.group.add(this.preview);
+  }
+
+  showPreview(x: number, z: number): void {
+    this.preview.visible = true;
+    this.preview.position.set(x, 0.1, z);
+    this.previewMat.opacity = 0.35 + Math.sin(this.t * 9) * 0.18;
+  }
+
+  hidePreview(): void {
+    this.preview.visible = false;
   }
 
   /** Lob a grenade from (sx,sz) to land near (tx,tz). Returns false if none free. */
@@ -156,5 +184,6 @@ export class GrenadeManager {
     this.flash.intensity = 0;
     this.ringT = 0;
     this.ring.visible = false;
+    this.preview.visible = false;
   }
 }

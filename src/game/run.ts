@@ -2,7 +2,7 @@ import type { Ctx } from "./ctx";
 import { makeLoadout, type Loadout } from "./weapons";
 import { RUN } from "../config";
 
-const RESERVES: Record<string, number> = { pistol: 120, smg: 240, shotgun: 48, rifle: 64 };
+const RESERVES: Record<string, number> = { pistol: 120, smg: 240, shotgun: 48, rifle: 64, lmg: 300 };
 
 /**
  * Persistent run state — everything that must survive across the night/day
