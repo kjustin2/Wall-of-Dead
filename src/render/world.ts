@@ -28,6 +28,11 @@ export class World {
   private clouds: { sprite: THREE.Sprite; speed: number }[] = [];
   private searchlights: { pivot: THREE.Group; phase: number; speed: number }[] = [];
   private horde: { mesh: THREE.Group; phase: number; vx: number }[] = [];
+  private rain!: THREE.LineSegments;
+  private rainX = new Float32Array(0);
+  private rainY = new Float32Array(0);
+  private rainZ = new Float32Array(0);
+  private flashes: { sprite: THREE.Sprite; timer: number }[] = [];
   private lightningTimer = 9;
   private flashT = 0;
   /** main sets this to play thunder when a flash fires. */
@@ -418,6 +423,32 @@ export class World {
       this.group.add(fig);
       this.horde.push({ mesh: fig, phase: this.rng.range(0, 6), vx: this.rng.range(-0.6, 0.6) });
     }
+
+    // Rain — falling streaks for atmosphere
+    const N = 320;
+    this.rainX = new Float32Array(N);
+    this.rainY = new Float32Array(N);
+    this.rainZ = new Float32Array(N);
+    const pos = new Float32Array(N * 6);
+    for (let i = 0; i < N; i++) {
+      this.rainX[i] = this.rng.range(-45, 45);
+      this.rainY[i] = this.rng.range(0, 32);
+      this.rainZ[i] = this.rng.range(-46, 10);
+    }
+    const rgeo = new THREE.BufferGeometry();
+    rgeo.setAttribute("position", new THREE.BufferAttribute(pos, 3).setUsage(THREE.DynamicDrawUsage));
+    const rmat = new THREE.LineBasicMaterial({ color: 0x9ab4d0, transparent: true, opacity: 0.2, fog: true });
+    this.rain = new THREE.LineSegments(rgeo, rmat);
+    this.rain.frustumCulled = false;
+    this.group.add(this.rain);
+
+    // Distant battle: faint muzzle flashes blinking on the horizon
+    for (let i = 0; i < 4; i++) {
+      const s = makeGlow(0xffd9a0, 6, 0);
+      s.position.set(this.rng.range(-120, 120), this.rng.range(6, 22), -150 - this.rng.range(0, 20));
+      this.group.add(s);
+      this.flashes.push({ sprite: s, timer: this.rng.range(1, 6) });
+    }
   }
 
   private buildEmbers(): { points: THREE.Points; vel: Float32Array } {
@@ -509,6 +540,31 @@ export class World {
     for (const c of this.clouds) {
       c.sprite.position.x += c.speed * dt;
       if (c.sprite.position.x > 140) c.sprite.position.x = -140;
+    }
+
+    // Rain
+    const rp = this.rain.geometry.getAttribute("position") as THREE.BufferAttribute;
+    for (let i = 0; i < this.rainY.length; i++) {
+      let y = this.rainY[i] - 30 * dt;
+      if (y < 0) y += 32;
+      this.rainY[i] = y;
+      const x = this.rainX[i];
+      const z = this.rainZ[i];
+      rp.setXYZ(i * 2, x, y, z);
+      rp.setXYZ(i * 2 + 1, x - 0.12, y - 0.7, z);
+    }
+    rp.needsUpdate = true;
+    (this.rain.material as THREE.LineBasicMaterial).opacity = lerp(0.22, 0.06, this.dawn);
+
+    // Distant battle flashes
+    for (const f of this.flashes) {
+      f.timer -= dt;
+      if (f.timer <= 0) {
+        f.timer = this.rng.range(1.5, 6);
+        f.sprite.material.opacity = this.rng.range(0.4, 0.9) * (1 - this.dawn);
+      } else {
+        f.sprite.material.opacity = Math.max(0, f.sprite.material.opacity - dt * 3);
+      }
     }
 
     // Ambient horde shuffle + sway

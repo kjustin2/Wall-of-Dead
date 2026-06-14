@@ -102,10 +102,10 @@ export class CameraRig {
     this.lookX = damp(this.lookX, desiredLook, 6, dt);
     this.camera.position.set(
       this.smoothedX + this.kickOffset.x + sx,
-      9 + sy,
+      9 + Math.sin(this.t * 0.9) * 0.18 + sy,
       FIELD.rampartZ + 11.5 + this.kickOffset.z + sz
     );
-    this.camera.lookAt(this.lookX + sx * 0.5, 1.5, -18 + sz * 0.5);
+    this.camera.lookAt(this.lookX + sx * 0.5, 1.5 + Math.sin(this.t * 0.7) * 0.12, -18 + sz * 0.5);
     this.fovDecay(dt);
   }
 

@@ -28,6 +28,7 @@ export class Player {
   private lantern: THREE.PointLight;
   private muzzleLight: THREE.PointLight;
   private muzzleGlow: THREE.Sprite;
+  private beamMat!: THREE.MeshBasicMaterial;
   private muzzle = 0; // 0..1 flash
   private fireCd = 0;
   private reloadTimer = 0;
@@ -128,8 +129,31 @@ export class Player {
     this.flashlight = new THREE.SpotLight(0xfff0d0, 14, 90, 0.5, 0.45, 1.2);
     this.flashlight.position.set(0.16, 0.1, -0.5);
     this.flashlight.target.position.set(0.16, -0.3, -40);
+    this.flashlight.castShadow = true;
+    this.flashlight.shadow.mapSize.set(1024, 1024);
+    this.flashlight.shadow.camera.near = 1;
+    this.flashlight.shadow.camera.far = 90;
+    this.flashlight.shadow.bias = -0.0009;
     this.aimRig.add(this.flashlight);
     this.aimRig.add(this.flashlight.target);
+
+    // Volumetric beam cone (fake light scatter in the air)
+    const beam = new THREE.Mesh(
+      new THREE.ConeGeometry(6.5, 58, 24, 1, true),
+      new THREE.MeshBasicMaterial({
+        color: 0xfff0d0,
+        transparent: true,
+        opacity: 0.05,
+        depthWrite: false,
+        blending: THREE.AdditiveBlending,
+        side: THREE.DoubleSide,
+        fog: true,
+      })
+    );
+    beam.rotation.x = -Math.PI / 2; // narrow at the gun, widening into the field
+    beam.position.set(0.16, 0, -29);
+    this.beamMat = beam.material as THREE.MeshBasicMaterial;
+    this.aimRig.add(beam);
 
     this.lantern = new THREE.PointLight(0xffb060, 1.6, 11, 2);
     this.lantern.position.set(0, 1.4, 0.3);
@@ -186,7 +210,10 @@ export class Player {
     this.aimRig.rotation.y = this.yaw;
 
     // Flashlight intensity tracks the meter + muzzle flash
-    this.flashlight.intensity = (12 + this.muzzle * 30) * this.ctx.adrenaline.lightMult();
+    const lightMul = this.ctx.adrenaline.lightMult();
+    this.flashlight.intensity = (12 + this.muzzle * 30) * lightMul;
+    this.flashlight.castShadow = this.ctx.stage.quality !== "low";
+    this.beamMat.opacity = (0.045 + this.muzzle * 0.06) * lightMul;
     this.lantern.intensity = 1.5 + Math.sin(this.t * 7) * 0.15;
 
     // Weapon handling
