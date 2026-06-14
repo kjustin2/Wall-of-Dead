@@ -145,13 +145,19 @@ export class Menus {
       <div class="screen screen--title">
         <h1 class="title">WALL <span>OF</span> DEAD</h1>
         <p class="subtitle">Hold the barrier until dawn.</p>
+        <input class="name-input" type="text" maxlength="16" placeholder="Name your defender" value="${this.ctx.run.name === "Defender" ? "" : this.ctx.run.name}" />
         <div class="menu">
           <button class="mbtn mbtn--primary act-start">BEGIN</button>
           <button class="mbtn act-settings">SETTINGS</button>
         </div>
-        <p class="controls">A / D move &nbsp;·&nbsp; MOUSE aim &nbsp;·&nbsp; CLICK fire &nbsp;·&nbsp; R reload &nbsp;·&nbsp; 1–3 weapons &nbsp;·&nbsp; SPACE shove &nbsp;·&nbsp; F frag</p>
+        <p class="controls">A / D move &nbsp;·&nbsp; MOUSE aim &nbsp;·&nbsp; CLICK fire &nbsp;·&nbsp; R reload &nbsp;·&nbsp; E repair/revive &nbsp;·&nbsp; SPACE shove &nbsp;·&nbsp; F frag</p>
       </div>`);
-    this.btn(".act-start", onStart);
+    const nameEl = this.root.querySelector(".name-input") as HTMLInputElement;
+    this.btn(".act-start", () => {
+      const nm = nameEl.value.trim();
+      if (nm) this.ctx.run.name = nm;
+      onStart();
+    });
     this.btn(".act-settings", onSettings);
   }
 
@@ -273,10 +279,17 @@ export class Menus {
   }
 
   showVictory(stats: Stats, onReplay: () => void, onTitle: () => void): void {
+    const held = stats.wallHeld;
+    const epilogue =
+      held > 80
+        ? `${this.ctx.run.name} held the wall almost untouched. The safe zone's gates open wide.`
+        : held > 40
+          ? `Battered but unbroken, ${this.ctx.run.name} limps into the safe zone at last.`
+          : `The wall is rubble behind them, but ${this.ctx.run.name} made it through the dark.`;
     this.paint(`
       <div class="screen screen--victory">
         <h1 class="title title--win">SAFE ZONE REACHED</h1>
-        <p class="subtitle">You made it through the dark.</p>
+        <p class="subtitle">${epilogue}</p>
         <ul class="report">
           <li>Kills — ${stats.kills}</li>
           <li>Headshots — ${stats.headshots}</li>

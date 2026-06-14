@@ -13,10 +13,10 @@ const RESERVES: Record<string, number> = { pistol: 120, smg: 240, shotgun: 48, r
 export class RunManager {
   night = 1;
   leg = 0;
-  // Vertical slice = one night + one day to the safe zone. The full game would
-  // raise this to 4 (four legs of road).
-  legsTotal = 1;
+  // A short escalating run: three nights of road to the safe zone.
+  legsTotal = 3;
   wallHp: number = RUN.wallMaxHp;
+  name = "Defender";
   weapons: Loadout[] = [];
   weaponIndex = 0;
   companions: string[] = [];

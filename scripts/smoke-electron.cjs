@@ -111,30 +111,28 @@ app.whenReady().then(async () => {
       await sleep(1150);
       await shot(win, "04-grenade.png");
 
-      // Skip to dawn → report
-      await win.webContents.executeJavaScript(`window.__wod.forceDawn();`);
-      await sleep(1800);
-      await shot(win, "05-day-report.png");
-
-      // Start the supply run
-      const started = await win.webContents.executeJavaScript(
-        `(()=>{const b=document.querySelector('.act-start'); if(b){b.click(); return true;} return false;})()`
-      );
-      if (!started) errors.push("FLOW: no Supply Run button on report");
-      await sleep(2000);
-      await shot(win, "06-day-scavenge.png");
-
-      // Complete the day → loot
-      await win.webContents.executeJavaScript(`window.__wod.completeDay();`);
-      await sleep(1200);
-      await shot(win, "07-day-loot.png");
-
-      // Continue → victory (slice ends after one cycle)
-      await win.webContents.executeJavaScript(
-        `(()=>{const b=document.querySelector('.act-cont'); if(b) b.click();})()`
-      );
-      await sleep(1500);
-      const finalState = await win.webContents.executeJavaScript(`window.__wod.state()`);
+      // Loop the night -> day -> continue cycle until the safe zone (multi-night).
+      let finalState = "";
+      for (let leg = 0; leg < 5; leg++) {
+        await win.webContents.executeJavaScript(`window.__wod.forceDawn();`);
+        await sleep(1700);
+        if (leg === 0) await shot(win, "05-day-report.png");
+        const started = await win.webContents.executeJavaScript(
+          `(()=>{const b=document.querySelector('.act-start'); if(b){b.click(); return true;} return false;})()`
+        );
+        if (!started) errors.push("FLOW: no Supply Run button on report (leg " + leg + ")");
+        await sleep(1600);
+        if (leg === 0) await shot(win, "06-day-scavenge.png");
+        await win.webContents.executeJavaScript(`window.__wod.completeDay();`);
+        await sleep(1100);
+        if (leg === 0) await shot(win, "07-day-loot.png");
+        await win.webContents.executeJavaScript(
+          `(()=>{const b=document.querySelector('.act-cont'); if(b) b.click();})()`
+        );
+        await sleep(1400);
+        finalState = await win.webContents.executeJavaScript(`window.__wod.state()`);
+        if (finalState === "victory") break;
+      }
       await shot(win, "08-victory.png");
       if (finalState !== "victory") errors.push("FLOW: expected victory, got " + finalState);
       console.log("  final state:", finalState);

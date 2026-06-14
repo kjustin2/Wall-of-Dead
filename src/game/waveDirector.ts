@@ -46,22 +46,33 @@ export class WaveDirector {
   private clockDone = false;
   private fleeing = false;
   private tankSpawned = false;
+  // Per-night escalation (night 1 = base; later nights are longer + thicker).
+  private maxAlive: number;
+  private len: number;
+  private startI: number;
+  private endI: number;
 
-  constructor(private ctx: Ctx) {}
+  constructor(private ctx: Ctx) {
+    const n = ctx.run.night;
+    this.maxAlive = PLAN.maxAlive + (n - 1) * 6;
+    this.len = PLAN.length + (n - 1) * 8;
+    this.startI = PLAN.startInterval * Math.pow(0.92, n - 1);
+    this.endI = PLAN.endInterval * Math.pow(0.9, n - 1);
+  }
 
   get progress(): number {
-    return clamp(this.elapsed / PLAN.length, 0, 1);
+    return clamp(this.elapsed / this.len, 0, 1);
   }
 
   get length(): number {
-    return PLAN.length;
+    return this.len;
   }
 
   update(dt: number): void {
     if (this.done) return;
 
     // Mini-boss: one Tank crashes the surge (but not in the final moments).
-    if (!this.tankSpawned && this.progress > 0.85 && this.elapsed < PLAN.length - 4) {
+    if (!this.tankSpawned && this.progress > 0.85 && this.elapsed < this.len - 4) {
       this.tankSpawned = true;
       this.ctx.enemies.spawn("tank", this.ctx.rng.range(-6, 6));
       this.ctx.events.emit("MINIBOSS", { name: "TANK" });
@@ -69,7 +80,7 @@ export class WaveDirector {
 
     if (!this.clockDone) {
       this.elapsed += dt;
-      if (this.elapsed >= PLAN.length) {
+      if (this.elapsed >= this.len) {
         this.clockDone = true;
         this.fleeing = true;
         this.ctx.enemies.forceFlee();
@@ -87,13 +98,13 @@ export class WaveDirector {
   }
 
   private spawnTick(dt: number): void {
-    if (this.ctx.enemies.count >= PLAN.maxAlive) return;
+    if (this.ctx.enemies.count >= this.maxAlive) return;
     this.spawnTimer -= dt;
     if (this.spawnTimer > 0) return;
 
     const p = this.progress;
     // Interval tightens; the last 12% is a surge.
-    let interval = lerp(PLAN.startInterval, PLAN.endInterval, p);
+    let interval = lerp(this.startI, this.endI, p);
     if (p > 0.88) interval *= 0.5;
     this.spawnTimer = interval * this.ctx.rng.range(0.75, 1.25);
 

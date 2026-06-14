@@ -423,6 +423,20 @@ body {
 }
 .subtitle { color: var(--dim); letter-spacing: 2px; font-size: 16px; max-width: 540px; }
 .controls { color: var(--dim); font-size: 13px; letter-spacing: 1px; margin-top: 24px; }
+.name-input {
+  font-family: var(--ui);
+  font-size: 16px;
+  letter-spacing: 1px;
+  text-align: center;
+  color: var(--ink);
+  background: var(--panel);
+  border: 1px solid var(--edge);
+  border-radius: 8px;
+  padding: 8px 16px;
+  width: 280px;
+  outline: none;
+}
+.name-input:focus { border-color: rgba(255, 90, 60, 0.6); }
 
 .menu { display: flex; flex-direction: column; gap: 10px; margin-top: 8px; }
 .mbtn {

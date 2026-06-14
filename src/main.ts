@@ -44,6 +44,12 @@ const STORY = [
   "Survive the night. Scavenge by dawn. Don't let them over.",
 ];
 
+const NIGHT_FLAVOR = [
+  "Hold until dawn.",
+  "They came back angrier. Hold the line.",
+  "Last stretch of road. Whatever it takes — hold.",
+];
+
 const canvas = document.getElementById("game") as HTMLCanvasElement;
 
 // ---------------------------------------------------------------- boot wiring
@@ -181,7 +187,18 @@ function beginNight(): void {
   streakTimer = 0;
   ctx.music.play("night");
   ctx.events.emit("NIGHT_START", { night: ctx.run.night });
-  hud.banner(`NIGHT ${ctx.run.night}`, "Hold until dawn");
+  hud.banner(`NIGHT ${ctx.run.night} / ${ctx.run.legsTotal}`, NIGHT_FLAVOR[(ctx.run.night - 1) % NIGHT_FLAVOR.length]);
+
+  // First-night tutorial prompts
+  if (ctx.run.night === 1) {
+    const tip = (delay: number, t: string, s: string) =>
+      window.setTimeout(() => {
+        if (state === "night") hud.banner(t, s);
+      }, delay);
+    tip(4500, "MOVE & AIM", "A / D move · mouse aim · click fire");
+    tip(9500, "HOLD THE WALL", "R reload · SPACE shove · E plug a breach");
+    tip(14500, "ADRENALINE", "Fill the meter, then hold F to lob a frag");
+  }
 }
 
 function onDawn(): void {
