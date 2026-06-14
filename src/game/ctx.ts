@@ -15,6 +15,7 @@ import type { Player } from "./player";
 import type { EnemyManager } from "./zombie";
 import type { Bullets } from "./bullets";
 import type { CompanionManager } from "./companion";
+import type { GrenadeManager } from "./grenade";
 import type { RunManager } from "./run";
 
 export interface Stats {
@@ -49,6 +50,7 @@ export interface Ctx {
   enemies: EnemyManager;
   bullets: Bullets;
   companions: CompanionManager;
+  grenades: GrenadeManager;
   run: RunManager;
   stats: Stats;
   /** True only while the active scene is in its interactive update phase. */

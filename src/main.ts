@@ -22,6 +22,7 @@ import { Combat } from "./game/combat";
 import { EnemyManager } from "./game/zombie";
 import { Bullets } from "./game/bullets";
 import { CompanionManager } from "./game/companion";
+import { GrenadeManager } from "./game/grenade";
 import { Player } from "./game/player";
 import { RunManager } from "./game/run";
 import { WaveDirector } from "./game/waveDirector";
@@ -29,7 +30,7 @@ import { Scavenge } from "./minigames/scavenge";
 import { Hud } from "./ui/hud";
 import { Menus } from "./ui/menus";
 import { freshStats, type Ctx } from "./game/ctx";
-import { RUN } from "./config";
+import { RUN, FIELD } from "./config";
 import { clamp } from "./core/math";
 
 type GameState = "menu" | "cutscene" | "night" | "day" | "report" | "loot" | "paused" | "dead" | "victory";
@@ -63,6 +64,7 @@ ctx.combat = new Combat(ctx);
 ctx.enemies = new EnemyManager(ctx, ctx.stage.scene);
 ctx.bullets = new Bullets(ctx, ctx.stage.scene);
 ctx.companions = new CompanionManager(ctx, ctx.stage.scene);
+ctx.grenades = new GrenadeManager(ctx, ctx.stage.scene);
 ctx.player = new Player(ctx, ctx.stage.scene);
 ctx.run = new RunManager(ctx);
 
@@ -94,6 +96,7 @@ function toTitle(): void {
   state = "menu";
   ctx.enemies.clear();
   ctx.bullets.clear();
+  ctx.grenades.clear();
   ctx.companions.clear();
   ctx.fx.clear();
   ctx.tele.clear();
@@ -123,6 +126,7 @@ function toCutscene(): void {
   state = "cutscene";
   ctx.enemies.clear();
   ctx.bullets.clear();
+  ctx.grenades.clear();
   ctx.fx.clear();
   ctx.wall.setTotal(ctx.run.wallHp);
   ctx.player.reset();
@@ -144,6 +148,7 @@ function beginNight(): void {
   ctx.companions.spawnFromRun();
   ctx.enemies.clear();
   ctx.bullets.clear();
+  ctx.grenades.clear();
   ctx.fx.clear();
   ctx.tele.clear();
   ctx.adrenaline.reset();
@@ -180,6 +185,7 @@ function startDay(): void {
   menus.clear();
   ctx.enemies.clear();
   ctx.bullets.clear();
+  ctx.grenades.clear();
   ctx.world.setDawn(0.9);
   hud.setMode("day");
   ctx.input.enabled = true;
@@ -240,21 +246,16 @@ function defeat(reason: string): void {
 }
 
 function doLastStand(): void {
-  if (!ctx.adrenaline.crash()) return;
+  if (!ctx.adrenaline.canCrash()) return;
+  // Throw the frag toward where you're aiming, out in the field.
+  const aim = ctx.input.aimWorld;
+  const tx = clamp(aim.x, -FIELD.wallHalf + 2, FIELD.wallHalf - 2);
+  const tz = clamp(aim.z, -62, FIELD.attackZ - 1);
+  if (!ctx.grenades.throwTo(ctx.player.x, ctx.player.z, tx, tz)) return;
+  ctx.adrenaline.crash();
   ctx.stats.lastStands++;
-  const px = ctx.player.x;
-  ctx.events.emit("LAST_STAND", { x: px, z: ctx.player.z });
-  ctx.cam.addTrauma(0.7);
-  ctx.stage.punch(0.6);
-  ctx.cam.pulseFov(1);
-  for (const z of [...ctx.enemies.alive]) {
-    const d = Math.hypot(z.x - px, z.z - ctx.player.z);
-    if (d < 18) {
-      ctx.combat.damageZombie(z, 55, false, false);
-      z.repel(9);
-    }
-  }
-  ctx.fx.burst(px, 1.2, ctx.player.z - 2, 60, 0xffce6a, { speed: 26, up: 10, life: 0.8, size: 9 });
+  ctx.events.emit("LAST_STAND", { x: tx, z: tz });
+  ctx.cam.pulseFov(0.3);
 }
 
 function pause(): void {
@@ -315,6 +316,7 @@ ctx.stage.renderer.setAnimationLoop(() => {
     ctx.player.update(dt);
     ctx.enemies.update(dt);
     ctx.bullets.update(dt);
+    ctx.grenades.update(dt);
     ctx.companions.update(dt);
     ctx.adrenaline.update(dt);
     if (ctx.input.pressed("KeyF")) doLastStand();

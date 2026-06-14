@@ -100,10 +100,15 @@ app.whenReady().then(async () => {
       await sleep(3500);
       await shot(win, "03-night-action.png");
 
-      // Charge + trigger a Last Stand
-      await win.webContents.executeJavaScript(`window.__wod.ctx.adrenaline.gain(100); window.__wod.lastStand();`);
-      await sleep(900);
-      await shot(win, "04-last-stand.png");
+      // Aim downfield, charge the meter, throw the Last Stand grenade
+      await win.webContents.executeJavaScript(`
+        const cv = document.getElementById('game');
+        cv.dispatchEvent(new PointerEvent('pointermove', { clientX: window.innerWidth/2, clientY: window.innerHeight*0.42 }));
+        window.__wod.ctx.adrenaline.gain(100);
+        window.__wod.lastStand();
+      `);
+      await sleep(1150);
+      await shot(win, "04-grenade.png");
 
       // Skip to dawn → report
       await win.webContents.executeJavaScript(`window.__wod.forceDawn();`);

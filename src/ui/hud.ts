@@ -122,7 +122,7 @@ export class Hud {
     const color = ZONE_COLOR[adr.zone];
     this.el.adrFill.style.background = color;
     if (adr.canCrash()) {
-      this.el.adrLabel.textContent = "⚡ LAST STAND — F";
+      this.el.adrLabel.textContent = "💣 FRAG READY — F";
       this.el.adr.classList.add("adr--ready");
     } else {
       this.el.adrLabel.textContent = adr.zone.toUpperCase();

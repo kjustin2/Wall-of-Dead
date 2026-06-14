@@ -175,8 +175,14 @@ export class Sfx {
         this.tone(659, 0.7, "sine", 0.18, 988, 0.15);
         break;
       case "last_stand":
-        this.tone(160, 0.7, "sawtooth", 0.4, 880);
-        this.burst(0.5, 0.4, 2400);
+        // grenade throw — a short rising whoosh + pin pop
+        this.tone(300, 0.18, "triangle", 0.16, 700);
+        this.tone(900, 0.04, "square", 0.08);
+        break;
+      case "explosion":
+        this.tone(58, 0.6, "sawtooth", 0.45, 28);
+        this.burst(0.5, 0.6, 600);
+        this.burst(0.2, 0.45, 2200, 0.02);
         break;
       case "crate":
         this.tone(440, 0.1, "triangle", 0.18, 660);
