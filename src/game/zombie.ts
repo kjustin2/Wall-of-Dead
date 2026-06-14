@@ -188,6 +188,8 @@ export class Zombie {
   private spitTimer: number;
   private winding = 0; // brute slam / spit wind-up remaining
   private dieTimer = 0;
+  private dieRoll = 0;
+  private diePitch = 1.3;
   private fleeFade = 1;
   private bob: number;
   private hitFlash = 0;
@@ -250,6 +252,9 @@ export class Zombie {
   private startDie(): void {
     this.state = "dying";
     this.dieTimer = 0.55;
+    // Vary the fall: topple forward/back or crumple on a random axis.
+    this.dieRoll = (Math.random() - 0.5) * 2.6;
+    this.diePitch = Math.random() < 0.5 ? 1.4 : -0.9;
   }
 
   flee(): void {
@@ -423,7 +428,8 @@ export class Zombie {
     this.dieTimer -= dt;
     const f = clamp(this.dieTimer / 0.55, 0, 1);
     this.group.position.y = -1.4 * (1 - f);
-    this.group.rotation.z = (1 - f) * 1.3;
+    this.group.rotation.z = (1 - f) * this.dieRoll;
+    this.group.rotation.x = (1 - f) * this.diePitch;
     this.group.scale.setScalar(0.6 + f * 0.4);
   }
 

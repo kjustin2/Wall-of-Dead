@@ -250,6 +250,9 @@ export class Player {
       this.ctx.bullets.spawn(mx, mz, Math.sin(a), Math.cos(a), def, def.damage, true);
     }
     this.ctx.fx.cone(mx, FLY_Y, mz, sx, sz, 6, def.color, 20);
+    // Muzzle smoke puff + an ejected shell casing
+    this.ctx.fx.burst(mx, FLY_Y, mz, 2, 0x6a6a6a, { speed: 1.5, up: 1.5, life: 0.5, size: 5, drag: 1.2 });
+    this.ctx.fx.burst(this.x + 0.3, 1.5, this.z, 1, 0xc9a24a, { speed: 3, up: 2.5, life: 0.8, size: 4, drag: 1 });
     this.muzzle = 1;
     this.ctx.cam.addTrauma(def.shake);
     this.ctx.cam.kick(-sx, -sz, def.shake * 8);

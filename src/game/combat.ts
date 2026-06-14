@@ -60,6 +60,9 @@ export class Combat {
       this.ctx.stats.kills++;
       if (headshot) this.ctx.stats.headshots++;
       this.ctx.fx.burst(z.x, 1.0, z.z, 24, PAL.blood, { speed: 12, up: 8, life: 0.7, size: 8 });
+      this.ctx.decals.spawn(z.x, z.z, 0x4a0708, 1.1 + (z.heavy ? 1.4 : 0));
+      // Dismemberment: a headshot/explosion pops chunks of gore upward.
+      if (headshot) this.ctx.fx.burst(z.x, z.headY, z.z, 10, 0x6a1010, { speed: 9, up: 12, life: 0.9, size: 11 });
       this.ctx.events.emit("ZOMBIE_KILLED", { x: z.x, z: z.z, kind: z.kind });
       this.ctx.events.emit("SFX", { id: "zombie_die", pan });
       // A brief crunch only on the meaty kills, so it reads as punch not lag.

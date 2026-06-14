@@ -48,6 +48,10 @@ export class Hud {
       </div>
       <div class="kills">0</div>
       <div class="banner"></div>
+      <div class="crosshair"><span class="ch-ring"></span><span class="hitmark"></span></div>
+      <div class="dmg dmg--left"></div>
+      <div class="dmg dmg--right"></div>
+      <div class="dmg dmg--top"></div>
     `;
     const q = (s: string) => this.root.querySelector(s) as HTMLElement;
     this.el = {
@@ -71,8 +75,47 @@ export class Hud {
       dayFill: q(".bar-day .bar-fill"),
       kills: q(".kills"),
       banner: q(".banner"),
+      crosshair: q(".crosshair"),
+      hitmark: q(".hitmark"),
+      dmgLeft: q(".dmg--left"),
+      dmgRight: q(".dmg--right"),
+      dmgTop: q(".dmg--top"),
     };
+
+    window.addEventListener("pointermove", (e) => {
+      this.cx = e.clientX;
+      this.cy = e.clientY;
+    });
+    this.ctx.events.on("SHOOT", () => this.fireKick());
+    this.ctx.events.on("ZOMBIE_HIT", ({ headshot }) => this.hitmarker(headshot));
+    this.ctx.events.on("PLAYER_HIT", ({ dirX }) => this.damageFlash(dirX));
+
     this.setMode("hidden");
+  }
+
+  private cx = window.innerWidth / 2;
+  private cy = window.innerHeight / 2;
+
+  private fireKick(): void {
+    if (this.mode !== "night") return;
+    this.el.crosshair.classList.remove("crosshair--fire");
+    void this.el.crosshair.offsetWidth;
+    this.el.crosshair.classList.add("crosshair--fire");
+  }
+
+  private hitmarker(headshot: boolean): void {
+    if (this.mode !== "night") return;
+    const h = this.el.hitmark;
+    h.className = `hitmark ${headshot ? "hitmark--crit" : ""}`;
+    void h.offsetWidth;
+    h.classList.add("hitmark--show");
+  }
+
+  private damageFlash(dirX: number): void {
+    const el = dirX > 0.3 ? this.el.dmgRight : dirX < -0.3 ? this.el.dmgLeft : this.el.dmgTop;
+    el.classList.remove("dmg--show");
+    void el.offsetWidth;
+    el.classList.add("dmg--show");
   }
 
   setMode(mode: Mode): void {
@@ -84,6 +127,7 @@ export class Hud {
     this.el.companions.style.display = night ? "" : "none";
     this.el.kills.style.display = night ? "" : "none";
     this.el.dayHud.style.display = day ? "" : "none";
+    this.el.crosshair.style.display = night ? "" : "none";
   }
 
   banner(text: string, sub = ""): void {
@@ -108,8 +152,11 @@ export class Hud {
       if (this.bannerTimer <= 0) this.el.banner.classList.remove("banner--show");
     }
 
-    if (this.mode === "night") this.updateNight();
-    else if (this.mode === "day") this.updateDay();
+    if (this.mode === "night") {
+      this.el.crosshair.style.left = `${this.cx}px`;
+      this.el.crosshair.style.top = `${this.cy}px`;
+      this.updateNight();
+    } else if (this.mode === "day") this.updateDay();
   }
 
   private updateNight(): void {
@@ -134,6 +181,7 @@ export class Hud {
       this.el.wname.textContent = c.player.reloading ? `${lo.def.name} — RELOADING` : lo.def.name;
       this.el.ammoMag.textContent = `${lo.ammo}`;
       this.el.ammoRes.textContent = `/${lo.reserve}`;
+      this.el.ammoMag.classList.toggle("ammo-mag--low", lo.ammo > 0 && lo.ammo / lo.def.mag <= 0.25);
     }
     this.buildSlots();
 

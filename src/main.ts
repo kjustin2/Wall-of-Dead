@@ -11,6 +11,7 @@ import { CameraRig } from "./render/cameraRig";
 import { Particles } from "./render/particles";
 import { Telegraphs } from "./render/telegraphs";
 import { Floaters } from "./render/floaters";
+import { Decals } from "./render/decals";
 import { World } from "./render/world";
 import { Input } from "./core/input";
 import { EventBus } from "./core/events";
@@ -55,6 +56,7 @@ ctx.input = new Input(canvas);
 ctx.fx = new Particles(ctx.stage.scene);
 ctx.tele = new Telegraphs(ctx.stage.scene);
 ctx.floaters = new Floaters(ctx.stage.camera);
+ctx.decals = new Decals(ctx.stage.scene);
 ctx.world = new World(ctx.stage);
 ctx.sfx = new Sfx(ctx.events);
 ctx.music = new Music();
@@ -85,6 +87,8 @@ let director: WaveDirector | null = null;
 let lootContinue: () => void = () => {};
 let surgeMusic = false;
 let heartbeatTimer = 0;
+let streak = 0;
+let streakTimer = 0;
 
 // Audio unlock on first gesture
 const unlock = () => {
@@ -104,6 +108,7 @@ function toTitle(): void {
   ctx.grenades.clear();
   ctx.companions.clear();
   ctx.fx.clear();
+  ctx.decals.clear();
   ctx.tele.clear();
   ctx.floaters.clear();
   ctx.player.group.visible = false;
@@ -134,6 +139,7 @@ function toCutscene(): void {
   ctx.bullets.clear();
   ctx.grenades.clear();
   ctx.fx.clear();
+  ctx.decals.clear();
   ctx.wall.setTotal(ctx.run.wallHp);
   ctx.player.reset();
   ctx.player.group.visible = true;
@@ -156,6 +162,7 @@ function beginNight(): void {
   ctx.bullets.clear();
   ctx.grenades.clear();
   ctx.fx.clear();
+  ctx.decals.clear();
   ctx.tele.clear();
   ctx.adrenaline.reset();
   ctx.combat.resetForNight();
@@ -169,6 +176,8 @@ function beginNight(): void {
   state = "night";
   ctx.sfx.startAmbient();
   surgeMusic = false;
+  streak = 0;
+  streakTimer = 0;
   ctx.music.play("night");
   ctx.events.emit("NIGHT_START", { night: ctx.run.night });
   hud.banner(`NIGHT ${ctx.run.night}`, "Hold until dawn");
@@ -304,6 +313,15 @@ ctx.events.on("PLAYER_DIED", () => {
   if (state === "night") defeat("You fell at the wall.");
 });
 ctx.events.on("DAY_DONE", ({ tier, frac }) => onDayDone(tier, frac));
+ctx.events.on("ZOMBIE_KILLED", () => {
+  if (state !== "night") return;
+  streak++;
+  streakTimer = 2.6;
+  if (streak === 5 || streak === 10 || streak === 15 || streak === 20 || streak === 30) {
+    hud.banner(`${streak} KILL STREAK`, streak >= 20 ? "RAMPAGE" : streak >= 10 ? "UNSTOPPABLE" : "");
+    ctx.events.emit("SFX", { id: "streak" });
+  }
+});
 ctx.events.on("ADRENALINE_ZONE", ({ zone, prev }) => {
   if (zone === "surge" && prev !== "surge") {
     ctx.events.emit("SFX", { id: "meter_full" });
@@ -393,6 +411,10 @@ ctx.stage.renderer.setAnimationLoop(() => {
     ctx.companions.update(dt);
     ctx.adrenaline.update(dt);
     if (ctx.input.pressed("KeyF")) doLastStand();
+    if (streakTimer > 0) {
+      streakTimer -= dt;
+      if (streakTimer <= 0) streak = 0;
+    }
     // Low-HP heartbeat
     if (ctx.player.alive && ctx.player.hp / ctx.player.maxHp < 0.3) {
       heartbeatTimer -= dt;
@@ -416,6 +438,7 @@ ctx.stage.renderer.setAnimationLoop(() => {
   // feedback stays smooth even mid hit-stop.
   ctx.fx.update(dt);
   ctx.tele.update(dt);
+  ctx.decals.update(realDt);
   ctx.floaters.update(realDt);
   ctx.world.update(realDt);
   ctx.cam.update(realDt);

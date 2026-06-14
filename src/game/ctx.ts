@@ -6,6 +6,7 @@ import type { Rng } from "../core/rng";
 import type { Particles } from "../render/particles";
 import type { Telegraphs } from "../render/telegraphs";
 import type { Floaters } from "../render/floaters";
+import type { Decals } from "../render/decals";
 import type { World } from "../render/world";
 import type { Sfx } from "../audio/sfx";
 import type { Music } from "../audio/music";
@@ -42,6 +43,7 @@ export interface Ctx {
   fx: Particles;
   tele: Telegraphs;
   floaters: Floaters;
+  decals: Decals;
   world: World;
   sfx: Sfx;
   music: Music;

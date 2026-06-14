@@ -260,6 +260,77 @@ body {
   text-shadow: 0 1px 4px rgba(0, 0, 0, 0.8);
 }
 
+/* ---------------------------------------------------------------- crosshair */
+.crosshair {
+  position: absolute;
+  width: 0;
+  height: 0;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+.ch-ring {
+  position: absolute;
+  width: 26px;
+  height: 26px;
+  left: -13px;
+  top: -13px;
+  border: 2px solid rgba(255, 255, 255, 0.7);
+  border-radius: 50%;
+  box-shadow: 0 0 6px rgba(0, 0, 0, 0.8);
+  transition: width 0.08s, height 0.08s, left 0.08s, top 0.08s, border-color 0.15s;
+}
+.crosshair::after {
+  content: "";
+  position: absolute;
+  width: 3px;
+  height: 3px;
+  left: -1.5px;
+  top: -1.5px;
+  background: #fff;
+  border-radius: 50%;
+}
+.crosshair--fire .ch-ring {
+  width: 40px;
+  height: 40px;
+  left: -20px;
+  top: -20px;
+  border-color: rgba(255, 120, 90, 0.9);
+}
+.hitmark {
+  position: absolute;
+  width: 22px;
+  height: 22px;
+  left: -11px;
+  top: -11px;
+  opacity: 0;
+  background:
+    linear-gradient(#fff, #fff) center/3px 10px no-repeat,
+    linear-gradient(#fff, #fff) center/10px 3px no-repeat;
+  transform: rotate(45deg);
+}
+.hitmark--show { animation: hitFlash 0.25s ease-out; }
+.hitmark--crit { filter: drop-shadow(0 0 4px #ffd24a); background-image: linear-gradient(#ffd24a, #ffd24a), linear-gradient(#ffd24a, #ffd24a); }
+@keyframes hitFlash {
+  0% { opacity: 1; transform: rotate(45deg) scale(1.4); }
+  100% { opacity: 0; transform: rotate(45deg) scale(0.8); }
+}
+
+/* ------------------------------------------------------------- damage flash */
+.dmg {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0;
+}
+.dmg--left { background: linear-gradient(90deg, rgba(200, 20, 20, 0.5), transparent 22%); }
+.dmg--right { background: linear-gradient(270deg, rgba(200, 20, 20, 0.5), transparent 22%); }
+.dmg--top { background: radial-gradient(ellipse at 50% 110%, rgba(200, 20, 20, 0.5), transparent 45%); }
+.dmg--show { animation: dmgPulse 0.35s ease-out; }
+@keyframes dmgPulse { 0% { opacity: 1; } 100% { opacity: 0; } }
+
+.ammo-mag--low { color: #ff5a3c; animation: ammoPulse 0.5s ease-in-out infinite; }
+@keyframes ammoPulse { 50% { opacity: 0.4; } }
+
 /* ---------------------------------------------------------------- banner */
 .banner {
   position: absolute;
