@@ -24,10 +24,13 @@ const PLAN: NightPlan = {
     { type: "runner", w: 2 },
   ],
   late: [
-    { type: "shambler", w: 6 },
-    { type: "runner", w: 7 },
+    { type: "shambler", w: 5 },
+    { type: "runner", w: 6 },
+    { type: "crawler", w: 4 },
     { type: "brute", w: 3 },
     { type: "spitter", w: 4 },
+    { type: "armored", w: 3 },
+    { type: "screamer", w: 2 },
   ],
 };
 
@@ -42,6 +45,7 @@ export class WaveDirector {
   private spawnTimer = 1.5;
   private clockDone = false;
   private fleeing = false;
+  private tankSpawned = false;
 
   constructor(private ctx: Ctx) {}
 
@@ -55,6 +59,13 @@ export class WaveDirector {
 
   update(dt: number): void {
     if (this.done) return;
+
+    // Mini-boss: one Tank crashes the surge (but not in the final moments).
+    if (!this.tankSpawned && this.progress > 0.85 && this.elapsed < PLAN.length - 4) {
+      this.tankSpawned = true;
+      this.ctx.enemies.spawn("tank", this.ctx.rng.range(-6, 6));
+      this.ctx.events.emit("MINIBOSS", { name: "TANK" });
+    }
 
     if (!this.clockDone) {
       this.elapsed += dt;

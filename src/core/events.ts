@@ -43,6 +43,7 @@ export interface EventMap {
   TIME_SLOWMO: { s: number; strength: number };
 
   NIGHT_START: { night: number };
+  MINIBOSS: { name: string };
   DAWN: Record<string, never>;
   DAY_DONE: { tier: string; frac: number };
   RUN_VICTORY: Record<string, never>;

@@ -313,6 +313,12 @@ ctx.events.on("PLAYER_DIED", () => {
   if (state === "night") defeat("You fell at the wall.");
 });
 ctx.events.on("DAY_DONE", ({ tier, frac }) => onDayDone(tier, frac));
+ctx.events.on("MINIBOSS", ({ name }) => {
+  hud.banner(name, "It'll smash the wall — focus fire");
+  ctx.events.emit("SFX", { id: "brute_slam" });
+  ctx.cam.addTrauma(0.4);
+  requestSlowmo(0.5, 0.5);
+});
 ctx.events.on("ZOMBIE_KILLED", () => {
   if (state !== "night") return;
   streak++;

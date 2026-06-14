@@ -97,7 +97,7 @@ app.whenReady().then(async () => {
       if (ns !== "night") errors.push("FLOW: expected night after cutscene, got " + ns);
 
       // Let a wave build, then force some action
-      await win.webContents.executeJavaScript(`window.__wod.spawnWave('shambler', 8); window.__wod.spawnWave('runner', 4); window.__wod.spawnWave('brute', 1); window.__wod.spawnWave('spitter', 2);`);
+      await win.webContents.executeJavaScript(`window.__wod.spawnWave('shambler', 6); window.__wod.spawnWave('runner', 3); window.__wod.spawnWave('brute', 1); window.__wod.spawnWave('spitter', 2); window.__wod.spawnWave('crawler', 3); window.__wod.spawnWave('armored', 2); window.__wod.spawnWave('screamer', 1); window.__wod.spawnWave('tank', 1);`);
       await sleep(3500);
       await shot(win, "03-night-action.png");
 

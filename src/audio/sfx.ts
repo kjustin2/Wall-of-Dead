@@ -169,6 +169,15 @@ export class Sfx {
       case "spit":
         this.tone(600, 0.2, "sawtooth", 0.12, 200);
         break;
+      case "scream":
+        this.tone(820, 0.5, "sawtooth", 0.26, 1900);
+        this.tone(1240, 0.4, "square", 0.12, 2500);
+        this.burst(0.4, 0.2, 3000);
+        break;
+      case "groan":
+        this.tone(88, 0.6, "sawtooth", 0.14, 64);
+        this.tone(120, 0.5, "sine", 0.1, 92);
+        break;
       case "acid_hit":
         this.burst(0.25, 0.3, 1600);
         this.tone(400, 0.18, "sine", 0.1, 120);

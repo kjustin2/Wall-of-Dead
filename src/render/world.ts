@@ -27,6 +27,7 @@ export class World {
   private mist: { mesh: THREE.Mesh; speed: number }[] = [];
   private clouds: { sprite: THREE.Sprite; speed: number }[] = [];
   private searchlights: { pivot: THREE.Group; phase: number; speed: number }[] = [];
+  private horde: { mesh: THREE.Group; phase: number; vx: number }[] = [];
   private lightningTimer = 9;
   private flashT = 0;
   /** main sets this to play thunder when a flash fires. */
@@ -401,6 +402,22 @@ export class World {
     bus.position.set(-21, 0, -7);
     bus.rotation.set(0, 0.5, 0.18);
     this.group.add(bus);
+
+    // A far-off ambient horde shambling along the horizon (never reaches you).
+    const figMat = new THREE.MeshStandardMaterial({ color: 0x070a0c, roughness: 1, flatShading: true });
+    for (let i = 0; i < 16; i++) {
+      const fig = new THREE.Group();
+      const body = new THREE.Mesh(new THREE.BoxGeometry(0.7, 1.5, 0.4), figMat);
+      body.position.y = 1.0;
+      body.rotation.x = 0.2;
+      const head = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.4, 0.4), figMat);
+      head.position.y = 1.85;
+      fig.add(body, head);
+      fig.position.set(this.rng.range(-90, 90), 0, -98 - this.rng.range(0, 18));
+      fig.rotation.y = this.rng.range(-0.5, 0.5);
+      this.group.add(fig);
+      this.horde.push({ mesh: fig, phase: this.rng.range(0, 6), vx: this.rng.range(-0.6, 0.6) });
+    }
   }
 
   private buildEmbers(): { points: THREE.Points; vel: Float32Array } {
@@ -492,6 +509,14 @@ export class World {
     for (const c of this.clouds) {
       c.sprite.position.x += c.speed * dt;
       if (c.sprite.position.x > 140) c.sprite.position.x = -140;
+    }
+
+    // Ambient horde shuffle + sway
+    for (const h of this.horde) {
+      h.mesh.rotation.z = Math.sin(this.t * 1.5 + h.phase) * 0.12;
+      h.mesh.position.x += h.vx * dt;
+      if (h.mesh.position.x > 95) h.mesh.position.x = -95;
+      else if (h.mesh.position.x < -95) h.mesh.position.x = 95;
     }
 
     // Sweeping searchlights

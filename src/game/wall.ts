@@ -132,6 +132,22 @@ export class Wall {
     return false;
   }
 
+  /** X of the broken segment whose centre is nearest to `x`, or null if none. */
+  nearestBreachX(x: number): number | null {
+    let best: number | null = null;
+    let bestD = Infinity;
+    for (let i = 0; i < SEG; i++) {
+      if (this.hp[i] > 0) continue;
+      const cx = this.centerX(i);
+      const d = Math.abs(cx - x);
+      if (d < bestD) {
+        bestD = d;
+        best = cx;
+      }
+    }
+    return best;
+  }
+
   fullyOverrun(): boolean {
     for (let i = 0; i < SEG; i++) if (this.hp[i] > 0) return false;
     return true;

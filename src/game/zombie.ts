@@ -27,6 +27,9 @@ export interface ZType {
   standoffZ?: number;
   spitDmg?: number;
   spitCD?: number;
+  vaults?: boolean; // can climb/vault the barricade instead of waiting for a breach
+  screamer?: boolean; // periodically buffs the horde's speed
+  miniboss?: boolean;
 }
 
 export const TYPES: Record<string, ZType> = {
@@ -103,6 +106,79 @@ export const TYPES: Record<string, ZType> = {
     standoffZ: -13,
     spitDmg: 9,
     spitCD: 2.7,
+  },
+  crawler: {
+    key: "crawler",
+    hp: 12,
+    speed: 5.4,
+    radius: 0.5,
+    claw: 6,
+    clawCD: 0.9,
+    touch: 7,
+    touchCD: 0.85,
+    body: 0x402f1f,
+    head: 0x4c3a26,
+    eye: 0xff8a3c,
+    scale: 0.66,
+    heavy: false,
+    headshotChance: 0.16,
+    groan: "groan_low",
+    targetsPlayer: true,
+    vaults: true,
+  },
+  armored: {
+    key: "armored",
+    hp: 70,
+    speed: 2.4,
+    radius: 0.95,
+    claw: 8,
+    clawCD: 1.2,
+    touch: 12,
+    touchCD: 1.1,
+    body: 0x3a3f46,
+    head: 0x4a4f56,
+    eye: 0xff5a3c,
+    scale: 1.12,
+    heavy: true,
+    headshotChance: 0.1,
+    groan: "groan_brute",
+  },
+  screamer: {
+    key: "screamer",
+    hp: 26,
+    speed: 4.0,
+    radius: 0.75,
+    claw: 5,
+    clawCD: 1.1,
+    touch: 8,
+    touchCD: 1.0,
+    body: 0x5a2a4a,
+    head: 0x6a345a,
+    eye: 0xff3cf0,
+    scale: 1.0,
+    heavy: false,
+    headshotChance: 0.24,
+    groan: "groan_high",
+    screamer: true,
+  },
+  tank: {
+    key: "tank",
+    hp: 420,
+    speed: 1.7,
+    radius: 2.0,
+    claw: 30,
+    clawCD: 2.0,
+    touch: 34,
+    touchCD: 1.6,
+    body: 0x23252b,
+    head: 0x2e3138,
+    eye: 0xff2020,
+    scale: 2.3,
+    heavy: true,
+    headshotChance: 0.08,
+    groan: "groan_brute",
+    slam: true,
+    miniboss: true,
   },
 };
 
@@ -187,6 +263,9 @@ export class Zombie {
   private touchTimer = 0;
   private spitTimer: number;
   private winding = 0; // brute slam / spit wind-up remaining
+  private screamTimer = 4;
+  private vaultT = -1;
+  private vault = 0;
   private dieTimer = 0;
   private dieRoll = 0;
   private diePitch = 1.3;
@@ -314,15 +393,27 @@ export class Zombie {
   }
 
   private advance(dt: number, ctx: Ctx): void {
-    if (this.t.targetsPlayer && ctx.player.alive) {
-      this.targetX = clamp(ctx.player.x, -FIELD.wallHalf + 1, FIELD.wallHalf - 1);
+    const spd = this.t.speed * ctx.enemies.speedMul();
+    if (this.t.screamer) {
+      this.screamTimer -= dt;
+      if (this.screamTimer <= 0) {
+        this.screamTimer = 6;
+        ctx.enemies.triggerScream(this.x, this.z);
+      }
+    }
+    // Steer toward the nearest breach if one is open, else the player (for the
+    // hunters), else hold the spawn lane.
+    if (!this.t.standoff) {
+      const breach = ctx.wall.anyBreached() ? ctx.wall.nearestBreachX(this.x) : null;
+      if (breach !== null) this.targetX = breach;
+      else if (this.t.targetsPlayer && ctx.player.alive)
+        this.targetX = clamp(ctx.player.x, -FIELD.wallHalf + 1, FIELD.wallHalf - 1);
     }
     const goalZ = this.t.standoff ? this.t.standoffZ! : FIELD.attackZ;
     const dx = clamp(this.targetX - this.x, -1, 1);
-    const dz = 1;
-    this.x += dx * this.t.speed * 0.5 * dt;
-    this.z += dz * this.t.speed * dt;
-    this.faceTravel(dx, dz);
+    this.x += dx * spd * 0.5 * dt;
+    this.z += spd * dt;
+    this.faceTravel(dx, 1);
 
     if (this.t.standoff) {
       if (this.z >= goalZ) {
@@ -343,6 +434,18 @@ export class Zombie {
       return;
     }
     this.faceTravel(0, 1);
+
+    // Vaulters claw a couple of times then climb over the barricade.
+    if (this.t.vaults) {
+      if (this.vaultT < 0) this.vaultT = 1.2;
+      this.vaultT -= dt;
+      if (this.vaultT <= 0) {
+        this.state = "crossing";
+        this.vault = 0.45;
+        ctx.events.emit("SFX", { id: "zombie_claw", pan: clamp(this.x / FIELD.wallHalf, -1, 1) });
+        return;
+      }
+    }
 
     if (this.t.slam) {
       // Telegraphed heavy slam
@@ -394,6 +497,14 @@ export class Zombie {
   }
 
   private cross(dt: number, ctx: Ctx): void {
+    const spd = this.t.speed * 1.05 * ctx.enemies.speedMul();
+    // Vault hop arc as they come over the barricade.
+    if (this.vault > 0) {
+      this.vault -= dt;
+      this.group.position.y = Math.sin((1 - Math.max(0, this.vault) / 0.45) * Math.PI) * 1.2;
+    } else if (this.group.position.y !== 0) {
+      this.group.position.y = 0;
+    }
     const px = ctx.player.x;
     const pz = ctx.player.z;
     const dx = px - this.x;
@@ -402,8 +513,8 @@ export class Zombie {
     if (d > this.radius + 0.7) {
       const nx = dx / (d || 1);
       const nz = dz / (d || 1);
-      this.x += nx * this.t.speed * 1.05 * dt;
-      this.z += nz * this.t.speed * 1.05 * dt;
+      this.x += nx * spd * dt;
+      this.z += nz * spd * dt;
       this.faceTravel(nx, nz);
     } else {
       this.touchTimer -= dt;
@@ -463,6 +574,19 @@ export class EnemyManager {
   alive: Zombie[] = [];
   private acids: Acid[] = [];
   private group = new THREE.Group();
+  private screamBuffT = 0;
+
+  /** Horde speed multiplier — raised briefly when a screamer screams. */
+  speedMul(): number {
+    return this.screamBuffT > 0 ? 1.45 : 1;
+  }
+
+  triggerScream(x: number, z: number): void {
+    this.screamBuffT = 2.5;
+    this.ctx.events.emit("SFX", { id: "scream", pan: clamp(x / FIELD.wallHalf, -1, 1) });
+    this.ctx.tele.warn(x, z, 4, 0xff3cf0, 0.5);
+    this.ctx.fx.burst(x, 1.6, z, 18, 0xff3cf0, { speed: 11, up: 4, life: 0.5, size: 7 });
+  }
 
   constructor(private ctx: Ctx, private scene: THREE.Scene) {
     scene.add(this.group);
@@ -498,6 +622,10 @@ export class EnemyManager {
     const z = new Zombie(t, x, this.ctx);
     this.group.add(z.group);
     this.alive.push(z);
+    // Spawn tell: a distant groan from the dark.
+    if (this.ctx.rng.chance(0.35)) {
+      this.ctx.events.emit("SFX", { id: "groan", pan: clamp(x / FIELD.wallHalf, -1, 1) });
+    }
   }
 
   spawnAcid(x: number, y: number, z: number, tx: number, tz: number, dmg: number): void {
@@ -523,6 +651,7 @@ export class EnemyManager {
   }
 
   update(dt: number): void {
+    if (this.screamBuffT > 0) this.screamBuffT -= dt;
     for (const z of this.alive) z.update(dt, this.ctx);
     // Reap
     for (let i = this.alive.length - 1; i >= 0; i--) {
