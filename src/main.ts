@@ -32,7 +32,14 @@ import { freshStats, type Ctx } from "./game/ctx";
 import { RUN } from "./config";
 import { clamp } from "./core/math";
 
-type GameState = "menu" | "night" | "day" | "report" | "loot" | "paused" | "dead" | "victory";
+type GameState = "menu" | "cutscene" | "night" | "day" | "report" | "loot" | "paused" | "dead" | "victory";
+
+const STORY = [
+  "The dead rose at dusk, and the highway choked on the living.",
+  "What's left of the convoy threw up a barricade on the last road to the safe zone.",
+  "You and Mara hold the line — fire over the wall, keep them in the dark.",
+  "Survive the night. Scavenge by dawn. Don't let them over.",
+];
 
 const canvas = document.getElementById("game") as HTMLCanvasElement;
 
@@ -106,7 +113,25 @@ function startRun(): void {
   ctx.run.start();
   ctx.stats = freshStats();
   ctx.player.group.visible = true;
-  beginNight();
+  toCutscene();
+}
+
+function toCutscene(): void {
+  menus.clear();
+  state = "cutscene";
+  ctx.enemies.clear();
+  ctx.bullets.clear();
+  ctx.fx.clear();
+  ctx.wall.setTotal(ctx.run.wallHp);
+  ctx.player.reset();
+  ctx.player.group.visible = true;
+  ctx.companions.spawnFromRun();
+  ctx.cam.mode = "cutscene";
+  ctx.world.setDawn(0.16);
+  hud.setMode("hidden");
+  ctx.input.enabled = false;
+  ctx.sfx.startAmbient();
+  menus.storyIntro(STORY, beginNight);
 }
 
 function beginNight(): void {

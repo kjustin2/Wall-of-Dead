@@ -24,6 +24,33 @@ export function glowTexture(): THREE.Texture {
   return tex;
 }
 
+/** Billboarded text label (canvas-rendered, procedural — no font file needed at
+ * the texture level; the page fonts are used). For ally nameplates etc. */
+export function makeLabel(text: string, color = "#7dffb0"): THREE.Sprite {
+  const w = 256;
+  const h = 64;
+  const c = document.createElement("canvas");
+  c.width = w;
+  c.height = h;
+  const ctx = c.getContext("2d");
+  if (ctx) {
+    ctx.font = "700 34px Oswald, sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.lineWidth = 6;
+    ctx.strokeStyle = "rgba(0,0,0,0.85)";
+    ctx.strokeText(text, w / 2, h / 2);
+    ctx.fillStyle = color;
+    ctx.fillText(text, w / 2, h / 2);
+  }
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthWrite: false, depthTest: false });
+  const s = new THREE.Sprite(mat);
+  s.scale.set(4, 1, 1);
+  return s;
+}
+
 /** Make a billboarded glow sprite of a given color/size. */
 export function makeGlow(color: number, size: number, opacity = 1): THREE.Sprite {
   const mat = new THREE.SpriteMaterial({

@@ -2,6 +2,7 @@ import * as THREE from "three";
 import type { Ctx } from "./ctx";
 import { FIELD, PAL } from "../config";
 import { clamp } from "../core/math";
+import { makeGlow } from "../render/textures";
 
 export interface ZType {
   key: string;
@@ -125,6 +126,7 @@ export class Zombie {
   private t: ZType;
   private body: THREE.Mesh;
   private bodyMat: THREE.MeshStandardMaterial;
+  private glow!: THREE.Sprite;
   private targetX: number;
   private clawTimer = 0;
   private touchTimer = 0;
@@ -151,45 +153,83 @@ export class Zombie {
     this.headY = 1.7 * t.scale;
 
     const s = t.scale;
+    const lean = t.key === "runner" ? 0.32 : t.key === "brute" ? 0.1 : 0.2;
     this.bodyMat = new THREE.MeshStandardMaterial({
       color: t.body,
       roughness: 1,
       flatShading: true,
       emissive: new THREE.Color(0x000000),
     });
-    this.body = new THREE.Mesh(new THREE.BoxGeometry(0.8 * s, 1.15 * s, 0.5 * s), this.bodyMat);
+    const limbMat = new THREE.MeshStandardMaterial({ color: t.body, roughness: 1, flatShading: true });
+    const headMat = new THREE.MeshStandardMaterial({ color: t.head, roughness: 1, flatShading: true });
+
+    // Torso (hunched) + shoulders
+    this.body = new THREE.Mesh(new THREE.BoxGeometry(0.78 * s, 1.15 * s, 0.5 * s), this.bodyMat);
     this.body.position.y = 0.95 * s;
-    this.body.rotation.x = 0.18; // hunch forward
+    this.body.rotation.x = lean;
     this.body.castShadow = true;
     this.group.add(this.body);
+    const shoulders = new THREE.Mesh(new THREE.BoxGeometry(0.92 * s, 0.34 * s, 0.5 * s), limbMat);
+    shoulders.position.set(0, 1.42 * s, 0.12 * s);
+    shoulders.rotation.x = lean;
+    shoulders.castShadow = true;
+    this.group.add(shoulders);
 
-    const headMat = new THREE.MeshStandardMaterial({ color: t.head, roughness: 1, flatShading: true });
-    const head = new THREE.Mesh(new THREE.BoxGeometry(0.5 * s, 0.5 * s, 0.5 * s), headMat);
-    head.position.set(0, 1.6 * s, 0.12 * s);
+    // Head + jaw
+    const head = new THREE.Mesh(new THREE.BoxGeometry(0.46 * s, 0.46 * s, 0.48 * s), headMat);
+    head.position.set(0, 1.62 * s, 0.18 * s);
     head.castShadow = true;
     this.group.add(head);
+    const jaw = new THREE.Mesh(new THREE.BoxGeometry(0.34 * s, 0.16 * s, 0.3 * s), headMat);
+    jaw.position.set(0, 1.45 * s, 0.34 * s);
+    this.group.add(jaw);
 
+    // Glowing eyes + a halo so they read through fog and dark
     const eyeMat = new THREE.MeshBasicMaterial({ color: t.eye, fog: false });
-    const eyeGeo = new THREE.SphereGeometry(0.07 * s, 6, 6);
+    const eyeGeo = new THREE.SphereGeometry(0.1 * s, 7, 7);
     for (const ex of [-0.12, 0.12]) {
       const eye = new THREE.Mesh(eyeGeo, eyeMat);
-      eye.position.set(ex * s, 1.62 * s, 0.32 * s);
+      eye.position.set(ex * s, 1.66 * s, 0.42 * s);
       this.group.add(eye);
     }
+    this.glow = makeGlow(t.eye, 1.7 * s, 0.6);
+    this.glow.position.set(0, 1.66 * s, 0.4 * s);
+    this.group.add(this.glow);
 
-    const limbMat = new THREE.MeshStandardMaterial({ color: t.body, roughness: 1, flatShading: true });
-    const armGeo = new THREE.BoxGeometry(0.18 * s, 0.9 * s, 0.18 * s);
-    for (const ax of [-0.5, 0.5]) {
+    // Reaching arms
+    const armGeo = new THREE.BoxGeometry(0.2 * s, 0.92 * s, 0.2 * s);
+    for (const ax of [-0.52, 0.52]) {
       const arm = new THREE.Mesh(armGeo, limbMat);
-      arm.position.set(ax * s, 1.0 * s, 0.34 * s);
-      arm.rotation.x = -0.9;
+      arm.position.set(ax * s, 1.0 * s, 0.42 * s);
+      arm.rotation.x = -1.1;
+      arm.castShadow = true;
       this.group.add(arm);
     }
-    const legGeo = new THREE.BoxGeometry(0.22 * s, 0.85 * s, 0.22 * s);
+    const legGeo = new THREE.BoxGeometry(0.24 * s, 0.85 * s, 0.24 * s);
     for (const lx of [-0.22, 0.22]) {
       const leg = new THREE.Mesh(legGeo, limbMat);
       leg.position.set(lx * s, 0.42 * s, 0);
       this.group.add(leg);
+    }
+
+    // Type-specific silhouette
+    if (t.key === "brute") {
+      for (const sx of [-0.6, 0.6]) {
+        const pad = new THREE.Mesh(new THREE.BoxGeometry(0.42 * s, 0.42 * s, 0.6 * s), limbMat);
+        pad.position.set(sx * s, 1.5 * s, 0.1 * s);
+        pad.castShadow = true;
+        this.group.add(pad);
+      }
+      const slab = new THREE.Mesh(new THREE.BoxGeometry(0.7 * s, 0.7 * s, 0.25 * s), headMat);
+      slab.position.set(0, 1.2 * s, -0.3 * s);
+      this.group.add(slab);
+    } else if (t.key === "spitter") {
+      const sac = new THREE.Mesh(
+        new THREE.SphereGeometry(0.42 * s, 10, 10),
+        new THREE.MeshStandardMaterial({ color: 0x4a6a22, emissive: new THREE.Color(PAL.acid), emissiveIntensity: 0.6, roughness: 0.7, flatShading: true })
+      );
+      sac.position.set(0, 1.1 * s, -0.34 * s);
+      this.group.add(sac);
     }
 
     this.group.position.set(this.x, 0, this.z);

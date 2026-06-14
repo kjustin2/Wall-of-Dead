@@ -23,6 +23,7 @@ export class World {
   private dawnGlow: THREE.Sprite;
   private embers: THREE.Points;
   private emberVel: Float32Array;
+  private flicker: { light: THREE.PointLight; glow: THREE.Sprite; base: number; phase: number; x: number; z: number }[] = [];
   private rng = new Rng(1337);
   private t = 0;
   private dawn = 0;
@@ -42,6 +43,7 @@ export class World {
     this.dawnGlow = this.buildDawnGlow();
     this.buildTreeline();
     this.buildRocks();
+    this.buildProps();
     const e = this.buildEmbers();
     this.embers = e.points;
     this.emberVel = e.vel;
@@ -71,23 +73,108 @@ export class World {
   }
 
   private buildRampart(): void {
-    // The raised platform the defender walks on, just behind the wall.
-    const geo = new THREE.BoxGeometry(FIELD.wallHalf * 2 + 6, FIELD.rampartHeight, 9);
-    const mat = new THREE.MeshStandardMaterial({ color: PAL.rampart, roughness: 0.95 });
+    // A low wooden firing step the defender stands on, just behind the barrier.
+    const geo = new THREE.BoxGeometry(FIELD.wallHalf * 2 + 4, FIELD.rampartHeight, 5);
+    const mat = new THREE.MeshStandardMaterial({ color: 0x2e2419, roughness: 1, flatShading: true });
     const ramp = new THREE.Mesh(geo, mat);
-    ramp.position.set(0, FIELD.rampartHeight / 2, FIELD.rampartZ + 2.5);
+    ramp.position.set(0, FIELD.rampartHeight / 2, FIELD.rampartZ + 1.4);
     ramp.castShadow = true;
     ramp.receiveShadow = true;
     this.group.add(ramp);
+  }
 
-    // A low back parapet with sandbag bumps for depth behind the player.
-    const back = new THREE.Mesh(
-      new THREE.BoxGeometry(FIELD.wallHalf * 2 + 6, 1.4, 0.8),
-      new THREE.MeshStandardMaterial({ color: PAL.wallDark, roughness: 1 })
+  private buildProps(): void {
+    const rust = new THREE.MeshStandardMaterial({ color: 0x3a2a22, roughness: 1, flatShading: true });
+    const metal = new THREE.MeshStandardMaterial({ color: 0x20242a, roughness: 0.8, metalness: 0.3, flatShading: true });
+    const tire = new THREE.MeshStandardMaterial({ color: 0x0c0c0e, roughness: 1 });
+
+    // The road the convoy came in on — a darker asphalt strip down the field.
+    const road = new THREE.Mesh(
+      new THREE.PlaneGeometry(13, 130),
+      new THREE.MeshStandardMaterial({ color: 0x121519, roughness: 1 })
     );
-    back.position.set(0, 0.7 + FIELD.rampartHeight, FIELD.rampartZ + 6.6);
-    back.castShadow = true;
-    this.group.add(back);
+    road.rotation.x = -Math.PI / 2;
+    road.position.set(0, 0.015, -64);
+    road.receiveShadow = true;
+    this.group.add(road);
+    for (let i = 0; i < 16; i++) {
+      const dash = new THREE.Mesh(
+        new THREE.BoxGeometry(0.4, 0.02, 2.2),
+        new THREE.MeshStandardMaterial({ color: 0x6a6038, roughness: 1, emissive: new THREE.Color(0x161203) })
+      );
+      dash.position.set(0, 0.04, -6 - i * 8);
+      this.group.add(dash);
+    }
+
+    // Wrecked vehicles strewn along the road
+    const carSpots = [
+      [-9, -22, 0.4],
+      [11, -40, -0.6],
+      [-13, -58, 1.4],
+      [8, -74, 2.6],
+      [-4, -90, 0.2],
+    ];
+    for (const [cx, cz, ry] of carSpots) {
+      const car = new THREE.Group();
+      const body = new THREE.Mesh(new THREE.BoxGeometry(2.4, 0.9, 4.6), rust);
+      body.position.y = 0.7;
+      body.castShadow = true;
+      const cabin = new THREE.Mesh(new THREE.BoxGeometry(2.1, 0.8, 2.2), metal);
+      cabin.position.set(0, 1.4, -0.2);
+      car.add(body, cabin);
+      for (const wx of [-1.1, 1.1])
+        for (const wz of [-1.6, 1.6]) {
+          const w = new THREE.Mesh(new THREE.CylinderGeometry(0.45, 0.45, 0.3, 10), tire);
+          w.rotation.z = Math.PI / 2;
+          w.position.set(wx, 0.4, wz);
+          car.add(w);
+        }
+      car.position.set(cx, 0, cz);
+      car.rotation.y = ry;
+      this.group.add(car);
+    }
+
+    // Burning barrels — warm rim light + embers near the wall ends and field
+    const barrelSpots = [
+      [-19, 1.6, true],
+      [19, 1.6, true],
+      [-15, -30, true],
+      [14, -52, false],
+    ];
+    for (const [bx, bz, lit] of barrelSpots as [number, number, boolean][]) {
+      const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.5, 1.2, 12), rust);
+      barrel.position.set(bx, 0.6, bz);
+      barrel.castShadow = true;
+      this.group.add(barrel);
+      if (lit) {
+        const fire = new THREE.PointLight(0xff7a2a, 6, 16, 2);
+        fire.position.set(bx, 1.5, bz);
+        this.group.add(fire);
+        const flame = makeGlow(0xffa64a, 2.4, 0.8);
+        flame.position.set(bx, 1.5, bz);
+        this.group.add(flame);
+        this.flicker.push({ light: fire, glow: flame, base: 6, phase: this.rng.range(0, 10), x: bx, z: bz });
+      }
+    }
+
+    // Distant skyline silhouette behind the treeline
+    const sky = new THREE.MeshStandardMaterial({ color: 0x05080a, roughness: 1 });
+    for (let i = 0; i < 16; i++) {
+      const h = this.rng.range(14, 46);
+      const b = new THREE.Mesh(new THREE.BoxGeometry(this.rng.range(8, 16), h, 6), sky);
+      b.position.set(this.rng.range(-150, 150), h / 2, -150 - this.rng.range(0, 24));
+      this.group.add(b);
+    }
+
+    // Broken chain-link fence posts down the field edges
+    const postMat = new THREE.MeshStandardMaterial({ color: 0x14181c, roughness: 1, flatShading: true });
+    for (let i = 0; i < 18; i++) {
+      const side = i % 2 === 0 ? -1 : 1;
+      const post = new THREE.Mesh(new THREE.BoxGeometry(0.16, this.rng.range(1.4, 2.6), 0.16), postMat);
+      post.position.set(side * 27 + this.rng.range(-1, 1), 1, -8 - i * 4.2);
+      post.rotation.z = this.rng.range(-0.2, 0.2);
+      this.group.add(post);
+    }
   }
 
   private buildSky(): THREE.Mesh {
@@ -271,5 +358,14 @@ export class World {
     arr.needsUpdate = true;
     // Embers fade as dawn comes.
     (this.embers.material as THREE.PointsMaterial).opacity = lerp(0.6, 0.05, this.dawn);
+
+    // Barrel fires flicker.
+    for (const f of this.flicker) {
+      const n = 0.78 + Math.sin(this.t * 13 + f.phase) * 0.12 + Math.sin(this.t * 27 + f.phase * 2) * 0.08;
+      f.light.intensity = f.base * n * (1 - this.dawn * 0.6);
+      f.glow.material.opacity = (0.55 * n + 0.2) * (1 - this.dawn * 0.5);
+      const s = 2.0 + n * 0.7;
+      f.glow.scale.set(s, s, 1);
+    }
   }
 }

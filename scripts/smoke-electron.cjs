@@ -84,13 +84,19 @@ app.whenReady().then(async () => {
       await sleep(2500);
       await shot(win, "01-title.png");
 
-      // Begin run → night
+      // Begin run → opening cutscene
       await win.webContents.executeJavaScript(`document.querySelector('.act-start').click()`);
-      await sleep(1500);
-      await shot(win, "02-night-start.png");
+      await sleep(1800);
+      await shot(win, "02-cutscene.png");
+
+      // Skip the story → night
+      await win.webContents.executeJavaScript(`window.dispatchEvent(new KeyboardEvent('keydown',{code:'Escape'}))`);
+      await sleep(1400);
+      const ns = await win.webContents.executeJavaScript(`window.__wod.state()`);
+      if (ns !== "night") errors.push("FLOW: expected night after cutscene, got " + ns);
 
       // Let a wave build, then force some action
-      await win.webContents.executeJavaScript(`window.__wod.spawnWave('shambler', 8); window.__wod.spawnWave('runner', 4);`);
+      await win.webContents.executeJavaScript(`window.__wod.spawnWave('shambler', 8); window.__wod.spawnWave('runner', 4); window.__wod.spawnWave('brute', 1); window.__wod.spawnWave('spitter', 2);`);
       await sleep(3500);
       await shot(win, "03-night-action.png");
 

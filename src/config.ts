@@ -8,11 +8,11 @@
 export const FIELD = {
   wallZ: 0,
   wallHalf: 24, // wall spans x ∈ [-24, 24]
-  wallHeight: 3.4,
-  wallThickness: 1.4,
+  wallHeight: 1.6, // chest-high barricade — the defender peeks and fires over it
+  wallThickness: 1.5,
   segments: 12,
-  rampartZ: 4.6, // top of the platform the defender walks on
-  rampartHeight: 1.1,
+  rampartZ: 4.2, // where the defender stands, behind the barrier
+  rampartHeight: 0.35, // a low firing step the defender stands on
   playerHalf: 21, // player x clamp
   attackZ: -1.9, // zombies stop here to claw the wall
   spawnZ: -82,
@@ -20,6 +20,7 @@ export const FIELD = {
   fieldHalf: 30, // half-width of the spawn field
   crossZ: 8, // beyond this (behind player) a crossed zombie is "inside"
   aimPlaneY: 1.15,
+  fireY: 2.0, // height tracers fly — clears the barrier
 } as const;
 
 export const RUN = {

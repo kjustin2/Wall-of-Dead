@@ -68,6 +68,51 @@ export class Menus {
       });
   }
 
+  /** Sequential story lines over the cutscene camera; click advances, Esc skips. */
+  storyIntro(lines: string[], onDone: () => void): void {
+    this.paint(`
+      <div class="screen screen--story">
+        <div class="story-line"></div>
+        <div class="story-skip">click to continue · esc to skip</div>
+      </div>`);
+    const lineEl = this.root.querySelector(".story-line") as HTMLElement;
+    let i = 0;
+    const timers: number[] = [];
+    const clearTimers = () => {
+      timers.forEach((t) => window.clearTimeout(t));
+      timers.length = 0;
+    };
+    const finish = () => {
+      clearTimers();
+      this.root.removeEventListener("click", advance);
+      window.removeEventListener("keydown", onKey);
+      onDone();
+    };
+    const show = () => {
+      if (i >= lines.length) {
+        finish();
+        return;
+      }
+      lineEl.textContent = lines[i];
+      lineEl.classList.remove("story-line--show");
+      void lineEl.offsetWidth;
+      lineEl.classList.add("story-line--show");
+      i++;
+      timers.push(window.setTimeout(show, 4200));
+    };
+    const advance = () => {
+      clearTimers();
+      show();
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.code === "Escape") finish();
+      else advance();
+    };
+    this.root.addEventListener("click", advance);
+    window.addEventListener("keydown", onKey);
+    show();
+  }
+
   showTitle(onStart: () => void, onSettings: () => void): void {
     this.paint(`
       <div class="screen screen--title">

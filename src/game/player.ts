@@ -7,7 +7,7 @@ import { clamp } from "../core/math";
 
 const MOVE_SPEED = 9.5;
 const GUN_REACH = 1.3;
-const FLY_Y = 1.5;
+const FLY_Y = FIELD.fireY;
 
 /**
  * The defender. Strafes the rampart (A/D), aims with the mouse, fires the
@@ -38,33 +38,67 @@ export class Player {
     const y = FIELD.rampartHeight;
     this.group.position.set(0, y, this.z);
 
-    const skin = new THREE.MeshStandardMaterial({ color: 0x8a6a4a, roughness: 1, flatShading: true });
-    const coat = new THREE.MeshStandardMaterial({ color: 0x394049, roughness: 1, flatShading: true });
+    const skin = new THREE.MeshStandardMaterial({ color: 0x9a7350, roughness: 1, flatShading: true });
+    const coat = new THREE.MeshStandardMaterial({ color: 0x35404d, roughness: 1, flatShading: true });
+    const dark = new THREE.MeshStandardMaterial({ color: 0x232a31, roughness: 1, flatShading: true });
+    const olive = new THREE.MeshStandardMaterial({ color: 0x3f4a30, roughness: 1, flatShading: true });
 
-    const torso = new THREE.Mesh(new THREE.BoxGeometry(0.7, 1.0, 0.45), coat);
+    const torso = new THREE.Mesh(new THREE.BoxGeometry(0.74, 1.02, 0.46), coat);
     torso.position.y = 1.0;
     torso.castShadow = true;
     this.group.add(torso);
-    const head = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.4, 0.4), skin);
-    head.position.y = 1.7;
+    // Chest vest
+    const vest = new THREE.Mesh(new THREE.BoxGeometry(0.78, 0.62, 0.5), dark);
+    vest.position.y = 1.08;
+    this.group.add(vest);
+    // Backpack
+    const pack = new THREE.Mesh(new THREE.BoxGeometry(0.52, 0.66, 0.32), olive);
+    pack.position.set(0, 1.05, 0.36);
+    pack.castShadow = true;
+    this.group.add(pack);
+    // Head + helmet
+    const head = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.4, 0.38), skin);
+    head.position.y = 1.72;
     head.castShadow = true;
     this.group.add(head);
+    const helmet = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.24, 0.48), dark);
+    helmet.position.y = 1.96;
+    helmet.castShadow = true;
+    this.group.add(helmet);
+    const brim = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.06, 0.16), dark);
+    brim.position.set(0, 1.86, -0.28);
+    this.group.add(brim);
+    // Shoulders
+    const shoulders = new THREE.Mesh(new THREE.BoxGeometry(0.96, 0.22, 0.46), coat);
+    shoulders.position.y = 1.46;
+    this.group.add(shoulders);
     for (const lx of [-0.18, 0.18]) {
-      const leg = new THREE.Mesh(new THREE.BoxGeometry(0.24, 0.85, 0.24), coat);
-      leg.position.set(lx, 0.42, 0);
+      const leg = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.88, 0.26), dark);
+      leg.position.set(lx, 0.44, 0);
+      leg.castShadow = true;
       this.group.add(leg);
     }
 
-    // Aim rig — yaws toward the cursor. Holds gun + flashlight + muzzle.
-    this.aimRig.position.y = 1.25;
+    // Aim rig — yaws toward the cursor. Holds the rifle, arms, flashlight, muzzle.
+    this.aimRig.position.y = 1.4;
     this.group.add(this.aimRig);
 
-    const gun = new THREE.Mesh(
-      new THREE.BoxGeometry(0.16, 0.16, 1.0),
-      new THREE.MeshStandardMaterial({ color: 0x15171a, roughness: 0.7, metalness: 0.4 })
-    );
-    gun.position.set(0.16, 0, -0.6);
+    const gunMat = new THREE.MeshStandardMaterial({ color: 0x141619, roughness: 0.6, metalness: 0.5 });
+    const gun = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.18, 1.05), gunMat);
+    gun.position.set(0.12, 0, -0.62);
     this.aimRig.add(gun);
+    const stock = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.16, 0.34), gunMat);
+    stock.position.set(0.12, -0.04, 0.0);
+    this.aimRig.add(stock);
+    // Arms reaching to the rifle
+    const armMat = coat;
+    const armR = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.16, 0.62), armMat);
+    armR.position.set(0.12, 0.02, -0.42);
+    this.aimRig.add(armR);
+    const armL = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.15, 0.5), armMat);
+    armL.position.set(-0.06, -0.02, -0.2);
+    armL.rotation.y = -0.5;
+    this.aimRig.add(armL);
 
     this.flashlight = new THREE.SpotLight(0xfff0d0, 14, 90, 0.5, 0.45, 1.2);
     this.flashlight.position.set(0.16, 0.1, -0.5);

@@ -1,9 +1,10 @@
 import * as THREE from "three";
 import type { Ctx } from "./ctx";
 import type { WeaponDef } from "./weapons";
+import { FIELD } from "../config";
 
 const CAP = 180;
-const FLY_Y = 1.5;
+const FLY_Y = FIELD.fireY;
 
 interface Bullet {
   active: boolean;

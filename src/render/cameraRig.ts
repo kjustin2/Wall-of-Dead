@@ -2,7 +2,7 @@ import * as THREE from "three";
 import { clamp, damp, lerp } from "../core/math";
 import { FIELD } from "../config";
 
-export type CamMode = "menu" | "rampart" | "topdown";
+export type CamMode = "menu" | "rampart" | "topdown" | "cutscene";
 
 /**
  * Trauma-based camera. Shake intensity is trauma², so small hits whisper and
@@ -69,6 +69,15 @@ export class CameraRig {
       const x = Math.sin(this.t * 0.16) * 10;
       this.camera.position.set(x + sx, 7.5 + Math.sin(this.t * 0.22) * 0.8 + sy, 17 + sz);
       this.camera.lookAt(x * 0.4, 2.2, -22);
+      this.fovDecay(dt);
+      return;
+    }
+
+    if (this.mode === "cutscene") {
+      // Slow, low dolly along the barrier looking out into the dark field.
+      const x = Math.sin(this.t * 0.13) * 17;
+      this.camera.position.set(x + sx, 3.8 + Math.sin(this.t * 0.3) * 0.4 + sy, FIELD.rampartZ + 9 + sz);
+      this.camera.lookAt(x * 0.25, 1.3, -16);
       this.fovDecay(dt);
       return;
     }
