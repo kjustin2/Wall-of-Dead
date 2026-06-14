@@ -33,8 +33,13 @@ export class Combat {
 
   damageZombie(z: Zombie, baseDmg: number, headshot: boolean, fromPlayer: boolean): void {
     const mult = fromPlayer ? this.ctx.adrenaline.damageMult() : 1;
-    const dmg = baseDmg * mult * (headshot ? 1.9 : 1);
+    // Crits (non-headshot) scale with the meter; weak points reward headshots on
+    // the big targets (brute head, spitter sac).
+    const crit = !headshot && fromPlayer && this.ctx.rng.chance(0.07 + this.ctx.adrenaline.value * 0.0011);
+    const weak = headshot && (z.kind === "brute" || z.kind === "spitter") ? 1.35 : 1;
+    const dmg = baseDmg * mult * (headshot ? 1.9 : 1) * (crit ? 1.6 : 1) * weak;
     const killed = z.hurt(dmg);
+    const big = headshot || crit;
     const hy = headshot ? z.headY : 1.0;
 
     this.ctx.fx.burst(z.x, hy, z.z, headshot ? 16 : 8, PAL.blood, {
@@ -43,7 +48,7 @@ export class Combat {
       life: 0.5,
       size: 6,
     });
-    this.ctx.floaters.spawn(z.x, hy + 0.4, z.z, `${Math.round(dmg)}`, headshot ? "crit" : "hit");
+    this.ctx.floaters.spawn(z.x, hy + 0.4, z.z, `${Math.round(dmg)}`, big ? "crit" : "hit");
     const pan = clamp(z.x / FIELD.wallHalf, -1, 1);
     this.ctx.events.emit("ZOMBIE_HIT", {
       x: z.x,

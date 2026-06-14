@@ -33,6 +33,8 @@ export class Player {
   private reloadTimer = 0;
   private yaw = Math.PI;
   private t = 0;
+  private shoveCd = 0;
+  private heat = 0; // recoil climb on sustained auto fire
 
   constructor(private ctx: Ctx, scene: THREE.Scene) {
     const y = FIELD.rampartHeight;
@@ -187,6 +189,8 @@ export class Player {
 
     // Weapon handling
     this.fireCd -= dt;
+    this.shoveCd -= dt;
+    this.heat = Math.max(0, this.heat - dt * 0.9);
     if (this.reloadTimer > 0) {
       this.reloadTimer -= dt;
       if (this.reloadTimer <= 0) this.finishReload();
@@ -219,6 +223,7 @@ export class Player {
     if (input.pressed("KeyQ")) this.swapTo((this.ctx.run.weaponIndex + 1) % this.ctx.run.weapons.length);
 
     if (input.pressed("KeyR")) this.startReload();
+    if (input.pressed("Space") && this.shoveCd <= 0) this.shove();
 
     const wantFire = def.auto ? input.mouseDown : input.mouseJustDown;
     if (wantFire && this.fireCd <= 0 && this.reloadTimer <= 0) {
@@ -245,10 +250,13 @@ export class Player {
     const mx = this.x + sx * GUN_REACH;
     const mz = this.z + sz * GUN_REACH;
 
+    const spread = def.spread + this.heat;
     for (let p = 0; p < def.pellets; p++) {
-      const a = base + (this.ctx.rng.next() - 0.5) * def.spread * 2;
+      const a = base + (this.ctx.rng.next() - 0.5) * spread * 2;
       this.ctx.bullets.spawn(mx, mz, Math.sin(a), Math.cos(a), def, def.damage, true);
     }
+    // Recoil climbs with sustained fire (more on autos), decays when you ease off.
+    this.heat = Math.min(0.5, this.heat + (def.auto ? 0.05 : 0.02));
     this.ctx.fx.cone(mx, FLY_Y, mz, sx, sz, 6, def.color, 20);
     // Muzzle smoke puff + an ejected shell casing
     this.ctx.fx.burst(mx, FLY_Y, mz, 2, 0x6a6a6a, { speed: 1.5, up: 1.5, life: 0.5, size: 5, drag: 1.2 });
@@ -260,6 +268,21 @@ export class Player {
     this.ctx.events.emit("SFX", { id: def.sfx });
 
     if (lo.ammo <= 0) this.startReload();
+  }
+
+  /** Melee shove (Space): knocks attackers right in front of you off the wall. */
+  private shove(): void {
+    this.shoveCd = 1.1;
+    this.ctx.events.emit("SFX", { id: "shove" });
+    this.ctx.cam.addTrauma(0.12);
+    this.ctx.fx.cone(this.x, 1.4, this.z - 1.5, 0, -1, 12, 0xbfd0e0, 13);
+    for (const z of this.ctx.enemies.alive) {
+      if (!z.killable) continue;
+      if (Math.abs(z.x - this.x) < 3.2 && z.z > -5.5) {
+        z.repel(6);
+        this.ctx.combat.damageZombie(z, 12, false, true);
+      }
+    }
   }
 
   private startReload(): void {

@@ -110,14 +110,19 @@ export class Bullets {
       for (const z of zs) {
         if (!z.killable || b.hit.has(z.id)) continue;
         const rr = z.radius + 0.35;
-        if (pointSegDist2(z.x, z.z, b.px, b.pz, b.x, b.z) <= rr * rr) {
+        const d2 = pointSegDist2(z.x, z.z, b.px, b.pz, b.x, b.z);
+        if (d2 <= rr * rr) {
           b.hit.add(z.id);
-          const headshot = this.ctx.rng.chance(z.headshotChance);
+          // Precise center hits are headshots — skill, not a flat dice roll.
+          const core = z.radius * 0.5;
+          const headshot = d2 < core * core || this.ctx.rng.chance(z.headshotChance * 0.25);
           this.ctx.combat.damageZombie(z, b.dmg, headshot, b.fromPlayer);
           if (b.pierce <= 0) {
             b.life = 0;
             break;
           }
+          // Pierced — spark and punch through to the next.
+          this.ctx.fx.burst(z.x, FLY_Y, z.z, 4, 0xfff0c0, { speed: 6, up: 2, life: 0.2, size: 5 });
           b.pierce--;
         }
       }

@@ -126,7 +126,7 @@ export class Menus {
           <button class="mbtn mbtn--primary act-start">BEGIN</button>
           <button class="mbtn act-settings">SETTINGS</button>
         </div>
-        <p class="controls">A / D move &nbsp;·&nbsp; MOUSE aim &nbsp;·&nbsp; CLICK fire &nbsp;·&nbsp; R reload &nbsp;·&nbsp; 1–3 weapons &nbsp;·&nbsp; F last stand</p>
+        <p class="controls">A / D move &nbsp;·&nbsp; MOUSE aim &nbsp;·&nbsp; CLICK fire &nbsp;·&nbsp; R reload &nbsp;·&nbsp; 1–3 weapons &nbsp;·&nbsp; SPACE shove &nbsp;·&nbsp; F frag</p>
       </div>`);
     this.btn(".act-start", onStart);
     this.btn(".act-settings", onSettings);
