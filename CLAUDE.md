@@ -30,11 +30,12 @@ Victory. The framework for more (multiple legs/nights) is in place but capped
 
 TypeScript (strict) · **Three.js** (WebGL) · **postprocessing** (bloom, ACES
 already on the renderer, CA, vignette, grade, grain, SMAA) · **Vite** build ·
-Web Audio synthesis · `@fontsource` fonts. Electron is **dev-only** (desktop
-wrapper + smoke harness). **Zero art/audio asset files** — every mesh is a
-Three.js primitive, every sound is synthesized at play time, textures are
-canvas-generated. That procedural-everything ethos is the one invariant carried
-over from the old project; keep it.
+Web Audio synthesis (all SFX) · `@fontsource` fonts. Electron is **dev-only**
+(desktop wrapper + smoke harness). **Procedural-first**: every mesh is a Three.js
+primitive, every *sound effect* is synthesized at play time, textures are
+canvas-generated. The one asset exception is **streamed music** in
+`public/music/*.mp3` (played via `audio/music.ts`), added for mood — keep new
+*art* procedural; music/fonts are the only bundled media.
 
 ## Run / test
 
@@ -96,12 +97,13 @@ src/render/
                        and setDawn(t) — the dusk→dawn color/light ramp.
   particles.ts         One additive GPU point cloud (blood/gore/sparks/casings).
   telegraphs.ts        Pooled ground danger markers (ring + growing fill).
-  textures.ts          Procedural radial-glow sprite (moon/lights/muzzle/flares).
-  floaters.ts          DOM damage numbers projected from 3D points.
+  textures.ts          Procedural radial-glow sprite + canvas text labels.
+  decals.ts            Pooled flat ground splats (blood) that fade.
+  floaters.ts          DOM damage numbers projected from 3D points (toggleable).
 
 src/game/
   ctx.ts               Ctx service-bag type + Stats + freshStats().
-  weapons.ts           WEAPONS table (pistol/smg/shotgun/rifle) + makeLoadout.
+  weapons.ts           WEAPONS table (pistol/smg/shotgun/rifle/lmg) + makeLoadout.
   bullets.ts           Pooled tracer projectiles; swept XZ collision → combat.
   combat.ts            THE single damage funnel (damageZombie/damagePlayer):
                        adrenaline mult, floaters, blood, SFX, stats, meter.
@@ -110,11 +112,16 @@ src/game/
   wall.ts              12 segments + pillars; localized damage; breach = sink to
                        rubble; setTotal() redistributes a persisted run.wallHp.
   zombie.ts            EnemyManager + Zombie + TYPES (shambler/runner/brute/
-                       spitter); advancing→attacking→crossing→fleeing FSM +
-                       spitter standoff/acid; brute slam + spit telegraphs.
-  player.ts            Defender: strafe, aim, fire/reload/swap, HP, flashlight
-                       SpotLight + lantern + muzzle flash.
-  companion.ts         Rescued-survivor allies: auto-target + auto-fire.
+                       spitter/crawler/armored/screamer/tank); merged per-type
+                       geometry (one draw call); FSM + breach-seeking, vaulting,
+                       screamer speed-buff; telegraphs; Tank mini-boss at surge.
+  player.ts            Defender: strafe, aim, fire/reload/swap, shove (Space),
+                       hold-E repair/revive, HP, flashlight SpotLight (+ shadows
+                       & volumetric cone) + lantern + muzzle flash.
+  grenade.ts           GrenadeManager — the Last Stand frag (hold F to aim, arc,
+                       blast + knockback + shockwave). Pooled.
+  companion.ts         Rescued-survivor allies: auto-target + auto-fire, banter,
+                       hold-E revive when downed.
   waveDirector.ts      One night: dusk→dawn clock + escalating spawn stream.
   run.ts               RunManager + persisted run state (weapons, companions,
                        wallHp, leg/night, stats helpers).
@@ -127,11 +134,15 @@ src/ui/
   hud.ts               DOM night/day HUD (dawn timeline, HP, wall, adrenaline,
                        weapon/ammo, companions, kills) + banners.
   menus.ts             DOM overlays (title/pause/settings/report/loot/victory/
-                       death) + persisted Settings (volume/mute/quality/shake).
-  style.css            The look (fonts, panels, floater animations).
+                       death) + opening story cutscene + persisted Settings
+                       (SFX/music vol, mute, quality, shake, FOV, damage numbers,
+                       reduced-flashing, colorblind, large text).
+  style.css            The look (fonts, panels, crosshair, accessibility toggles).
 
-src/audio/sfx.ts       Web Audio synth SFX table + ambient bed; subscribes to
-                       the SFX event; headless-safe (no-op without AudioContext).
+src/audio/sfx.ts       Web Audio synth SFX table (+ stereo pan) + ambient bed;
+                       subscribes to the SFX event; headless-safe.
+src/audio/music.ts     MusicManager — crossfading streamed tracks by cue
+                       (menu/night/surge/day/victory/defeat) from public/music.
 
 scripts/smoke-electron.cjs   Real-renderer smoke harness (npm run test:play).
 electron-main.cjs            Desktop wrapper (loopback HTTP server → dist/).
@@ -140,10 +151,11 @@ check-imports.mjs            Stop-hook shim → tsc --noEmit.
 
 ## Core invariants — read before editing
 
-1. **Procedural assets only.** No image/audio/model files in `src/**`. Meshes =
-   Three.js primitives; sounds = Web Audio synth; textures = canvas-generated.
-   Fonts (`@fontsource`) are the one bundled exception. This is the project's
-   identity now that deps/build exist.
+1. **Procedural-first assets.** No image/model files: meshes = Three.js
+   primitives, textures = canvas-generated, all SFX = Web Audio synth. Bundled
+   media is limited to fonts (`@fontsource`) and **streamed music**
+   (`public/music/*.mp3`, via `audio/music.ts`). Don't add image/model assets;
+   keep art procedural.
 
 2. **TypeScript strict.** `noUnusedLocals`/`noUnusedParameters`/
    `noFallthroughCasesInSwitch` are on — dead code is a build error. `npm run
@@ -151,7 +163,11 @@ check-imports.mjs            Stop-hook shim → tsc --noEmit.
 
 3. **The frame tick is synchronous.** No `async`/`await` on update/render. Use
    squared distance for range checks; reuse the pools (particles, bullets,
-   telegraphs, acid) instead of allocating in hot loops.
+   grenades, decals, telegraphs, acid) instead of allocating in hot loops. The
+   loop splits **game time vs real time**: gameplay + gameplay-FX run on a scaled
+   `dt` (so hit-stop/slow-mo freeze them), while camera/world/post/music/HUD run
+   on `realDt` so feedback stays smooth. Keep hit-stop short (capped ≤90ms) and
+   slow-mo reserved for big moments, so a pause always reads as juice, not lag.
 
 4. **One damage funnel.** All damage goes through `combat.damageZombie` /
    `combat.damagePlayer` — never poke HP directly. That's the single place that

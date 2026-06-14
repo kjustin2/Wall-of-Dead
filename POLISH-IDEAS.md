@@ -9,6 +9,37 @@ Tip: just tick the boxes you want (or list the numbers) and hand it back.
 
 ---
 
+## Status — "make all" pass (2026-06-14)
+
+The vast majority of these shipped. Plus: **music** (streamed tracks in
+`public/music`, cue-driven crossfades) and a **performance pass** (merged zombie
+geometry, pooling, adaptive quality, crisp hit-stop/slow-mo so big moments never
+feel like accidental lag).
+
+**Implemented:** nearly all of §1 (juice), §2 (combat depth), §3 (enemies + Tank
+mini-boss), §4.1/4.4/4.5 (repair, segment map, breach drama), §5.1/5.3 (frag aim
+preview, surge slow-mo), §6.1/6.3/6.5 (LMG, per-weapon identity, reload bar),
+§7.1/7.3/7.6/7.7 (compass, gold crates, sprint, day light), §8.1/8.2 (banter,
+revive), §8.x ally clarity, §9 (volumetric flashlight + shadows, rain,
+searchlights, mist, skyline, moon, distant battle, camera breath), §10 (audio),
+§11.1/11.3/11.4/11.5/11.6 (wave readout, hitmarkers, floater toggle, segment map,
+pause stats), §12.1/12.2 (multi-night run + escalation, run summary),
+§13.2/13.3/13.5/13.6 (colorblind, reduced-flashing, large text, FOV), §14.1/14.4/
+14.5 (inter-night beats, ending variations, name your defender), §16.1/16.3
+(first-night prompts, day hints).
+
+**Deferred (heavier / need a new layer):** §4.2 barricade upgrades, §4.3
+deployables, §5.2 throwable types, §5.4 overdrive alt-spend, §5.5 partial
+charges, §6.2 field weapon pickups, §6.4 attachments, §7.2 extraction phase,
+§7.4 rescue activity + roster, §7.5 expedition choice, §8.3/8.5 companion
+assign/personalities, §9.3 full weather system (basic rain shipped), §11.2
+off-screen markers, §12.3 high scores, §12.4 difficulty presets, §12.6 cross-run
+meta unlocks, §13.1 key rebinding, §13.4 aim assist, §14.2/14.3 env
+storytelling/radio, §15.1 instanced enemies, §16.2 sandbox. Say the word and I'll
+take on any of these next.
+
+---
+
 ## 1. Game feel & juice
 
 - [ ] **1.1 Hit-stop on big hits** (S) — freeze the frame 30–60ms on brute hits,
