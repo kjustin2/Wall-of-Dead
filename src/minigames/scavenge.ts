@@ -3,21 +3,31 @@ import type { Ctx } from "../game/ctx";
 import { makeGlow } from "../render/textures";
 import { clamp } from "../core/math";
 
-const DURATION = 26;
-const AREA = { minX: -26, maxX: 26, minZ: -44, maxZ: -4 };
-const AV_SPEED = 13;
-const CRATES = 8;
+const DURATION = 55;
+const AREA = { minX: -28, maxX: 28, minZ: -46, maxZ: -3 };
+const SNEAK = 6.2;
+const SPRINT = 11.5;
+const CRATES = 7;
+const AV_R = 0.6;
+const VISION_RANGE = 15;
+const CONE_HALF = 0.52; // radians, half-angle of a guard's sight cone
 
 export type Tier = "S" | "A" | "B" | "C" | "D";
 
 export function tierFromFrac(f: number): Tier {
-  if (f >= 0.9) return "S";
-  if (f >= 0.72) return "A";
-  if (f >= 0.52) return "B";
+  if (f >= 0.95) return "S";
+  if (f >= 0.75) return "A";
+  if (f >= 0.55) return "B";
   if (f >= 0.3) return "C";
   return "D";
 }
 
+interface Wall {
+  x: number;
+  z: number;
+  w: number;
+  d: number;
+}
 interface Crate {
   group: THREE.Group;
   x: number;
@@ -25,22 +35,96 @@ interface Crate {
   got: boolean;
   gold: boolean;
 }
-interface Chaser {
+interface Guard {
   group: THREE.Group;
-  ring: THREE.Mesh;
+  cone: THREE.Mesh;
+  coneMat: THREE.MeshBasicMaterial;
+  eyeMat: THREE.MeshBasicMaterial;
   x: number;
   z: number;
+  facing: number;
+  patrol: { x: number; z: number }[];
+  pIdx: number;
+  state: "patrol" | "chase";
+  alertT: number;
   speed: number;
 }
 
 const AMBER = 0xffb24a;
 const THREAT = 0xff4030;
 
+// Static maze-ish layout (corners to break line of sight).
+const WALLS: Wall[] = [
+  { x: -10, z: -15, w: 16, d: 1.4 },
+  { x: 9, z: -13, w: 1.4, d: 12 },
+  { x: -2, z: -28, w: 18, d: 1.4 },
+  { x: 16, z: -30, w: 1.4, d: 20 },
+  { x: -17, z: -27, w: 1.4, d: 18 },
+  { x: 3, z: -41, w: 14, d: 1.4 },
+  { x: -22, z: -40, w: 10, d: 1.4 },
+];
+
+function pushOutAABB(px: number, pz: number, r: number, w: Wall): [number, number] {
+  const minX = w.x - w.w / 2;
+  const maxX = w.x + w.w / 2;
+  const minZ = w.z - w.d / 2;
+  const maxZ = w.z + w.d / 2;
+  const cx = clamp(px, minX, maxX);
+  const cz = clamp(pz, minZ, maxZ);
+  const dx = px - cx;
+  const dz = pz - cz;
+  const d2 = dx * dx + dz * dz;
+  if (d2 >= r * r) return [px, pz];
+  if (d2 > 1e-6) {
+    const d = Math.sqrt(d2);
+    const push = r - d;
+    return [px + (dx / d) * push, pz + (dz / d) * push];
+  }
+  // centre inside the box — eject along the nearest face
+  const dl = px - minX;
+  const dr = maxX - px;
+  const dt = pz - minZ;
+  const db = maxZ - pz;
+  const m = Math.min(dl, dr, dt, db);
+  if (m === dl) return [minX - r, pz];
+  if (m === dr) return [maxX + r, pz];
+  if (m === dt) return [px, minZ - r];
+  return [px, maxZ + r];
+}
+
+function segAABB(ax: number, az: number, bx: number, bz: number, w: Wall): boolean {
+  const minX = w.x - w.w / 2;
+  const maxX = w.x + w.w / 2;
+  const minZ = w.z - w.d / 2;
+  const maxZ = w.z + w.d / 2;
+  const dx = bx - ax;
+  const dz = bz - az;
+  let tmin = 0;
+  let tmax = 1;
+  for (let axis = 0; axis < 2; axis++) {
+    const o = axis === 0 ? ax : az;
+    const dd = axis === 0 ? dx : dz;
+    const lo = axis === 0 ? minX : minZ;
+    const hi = axis === 0 ? maxX : maxZ;
+    if (Math.abs(dd) < 1e-6) {
+      if (o < lo || o > hi) return false;
+    } else {
+      let t1 = (lo - o) / dd;
+      let t2 = (hi - o) / dd;
+      if (t1 > t2) [t1, t2] = [t2, t1];
+      tmin = Math.max(tmin, t1);
+      tmax = Math.min(tmax, t2);
+      if (tmin > tmax) return false;
+    }
+  }
+  return true;
+}
+
 /**
- * The day "Supply Run": a top-down dash through the field grabbing crates under
- * a clock while zombies prowl. Objective is made obvious — each crate throws a
- * pulsing pillar of light + a ground ring; threats wear red danger rings; the
- * playable area is outlined. Returns { tier, frac } → loot.
+ * The day "Supply Run" — a moody stealth crawl. The map is dark; your avatar has
+ * a flashlight and moves slow (hold Shift to sprint a short burst). Zombies
+ * patrol with visible sight cones; step into one (with line of sight, not behind
+ * a wall) and they give chase. Find the crates in the dark; returns { tier, frac }.
  */
 export class Scavenge {
   active = false;
@@ -48,64 +132,44 @@ export class Scavenge {
   got = 0;
   total = CRATES;
   timeLeft = DURATION;
+  readonly maxTime = DURATION;
   stamina = 1;
+  spotted = false;
 
   private group = new THREE.Group();
   private avatar = new THREE.Group();
-  private avatarLight: THREE.PointLight;
+  private light: THREE.SpotLight;
   private ax = 0;
-  private az = -8;
+  private az = -7;
   private crates: Crate[] = [];
-  private chasers: Chaser[] = [];
+  private guards: Guard[] = [];
   private invuln = 0;
   private t = 0;
   private tmp = new THREE.Vector2();
-
-  // Shared pulsing materials
-  private beamMat: THREE.MeshBasicMaterial;
-  private ringMat: THREE.MeshBasicMaterial;
-  private threatMat: THREE.MeshBasicMaterial;
-  private beamGeo = new THREE.CylinderGeometry(0.85, 0.22, 7, 10, 1, true);
-  private ringGeo = new THREE.RingGeometry(0.85, 1.12, 30);
-  private crateGeo = new THREE.BoxGeometry(0.95, 0.95, 0.95);
-  private threatRingGeo = new THREE.RingGeometry(0.9, 1.15, 28);
+  private coneGeo: THREE.BufferGeometry;
+  private nearest = new THREE.Vector3();
 
   constructor(private ctx: Ctx, scene: THREE.Scene) {
-    this.beamMat = new THREE.MeshBasicMaterial({
-      color: AMBER,
-      transparent: true,
-      opacity: 0.22,
-      depthWrite: false,
-      blending: THREE.AdditiveBlending,
-      side: THREE.DoubleSide,
-      fog: false,
-    });
-    this.ringMat = new THREE.MeshBasicMaterial({
-      color: AMBER,
-      transparent: true,
-      opacity: 0.6,
-      depthWrite: false,
-      blending: THREE.AdditiveBlending,
-      side: THREE.DoubleSide,
-      fog: false,
-    });
-    this.threatMat = new THREE.MeshBasicMaterial({
-      color: THREAT,
-      transparent: true,
-      opacity: 0.55,
-      depthWrite: false,
-      blending: THREE.AdditiveBlending,
-      side: THREE.DoubleSide,
-      fog: false,
-    });
-
     this.buildAvatar();
-    this.avatarLight = new THREE.PointLight(0x9fd8ff, 4, 16, 2);
-    this.avatarLight.position.set(0, 4.5, 0);
-    this.avatar.add(this.avatarLight);
+    this.light = new THREE.SpotLight(0xfff0d0, 18, 26, 0.62, 0.5, 1.0);
+    this.light.position.set(0, 3.5, 0);
+    this.light.target.position.set(0, -1, 10); // local +Z = the way the avatar faces
+    this.avatar.add(this.light);
+    this.avatar.add(this.light.target);
+    this.avatar.add(makeGlow(0x6fc3ff, 2.4, 0.5));
     this.group.add(this.avatar);
 
+    this.buildWalls();
     this.buildBoundary();
+
+    // Sight-cone sector geometry (points +Z; rotated to each guard's facing).
+    const shape = new THREE.Shape();
+    shape.moveTo(0, 0);
+    shape.absarc(0, 0, VISION_RANGE, Math.PI / 2 - CONE_HALF, Math.PI / 2 + CONE_HALF, false);
+    shape.lineTo(0, 0);
+    const g = new THREE.ShapeGeometry(shape, 16);
+    g.rotateX(Math.PI / 2);
+    this.coneGeo = g;
 
     this.group.visible = false;
     scene.add(this.group);
@@ -122,7 +186,6 @@ export class Scavenge {
     pack.position.set(0, 1.05, 0.34);
     const head = new THREE.Mesh(new THREE.BoxGeometry(0.38, 0.4, 0.38), skin);
     head.position.y = 1.72;
-    head.castShadow = true;
     const helmet = new THREE.Mesh(new THREE.BoxGeometry(0.44, 0.22, 0.46), dark);
     helmet.position.y = 1.95;
     for (const lx of [-0.16, 0.16]) {
@@ -130,14 +193,25 @@ export class Scavenge {
       leg.position.set(lx, 0.42, 0);
       this.avatar.add(leg);
     }
-    this.avatar.add(torso, pack, head, helmet, makeGlow(0x6fc3ff, 3, 0.5));
+    this.avatar.add(torso, pack, head, helmet);
+  }
+
+  private buildWalls(): void {
+    const mat = new THREE.MeshStandardMaterial({ color: 0x1a1f24, roughness: 1, flatShading: true });
+    for (const w of WALLS) {
+      const m = new THREE.Mesh(new THREE.BoxGeometry(w.w, 2.4, w.d), mat);
+      m.position.set(w.x, 1.2, w.z);
+      m.castShadow = true;
+      m.receiveShadow = true;
+      this.group.add(m);
+    }
   }
 
   private buildBoundary(): void {
     const mat = new THREE.MeshBasicMaterial({
-      color: 0x5fd0ff,
+      color: 0x3a6a8a,
       transparent: true,
-      opacity: 0.35,
+      opacity: 0.3,
       depthWrite: false,
       blending: THREE.AdditiveBlending,
       fog: false,
@@ -147,26 +221,33 @@ export class Scavenge {
     const cx = (AREA.minX + AREA.maxX) / 2;
     const cz = (AREA.minZ + AREA.maxZ) / 2;
     const edges: [number, number, number, number][] = [
-      [cx, AREA.minZ, w, 0.18],
-      [cx, AREA.maxZ, w, 0.18],
-      [AREA.minX, cz, 0.18, d],
-      [AREA.maxX, cz, 0.18, d],
+      [cx, AREA.minZ, w, 0.15],
+      [cx, AREA.maxZ, w, 0.15],
+      [AREA.minX, cz, 0.15, d],
+      [AREA.maxX, cz, 0.15, d],
     ];
     for (const [ex, ez, ew, ed] of edges) {
-      const bar = new THREE.Mesh(new THREE.BoxGeometry(ew, 0.08, ed), mat);
-      bar.position.set(ex, 0.05, ez);
+      const bar = new THREE.Mesh(new THREE.BoxGeometry(ew, 0.06, ed), mat);
+      bar.position.set(ex, 0.04, ez);
       this.group.add(bar);
     }
-    // Corner posts with glow
-    for (const px of [AREA.minX, AREA.maxX])
-      for (const pz of [AREA.minZ, AREA.maxZ]) {
-        const post = new THREE.Mesh(new THREE.BoxGeometry(0.3, 2, 0.3), mat);
-        post.position.set(px, 1, pz);
-        this.group.add(post);
-        const g = makeGlow(0x5fd0ff, 1.6, 0.5);
-        g.position.set(px, 2.2, pz);
-        this.group.add(g);
-      }
+  }
+
+  private inWall(x: number, z: number, pad = 1): boolean {
+    for (const w of WALLS) {
+      if (x > w.x - w.w / 2 - pad && x < w.x + w.w / 2 + pad && z > w.z - w.d / 2 - pad && z < w.z + w.d / 2 + pad)
+        return true;
+    }
+    return false;
+  }
+
+  private freeSpot(minZ: number, maxZ: number): { x: number; z: number } {
+    for (let i = 0; i < 30; i++) {
+      const x = this.ctx.rng.range(AREA.minX + 3, AREA.maxX - 3);
+      const z = this.ctx.rng.range(minZ, maxZ);
+      if (!this.inWall(x, z, 1.2)) return { x, z };
+    }
+    return { x: this.ctx.rng.range(AREA.minX + 3, AREA.maxX - 3), z: this.ctx.rng.range(minZ, maxZ) };
   }
 
   private makeCrate(x: number, z: number, gold: boolean): Crate {
@@ -174,60 +255,54 @@ export class Scavenge {
     const tint = gold ? 0xc8961e : 0x8a5a1a;
     const beacon = gold ? 0xffd84a : AMBER;
     const box = new THREE.Mesh(
-      this.crateGeo,
-      new THREE.MeshStandardMaterial({ color: tint, roughness: 0.85, emissive: new THREE.Color(gold ? 0x5a3a00 : 0x3a2400), flatShading: true })
+      new THREE.BoxGeometry(0.9, 0.9, 0.9),
+      new THREE.MeshStandardMaterial({ color: tint, roughness: 0.85, emissive: new THREE.Color(gold ? 0x4a3000 : 0x2a1c00), flatShading: true })
     );
-    box.position.y = 0.5;
+    box.position.y = 0.45;
     box.castShadow = true;
-    if (gold) box.scale.setScalar(1.15);
-    g.add(box);
-    const crossMat = new THREE.MeshStandardMaterial({ color: 0xffcf6a, emissive: new THREE.Color(beacon), emissiveIntensity: 0.9 });
-    const c1 = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.08, 0.16), crossMat);
-    const c2 = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.08, 0.6), crossMat);
-    c1.position.y = 1.0;
-    c2.position.y = 1.0;
-    g.add(c1, c2);
-    const beam = new THREE.Mesh(this.beamGeo, gold ? this.beamMat.clone() : this.beamMat);
-    if (gold) (beam.material as THREE.MeshBasicMaterial).color.set(beacon);
-    beam.position.y = 3.6;
-    const ring = new THREE.Mesh(this.ringGeo, this.ringMat);
-    ring.rotation.x = -Math.PI / 2;
-    ring.position.y = 0.06;
-    const glow = makeGlow(beacon, gold ? 3.4 : 2.6, 0.7);
-    glow.position.y = 1.1;
-    g.add(beam, ring, glow);
+    g.add(box, makeGlow(beacon, gold ? 2.2 : 1.7, 0.6));
     g.position.set(x, 0, z);
     this.group.add(g);
     return { group: g, x, z, got: false, gold };
   }
 
-  private makeChaser(speed: number): Chaser {
+  private makeGuard(): Guard {
     const g = new THREE.Group();
     const body = new THREE.Mesh(
       new THREE.BoxGeometry(0.8, 1.25, 0.5),
       new THREE.MeshStandardMaterial({ color: 0x3a4a30, roughness: 1, flatShading: true })
     );
     body.position.y = 0.9;
-    body.rotation.x = 0.2;
+    body.rotation.x = 0.18;
     body.castShadow = true;
     const head = new THREE.Mesh(
       new THREE.BoxGeometry(0.44, 0.44, 0.44),
       new THREE.MeshStandardMaterial({ color: 0x495a3c, roughness: 1, flatShading: true })
     );
     head.position.set(0, 1.55, 0.15);
-    const eyeMat = new THREE.MeshBasicMaterial({ color: THREAT, fog: false });
+    const eyeMat = new THREE.MeshBasicMaterial({ color: AMBER, fog: false });
     for (const ex of [-0.12, 0.12]) {
       const eye = new THREE.Mesh(new THREE.SphereGeometry(0.09, 6, 6), eyeMat);
       eye.position.set(ex, 1.58, 0.36);
       g.add(eye);
     }
-    g.add(body, head, makeGlow(THREAT, 1.5, 0.55));
-    const ring = new THREE.Mesh(this.threatRingGeo, this.threatMat);
-    ring.rotation.x = -Math.PI / 2;
-    ring.position.y = 0.05;
-    g.add(ring);
+    g.add(body, head);
+    const coneMat = new THREE.MeshBasicMaterial({
+      color: AMBER,
+      transparent: true,
+      opacity: 0.16,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+      side: THREE.DoubleSide,
+      fog: false,
+    });
+    const cone = new THREE.Mesh(this.coneGeo, coneMat);
+    cone.position.y = 0.06;
+    g.add(cone);
     this.group.add(g);
-    return { group: g, ring, x: 0, z: AREA.minZ - 2, speed };
+    const patrol: { x: number; z: number }[] = [];
+    for (let i = 0; i < 3; i++) patrol.push(this.freeSpot(AREA.minZ + 2, AREA.maxZ - 8));
+    return { group: g, cone, coneMat, eyeMat, x: patrol[0].x, z: patrol[0].z, facing: 0, patrol, pIdx: 1, state: "patrol", alertT: 0, speed: 3 };
   }
 
   start(): void {
@@ -236,26 +311,26 @@ export class Scavenge {
     this.got = 0;
     this.timeLeft = DURATION;
     this.invuln = 0;
+    this.stamina = 1;
+    this.spotted = false;
     this.ax = 0;
-    this.az = -8;
+    this.az = -7;
     this.group.visible = true;
+    this.ctx.world.setDawn(0.12); // dark, moody — not the bright dawn
 
     for (const c of this.crates) this.group.remove(c.group);
     this.crates = [];
-    this.stamina = 1;
     for (let i = 0; i < CRATES; i++) {
-      const x = this.ctx.rng.range(AREA.minX + 3, AREA.maxX - 3);
-      const z = this.ctx.rng.range(AREA.minZ + 3, AREA.maxZ - 6);
-      this.crates.push(this.makeCrate(x, z, i < 2)); // first two are gold (bonus)
+      const s = this.freeSpot(AREA.minZ + 3, AREA.maxZ - 10);
+      this.crates.push(this.makeCrate(s.x, s.z, i < 2));
     }
 
-    for (const c of this.chasers) this.group.remove(c.group);
-    this.chasers = [];
-    for (let i = 0; i < 3; i++) {
-      const c = this.makeChaser(6.5 + i * 0.6);
-      c.x = this.ctx.rng.range(AREA.minX + 2, AREA.maxX - 2);
-      c.group.position.set(c.x, 0, c.z);
-      this.chasers.push(c);
+    for (const g of this.guards) this.group.remove(g.group);
+    this.guards = [];
+    for (let i = 0; i < 4; i++) {
+      const g = this.makeGuard();
+      g.group.position.set(g.x, 0, g.z);
+      this.guards.push(g);
     }
 
     this.ctx.cam.mode = "topdown";
@@ -269,71 +344,152 @@ export class Scavenge {
     this.timeLeft -= dt;
     if (this.invuln > 0) this.invuln -= dt;
 
-    // Pulse the beacons + threat rings
-    const pulse = 0.5 + Math.sin(this.t * 5) * 0.3;
-    this.beamMat.opacity = 0.14 + pulse * 0.16;
-    this.ringMat.opacity = 0.4 + pulse * 0.35;
-    this.threatMat.opacity = 0.35 + (0.5 + Math.sin(this.t * 9) * 0.5) * 0.4;
-
-    // Move avatar (hold Shift to sprint while stamina lasts)
+    // Move (sneak, or sprint while stamina holds)
     const a = this.ctx.input.axis(this.tmp);
     const moving = a.x !== 0 || a.y !== 0;
     const sprint = this.ctx.input.down("ShiftLeft") && this.stamina > 0.05 && moving;
-    if (sprint) this.stamina = Math.max(0, this.stamina - dt * 0.5);
-    else this.stamina = Math.min(1, this.stamina + dt * 0.35);
-    const sp = sprint ? AV_SPEED * 1.6 : AV_SPEED;
-    this.ax = clamp(this.ax + a.x * sp * dt, AREA.minX, AREA.maxX);
-    this.az = clamp(this.az + a.y * sp * dt, AREA.minZ, AREA.maxZ);
+    this.stamina = sprint ? Math.max(0, this.stamina - dt * 0.55) : Math.min(1, this.stamina + dt * 0.3);
+    const sp = sprint ? SPRINT : SNEAK;
+    let nx = this.ax + a.x * sp * dt;
+    let nz = this.az + a.y * sp * dt;
+    nx = clamp(nx, AREA.minX, AREA.maxX);
+    nz = clamp(nz, AREA.minZ, AREA.maxZ);
+    for (const w of WALLS) [nx, nz] = pushOutAABB(nx, nz, AV_R, w);
+    this.ax = nx;
+    this.az = nz;
     this.avatar.position.set(this.ax, 0, this.az);
-    if (a.x || a.y) this.avatar.rotation.y = Math.atan2(a.x, a.y);
+    if (moving) {
+      this.avatar.rotation.y = Math.atan2(a.x, a.y);
+    }
+
+    // Guards
+    let anyChase = false;
+    for (const g of this.guards) this.updateGuard(g, dt);
+    for (const g of this.guards) if (g.state === "chase") anyChase = true;
+    if (anyChase && !this.spotted) {
+      this.spotted = true;
+      this.ctx.events.emit("SFX", { id: "scream" });
+      this.ctx.stage.punch(0.3);
+      this.ctx.cam.addTrauma(0.3);
+    } else if (!anyChase) {
+      this.spotted = false;
+    }
 
     // Grab crates
     for (const c of this.crates) {
       if (c.got) continue;
-      // Slow spin of the crate's beacon ring for life
-      c.group.rotation.y += dt * 0.6;
+      c.group.rotation.y += dt * 0.5;
       const dx = c.x - this.ax;
       const dz = c.z - this.az;
-      if (dx * dx + dz * dz < 2.6) {
+      if (dx * dx + dz * dz < 2.4) {
         c.got = true;
         c.group.visible = false;
         this.got++;
         if (c.gold) {
-          this.ctx.stats.cratesGrabbed += 1; // gold is worth an extra supply
-          this.ctx.floaters.spawn(c.x, 1.7, c.z, "+2 SUPPLY", "crit");
-          this.ctx.fx.burst(c.x, 1.0, c.z, 26, 0xffd84a, { speed: 9, up: 7, life: 0.6, size: 8 });
+          this.ctx.stats.cratesGrabbed += 1;
+          this.ctx.floaters.spawn(c.x, 1.6, c.z, "+2 SUPPLY", "crit");
+          this.ctx.fx.burst(c.x, 1.0, c.z, 22, 0xffd84a, { speed: 8, up: 6, life: 0.6, size: 7 });
         } else {
-          this.ctx.floaters.spawn(c.x, 1.6, c.z, "+SUPPLY", "heal");
-          this.ctx.fx.burst(c.x, 0.9, c.z, 16, AMBER, { speed: 7, up: 5, life: 0.5 });
+          this.ctx.floaters.spawn(c.x, 1.5, c.z, "+SUPPLY", "heal");
+          this.ctx.fx.burst(c.x, 0.9, c.z, 12, AMBER, { speed: 6, up: 5, life: 0.5 });
         }
         this.ctx.events.emit("CRATE_GRABBED", { got: this.got, total: this.total });
         this.ctx.events.emit("SFX", { id: "pickup" });
       }
     }
 
-    // Chasers seek
-    for (const c of this.chasers) {
-      const dx = this.ax - c.x;
-      const dz = this.az - c.z;
-      const d = Math.hypot(dx, dz) || 1;
-      c.x += (dx / d) * c.speed * dt;
-      c.z += (dz / d) * c.speed * dt;
-      c.group.position.set(c.x, 0, c.z);
-      c.group.rotation.y = Math.atan2(dx, dz);
-      if (d < 1.5 && this.invuln <= 0) {
-        this.invuln = 1.0;
+    this.ctx.cam.target.set(this.ax, 0, this.az);
+    if (this.timeLeft <= 0 || this.got >= this.total) this.finish();
+  }
+
+  private losBlocked(ax: number, az: number, bx: number, bz: number): boolean {
+    for (const w of WALLS) if (segAABB(ax, az, bx, bz, w)) return true;
+    return false;
+  }
+
+  private updateGuard(g: Guard, dt: number): void {
+    // Detection: in range, within the cone, and not behind a wall
+    const dx = this.ax - g.x;
+    const dz = this.az - g.z;
+    const dist = Math.hypot(dx, dz);
+    let sees = false;
+    if (dist < VISION_RANGE) {
+      const toAvatar = Math.atan2(dx, dz);
+      let diff = toAvatar - g.facing;
+      while (diff > Math.PI) diff -= Math.PI * 2;
+      while (diff < -Math.PI) diff += Math.PI * 2;
+      if (Math.abs(diff) < CONE_HALF && !this.losBlocked(g.x, g.z, this.ax, this.az)) sees = true;
+    }
+
+    if (sees) {
+      g.state = "chase";
+      g.alertT = 2.5;
+    } else if (g.state === "chase") {
+      g.alertT -= dt;
+      if (g.alertT <= 0) g.state = "patrol";
+    }
+
+    let tx: number;
+    let tz: number;
+    let speed: number;
+    if (g.state === "chase") {
+      tx = this.ax;
+      tz = this.az;
+      speed = 8.2;
+      // Catch
+      if (dist < 1.5 && this.invuln <= 0) {
+        this.invuln = 1.1;
         this.got = Math.max(0, this.got - 1);
-        this.ax = clamp(this.ax - (dx / d) * 4, AREA.minX, AREA.maxX);
-        this.az = clamp(this.az - (dz / d) * 4, AREA.minZ, AREA.maxZ);
+        const n = dist || 1;
+        this.ax = clamp(this.ax - (dx / n) * 4, AREA.minX, AREA.maxX);
+        this.az = clamp(this.az - (dz / n) * 4, AREA.minZ, AREA.maxZ);
         this.ctx.cam.addTrauma(0.4);
-        this.ctx.stage.punch(0.3);
+        this.ctx.stage.punch(0.35);
         this.ctx.floaters.spawn(this.ax, 2, this.az, "CAUGHT!", "warn");
         this.ctx.events.emit("SFX", { id: "player_hurt" });
       }
+    } else {
+      const p = g.patrol[g.pIdx];
+      tx = p.x;
+      tz = p.z;
+      speed = g.speed;
+      if (Math.hypot(p.x - g.x, p.z - g.z) < 1.5) g.pIdx = (g.pIdx + 1) % g.patrol.length;
     }
 
-    this.ctx.cam.target.set(this.ax, 0, this.az);
-    if (this.timeLeft <= 0 || this.got >= this.total) this.finish();
+    const mdx = tx - g.x;
+    const mdz = tz - g.z;
+    const md = Math.hypot(mdx, mdz) || 1;
+    g.x += (mdx / md) * speed * dt;
+    g.z += (mdz / md) * speed * dt;
+    g.facing = Math.atan2(mdx, mdz);
+    g.group.position.set(g.x, 0, g.z);
+    g.group.rotation.y = g.facing;
+
+    // Cone visual: amber when patrolling, red + brighter when hunting
+    const hunting = g.state === "chase";
+    g.cone.rotation.y = 0; // child rotates with group
+    g.coneMat.color.set(hunting ? THREAT : AMBER);
+    g.coneMat.opacity = hunting ? 0.28 : 0.14;
+    g.eyeMat.color.set(hunting ? THREAT : AMBER);
+  }
+
+  private nearestCrate(): Crate | null {
+    let best: Crate | null = null;
+    let bestD = Infinity;
+    for (const c of this.crates) {
+      if (c.got) continue;
+      const d = (c.x - this.ax) ** 2 + (c.z - this.az) ** 2;
+      if (d < bestD) {
+        bestD = d;
+        best = c;
+      }
+    }
+    return best;
+  }
+
+  nearestCratePos(): THREE.Vector3 | null {
+    const c = this.nearestCrate();
+    return c ? this.nearest.set(c.x, 1, c.z) : null;
   }
 
   private finish(): void {
@@ -345,24 +501,6 @@ export class Scavenge {
     this.ctx.events.emit("DAY_DONE", { tier: tierFromFrac(frac), frac });
   }
 
-  private nearest = new THREE.Vector3();
-  /** World position of the nearest uncollected crate, or null. (For the compass.) */
-  nearestCratePos(): THREE.Vector3 | null {
-    let best: Crate | null = null;
-    let bestD = Infinity;
-    for (const c of this.crates) {
-      if (c.got) continue;
-      const d = (c.x - this.ax) ** 2 + (c.z - this.az) ** 2;
-      if (d < bestD) {
-        bestD = d;
-        best = c;
-      }
-    }
-    if (!best) return null;
-    return this.nearest.set(best.x, 1, best.z);
-  }
-
-  /** Smoke-test helper: instantly finish a successful run. */
   debugComplete(): void {
     if (!this.active) return;
     this.got = this.total;

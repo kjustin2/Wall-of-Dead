@@ -229,7 +229,7 @@ function startDay(): void {
   ctx.music.play("day");
   scavenge.start();
   state = "day";
-  hud.banner("GRAB THE SUPPLIES", "Reach the lit crates · avoid the dead");
+  hud.banner("SUPPLY RUN", "Sneak the dark · stay out of their sight");
 }
 
 function onDayDone(tier: string, frac: number): void {

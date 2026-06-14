@@ -93,8 +93,8 @@ export class CameraRig {
       this.smoothedZ = damp(this.smoothedZ, this.target.z, 7, dt);
       this.camera.position.set(
         this.smoothedX + this.kickOffset.x + sx,
-        30 + sy,
-        this.smoothedZ + 13 + this.kickOffset.z + sz
+        23 + sy,
+        this.smoothedZ + 10 + this.kickOffset.z + sz
       );
       this.camera.lookAt(this.smoothedX, 0, this.smoothedZ - 2);
       this.fovDecay(dt);

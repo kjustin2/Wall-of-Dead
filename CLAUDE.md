@@ -127,8 +127,9 @@ src/game/
                        wallHp, leg/night, stats helpers).
 
 src/minigames/
-  scavenge.ts          The day "Supply Run": top-down crate dash vs chasers;
-                       returns { tier, frac } → loot. tierFromFrac() lives here.
+  scavenge.ts          The day "Supply Run": a moody top-down STEALTH crawl —
+                       dark map + walls, avatar flashlight, guard sight cones
+                       (detect→chase), sneak/sprint. Returns { tier, frac }.
 
 src/ui/
   hud.ts               DOM night/day HUD (dawn timeline, HP, wall, adrenaline,
