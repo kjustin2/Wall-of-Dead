@@ -120,6 +120,7 @@ function toTitle(): void {
   ctx.floaters.clear();
   ctx.player.group.visible = false;
   ctx.wall.group.visible = true; // the wall is the title backdrop
+  ctx.world.setFieldClutter(true);
   ctx.cam.mode = "menu";
   ctx.world.setDawn(0.12);
   hud.setMode("hidden");
@@ -151,6 +152,7 @@ function toCutscene(): void {
   ctx.decals.clear();
   ctx.wall.setTotal(ctx.run.wallHp);
   ctx.wall.group.visible = true;
+  ctx.world.setFieldClutter(true);
   ctx.player.reset();
   ctx.player.group.visible = true;
   ctx.companions.spawnFromRun();
@@ -168,6 +170,7 @@ function beginNight(): void {
   ctx.run.refillMags();
   ctx.wall.setTotal(ctx.run.wallHp);
   ctx.wall.group.visible = true;
+  ctx.world.setFieldClutter(true);
   ctx.player.reset();
   ctx.player.group.visible = true;
   ctx.companions.spawnFromRun();
@@ -232,10 +235,12 @@ function startDay(): void {
   hud.setMode("day");
   ctx.input.enabled = true;
   ctx.music.play("day");
-  // Hide the night defenders/wall — the supply run is its own dark scene.
+  // Hide the night defenders/wall + field clutter — the supply run is its own
+  // self-contained dark scene (so you can't walk through collision-less wrecks).
   ctx.player.group.visible = false;
   ctx.wall.group.visible = false;
   ctx.companions.setVisible(false);
+  ctx.world.setFieldClutter(false);
   scavenge.start();
   state = "day";
   hud.banner("SUPPLY RUN", "Sneak the dark · stay out of their sight");

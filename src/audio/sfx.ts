@@ -139,7 +139,9 @@ export class Sfx {
         this.tone(180, 0.12, "square", 0.28, 70);
         break;
       case "dry_fire":
-        this.tone(900, 0.03, "square", 0.06);
+        // soft, low click — no piercing square
+        this.tone(170, 0.05, "sine", 0.05, 110);
+        this.burst(0.03, 0.04, 280);
         break;
       case "reload":
         this.tone(420, 0.05, "square", 0.1, 600, 0);

@@ -280,10 +280,15 @@ export class Player {
     if (wantFire && this.fireCd <= 0 && this.reloadTimer <= 0) {
       if (lo.ammo > 0) {
         this.fire(lo);
+      } else if (lo.reserve > 0) {
+        this.startReload(); // out of mag but have spare — reload
       } else {
-        this.ctx.events.emit("DRY_FIRE", {});
-        this.ctx.events.emit("SFX", { id: "dry_fire" });
-        this.startReload();
+        // Fully empty — a soft throttled click, only on a fresh trigger pull
+        this.fireCd = 0.35;
+        if (input.mouseJustDown) {
+          this.ctx.events.emit("DRY_FIRE", {});
+          this.ctx.events.emit("SFX", { id: "dry_fire" });
+        }
       }
     }
   }

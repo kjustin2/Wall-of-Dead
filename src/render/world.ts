@@ -16,6 +16,9 @@ const EMBERS = 150;
  */
 export class World {
   private group = new THREE.Group();
+  // Field-level clutter (wrecks, barrels, rubble, fences) — hidden during the
+  // day so the stealth run doesn't collide-lessly overlap them.
+  private field = new THREE.Group();
   private sky: THREE.Mesh;
   private skyMat: THREE.ShaderMaterial;
   private stars: THREE.Points;
@@ -49,6 +52,7 @@ export class World {
   private skyHorizonDawn = new THREE.Color(0xb5683a);
 
   constructor(private stage: Stage) {
+    this.group.add(this.field);
     this.buildGround();
     this.buildRampart();
     this.sky = this.buildSky();
@@ -56,8 +60,7 @@ export class World {
     this.stars = this.buildStars();
     this.moon = this.buildMoon();
     this.dawnGlow = this.buildDawnGlow();
-    this.buildTreeline();
-    this.buildRocks();
+    this.buildRubble();
     this.buildProps();
     this.buildAtmosphere();
     const e = this.buildEmbers();
@@ -122,7 +125,7 @@ export class World {
       this.group.add(dash);
     }
 
-    // Wrecked vehicles strewn along the road
+    // Wrecked vehicles strewn along the road (field clutter — hidden by day)
     const carSpots = [
       [-9, -22, 0.4],
       [11, -40, -0.6],
@@ -147,7 +150,7 @@ export class World {
         }
       car.position.set(cx, 0, cz);
       car.rotation.y = ry;
-      this.group.add(car);
+      this.field.add(car);
     }
 
     // Burning barrels — warm rim light + embers near the wall ends and field
@@ -161,25 +164,41 @@ export class World {
       const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.5, 1.2, 12), rust);
       barrel.position.set(bx, 0.6, bz);
       barrel.castShadow = true;
-      this.group.add(barrel);
+      this.field.add(barrel);
       if (lit) {
         const fire = new THREE.PointLight(0xff7a2a, 6, 16, 2);
         fire.position.set(bx, 1.5, bz);
-        this.group.add(fire);
+        this.field.add(fire);
         const flame = makeGlow(0xffa64a, 2.4, 0.8);
         flame.position.set(bx, 1.5, bz);
-        this.group.add(flame);
+        this.field.add(flame);
         this.flicker.push({ light: fire, glow: flame, base: 6, phase: this.rng.range(0, 10), x: bx, z: bz });
       }
     }
 
-    // Distant skyline silhouette behind the treeline
-    const sky = new THREE.MeshStandardMaterial({ color: 0x05080a, roughness: 1 });
-    for (let i = 0; i < 16; i++) {
-      const h = this.rng.range(14, 46);
-      const b = new THREE.Mesh(new THREE.BoxGeometry(this.rng.range(8, 16), h, 6), sky);
-      b.position.set(this.rng.range(-150, 150), h / 2, -150 - this.rng.range(0, 24));
-      this.group.add(b);
+    // Broken streetlights along the road — leaning poles, a few still flickering
+    const poleMat = new THREE.MeshStandardMaterial({ color: 0x171a1d, roughness: 1, flatShading: true });
+    for (let i = 0; i < 6; i++) {
+      const side = i % 2 === 0 ? -1 : 1;
+      const z = -14 - i * 13;
+      const lamp = new THREE.Group();
+      const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.16, 6.5, 6), poleMat);
+      pole.position.y = 3.25;
+      const arm = new THREE.Mesh(new THREE.BoxGeometry(2.4, 0.12, 0.12), poleMat);
+      arm.position.set(side * -1.1, 6.3, 0);
+      lamp.add(pole, arm);
+      lamp.position.set(side * 8.5, 0, z);
+      lamp.rotation.z = this.rng.range(-0.08, 0.08);
+      this.field.add(lamp);
+      if (i % 2 === 0) {
+        const head = new THREE.PointLight(0xbfd0ff, 3, 14, 2);
+        head.position.set(side * (8.5 - side * 2.2), 6.2, z);
+        this.field.add(head);
+        const glow = makeGlow(0xcfe0ff, 1.6, 0.7);
+        glow.position.copy(head.position);
+        this.field.add(glow);
+        this.flicker.push({ light: head, glow, base: 3, phase: this.rng.range(0, 10), x: head.position.x, z });
+      }
     }
 
     // Broken chain-link fence posts down the field edges
@@ -189,7 +208,47 @@ export class World {
       const post = new THREE.Mesh(new THREE.BoxGeometry(0.16, this.rng.range(1.4, 2.6), 0.16), postMat);
       post.position.set(side * 27 + this.rng.range(-1, 1), 1, -8 - i * 4.2);
       post.rotation.z = this.rng.range(-0.2, 0.2);
-      this.group.add(post);
+      this.field.add(post);
+    }
+
+    this.buildSkyline();
+  }
+
+  /** A coherent ruined-city skyline: two depth layers, some windows still lit. */
+  private buildSkyline(): void {
+    const dark = new THREE.MeshStandardMaterial({ color: 0x05080a, roughness: 1 });
+    const near = new THREE.MeshStandardMaterial({ color: 0x0a1014, roughness: 1, flatShading: true });
+    const winMat = new THREE.MeshBasicMaterial({ color: 0xffcf7a, fog: false });
+    const rows: { z: number; mat: THREE.Material; min: number; max: number; n: number; windows: boolean }[] = [
+      { z: -165, mat: dark, min: 22, max: 60, n: 18, windows: false },
+      { z: -128, mat: near, min: 14, max: 38, n: 14, windows: true },
+    ];
+    for (const row of rows) {
+      for (let i = 0; i < row.n; i++) {
+        const h = this.rng.range(row.min, row.max);
+        const w = this.rng.range(8, 17);
+        const x = this.rng.range(-150, 150);
+        const b = new THREE.Mesh(new THREE.BoxGeometry(w, h, 7), row.mat);
+        b.position.set(x, h / 2, row.z - this.rng.range(0, 18));
+        this.group.add(b);
+        if (row.windows && this.rng.chance(0.7)) {
+          // a scattering of lit windows on the +Z face
+          const cols = Math.max(2, Math.floor(w / 3));
+          const rowsW = Math.max(3, Math.floor(h / 5));
+          for (let c = 0; c < cols; c++) {
+            for (let r = 0; r < rowsW; r++) {
+              if (!this.rng.chance(0.22)) continue;
+              const win = new THREE.Mesh(new THREE.PlaneGeometry(1.1, 1.6), winMat);
+              win.position.set(
+                b.position.x + (c / (cols - 1) - 0.5) * (w - 2),
+                2 + (r / (rowsW - 1)) * (h - 4),
+                b.position.z + 3.6
+              );
+              this.group.add(win);
+            }
+          }
+        }
+      }
     }
   }
 
@@ -295,28 +354,22 @@ export class World {
     return glow;
   }
 
-  private buildTreeline(): void {
-    const mat = new THREE.MeshStandardMaterial({ color: 0x070b0d, roughness: 1 });
-    for (let i = 0; i < 60; i++) {
-      const x = this.rng.range(-180, 180);
-      const z = -120 - this.rng.range(0, 30) - Math.abs(x) * 0.1;
-      const h = this.rng.range(8, 20);
-      const tree = new THREE.Mesh(new THREE.ConeGeometry(this.rng.range(2, 4.5), h, 6), mat);
-      tree.position.set(x, h / 2, z);
-      tree.rotation.y = this.rng.range(0, Math.PI);
-      this.group.add(tree);
-    }
+  /** Field clutter is hidden during the day's stealth run. */
+  setFieldClutter(visible: boolean): void {
+    this.field.visible = visible;
   }
 
-  private buildRocks(): void {
-    const mat = new THREE.MeshStandardMaterial({ color: 0x0e1418, roughness: 1, flatShading: true });
-    for (let i = 0; i < 40; i++) {
-      const s = this.rng.range(0.4, 1.6);
+  private buildRubble(): void {
+    // Concrete rubble + chunks of debris (urban, not forest).
+    const mat = new THREE.MeshStandardMaterial({ color: 0x161b1f, roughness: 1, flatShading: true });
+    for (let i = 0; i < 34; i++) {
+      const s = this.rng.range(0.4, 1.5);
       const rock = new THREE.Mesh(new THREE.DodecahedronGeometry(s, 0), mat);
-      rock.position.set(this.rng.range(-50, 50), s * 0.4, this.rng.range(-78, -6));
+      rock.position.set(this.rng.range(-50, 50), s * 0.35, this.rng.range(-86, -6));
       rock.rotation.set(this.rng.range(0, 3), this.rng.range(0, 3), this.rng.range(0, 3));
+      rock.scale.y = 0.5;
       rock.castShadow = true;
-      this.group.add(rock);
+      this.field.add(rock);
     }
   }
 
@@ -408,7 +461,7 @@ export class World {
       }
     bus.position.set(-21, 0, -7);
     bus.rotation.set(0, 0.5, 0.18);
-    this.group.add(bus);
+    this.field.add(bus);
 
     // A far-off ambient horde shambling along the horizon (never reaches you).
     const figMat = new THREE.MeshStandardMaterial({ color: 0x070a0c, roughness: 1, flatShading: true });

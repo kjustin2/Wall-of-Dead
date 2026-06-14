@@ -29,7 +29,6 @@ export class Hud {
         <div class="hud-left">
           <div class="stat"><span class="stat-tag">HEALTH</span><div class="bar bar-hp"><div class="bar-fill"></div></div></div>
           <div class="stat"><span class="stat-tag">WALL</span><div class="bar bar-wall"><div class="bar-fill"></div></div></div>
-          <div class="stat"><span class="stat-tag">SEGMENTS</span><div class="wall-pips"></div></div>
         </div>
         <div class="hud-center">
           <div class="adr"><div class="adr-fill"></div><div class="adr-tick"></div></div>
@@ -64,7 +63,6 @@ export class Hud {
       dawnLabel: q(".dawn-label"),
       hpFill: q(".bar-hp .bar-fill"),
       wallFill: q(".bar-wall .bar-fill"),
-      wallPips: q(".wall-pips"),
       reloadBar: q(".reload-bar"),
       reloadFill: q(".reload-fill"),
       adr: q(".adr"),
@@ -105,7 +103,6 @@ export class Hud {
 
   private cx = window.innerWidth / 2;
   private cy = window.innerHeight / 2;
-  private segFracs: number[] = [];
 
   private fireKick(): void {
     if (this.mode !== "night") return;
@@ -179,18 +176,6 @@ export class Hud {
     this.el.hpFill.style.width = `${(c.player.hp / c.player.maxHp) * 100}%`;
     this.el.wallFill.style.width = `${c.wall.integrityFrac() * 100}%`;
 
-    // Per-segment wall map
-    const fracs = c.wall.segmentFracs(this.segFracs);
-    if (this.el.wallPips.children.length !== fracs.length) {
-      this.el.wallPips.innerHTML = fracs.map(() => '<span class="pip"></span>').join("");
-    }
-    for (let i = 0; i < fracs.length; i++) {
-      const p = this.el.wallPips.children[i] as HTMLElement;
-      const f = fracs[i];
-      p.style.background = f <= 0 ? "#3a0a0a" : `hsl(${Math.round(f * 120)}, 70%, 50%)`;
-      p.style.opacity = f <= 0 ? "0.45" : "1";
-    }
-
     // Reload bar
     if (c.player.reloading) {
       this.el.reloadBar.style.display = "";
@@ -213,7 +198,13 @@ export class Hud {
 
     const lo = c.run.weapons[c.run.weaponIndex];
     if (lo) {
-      this.el.wname.textContent = c.player.reloading ? `${lo.def.name} — RELOADING` : lo.def.name;
+      const empty = lo.ammo === 0 && lo.reserve === 0;
+      this.el.wname.textContent = empty
+        ? "OUT OF AMMO — SWITCH (1–3)"
+        : c.player.reloading
+          ? `${lo.def.name} — RELOADING`
+          : lo.def.name;
+      this.el.wname.classList.toggle("weapon-name--empty", empty);
       this.el.ammoMag.textContent = `${lo.ammo}`;
       this.el.ammoRes.textContent = `/${lo.reserve}`;
       this.el.ammoMag.classList.toggle("ammo-mag--low", lo.ammo > 0 && lo.ammo / lo.def.mag <= 0.25);

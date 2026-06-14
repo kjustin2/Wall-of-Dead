@@ -92,9 +92,11 @@ src/render/
                        punch()/stress screen feedback. (port of RH3 stage.ts)
   cameraRig.ts         Trauma camera (trauma², kick, FOV pulse). Modes: menu
                        drift / rampart follow (night) / topdown (day).
-  world.ts             The environment: ground+grid, rampart+parapet, gradient
-                       sky shader, moon+stars, treeline, rocks, drifting embers,
-                       and setDawn(t) — the dusk→dawn color/light ramp.
+  world.ts             The environment: ground+grid, rampart, gradient sky,
+                       moon+stars, ruined-city skyline (lit windows), wrecks /
+                       barrels / streetlights / rubble (a `field` group hidden by
+                       day), rain, mist, searchlights, embers, ambient horde, and
+                       setDawn(t) — the dusk→dawn color/light ramp.
   particles.ts         One additive GPU point cloud (blood/gore/sparks/casings).
   telegraphs.ts        Pooled ground danger markers (ring + growing fill).
   textures.ts          Procedural radial-glow sprite + canvas text labels.

@@ -27,6 +27,7 @@ interface Wall {
   z: number;
   w: number;
   d: number;
+  car?: boolean;
 }
 interface Crate {
   group: THREE.Group;
@@ -53,7 +54,8 @@ interface Guard {
 const AMBER = 0xffb24a;
 const THREAT = 0xff4030;
 
-// Static maze-ish layout (corners to break line of sight).
+// Static maze-ish layout (corners to break line of sight). Concrete barriers
+// plus a couple of wrecked cars — all solid cover.
 const WALLS: Wall[] = [
   { x: -10, z: -15, w: 16, d: 1.4 },
   { x: 9, z: -13, w: 1.4, d: 12 },
@@ -62,6 +64,8 @@ const WALLS: Wall[] = [
   { x: -17, z: -27, w: 1.4, d: 18 },
   { x: 3, z: -41, w: 14, d: 1.4 },
   { x: -22, z: -40, w: 10, d: 1.4 },
+  { x: -6, z: -21, w: 2.4, d: 4.6, car: true },
+  { x: 12, z: -38, w: 4.6, d: 2.4, car: true },
 ];
 
 function pushOutAABB(px: number, pz: number, r: number, w: Wall): [number, number] {
@@ -118,6 +122,35 @@ function segAABB(ax: number, az: number, bx: number, bz: number, w: Wall): boole
     }
   }
   return true;
+}
+
+/** Entry parameter t in [0,1] where segment a→b first enters the box, else Infinity. */
+function segEntryT(ax: number, az: number, bx: number, bz: number, w: Wall): number {
+  const minX = w.x - w.w / 2;
+  const maxX = w.x + w.w / 2;
+  const minZ = w.z - w.d / 2;
+  const maxZ = w.z + w.d / 2;
+  const dx = bx - ax;
+  const dz = bz - az;
+  let tmin = 0;
+  let tmax = 1;
+  for (let axis = 0; axis < 2; axis++) {
+    const o = axis === 0 ? ax : az;
+    const dd = axis === 0 ? dx : dz;
+    const lo = axis === 0 ? minX : minZ;
+    const hi = axis === 0 ? maxX : maxZ;
+    if (Math.abs(dd) < 1e-6) {
+      if (o < lo || o > hi) return Infinity;
+    } else {
+      let t1 = (lo - o) / dd;
+      let t2 = (hi - o) / dd;
+      if (t1 > t2) [t1, t2] = [t2, t1];
+      tmin = Math.max(tmin, t1);
+      tmax = Math.min(tmax, t2);
+      if (tmin > tmax) return Infinity;
+    }
+  }
+  return tmin;
 }
 
 /**
@@ -196,13 +229,40 @@ export class Scavenge {
   }
 
   private buildWalls(): void {
-    const mat = new THREE.MeshStandardMaterial({ color: 0x1a1f24, roughness: 1, flatShading: true });
+    const concrete = new THREE.MeshStandardMaterial({ color: 0x2a2f35, roughness: 1, flatShading: true });
+    const cap = new THREE.MeshStandardMaterial({ color: 0x3a4048, roughness: 1, flatShading: true });
+    const rust = new THREE.MeshStandardMaterial({ color: 0x3a2a22, roughness: 1, flatShading: true });
+    const metal = new THREE.MeshStandardMaterial({ color: 0x20242a, roughness: 0.8, metalness: 0.3, flatShading: true });
+    const tire = new THREE.MeshStandardMaterial({ color: 0x0c0c0e, roughness: 1 });
     for (const w of WALLS) {
-      const m = new THREE.Mesh(new THREE.BoxGeometry(w.w, 2.4, w.d), mat);
-      m.position.set(w.x, 1.2, w.z);
-      m.castShadow = true;
-      m.receiveShadow = true;
-      this.group.add(m);
+      if (w.car) {
+        const car = new THREE.Group();
+        const body = new THREE.Mesh(new THREE.BoxGeometry(w.w, 0.9, w.d), rust);
+        body.position.y = 0.7;
+        body.castShadow = true;
+        const cabin = new THREE.Mesh(new THREE.BoxGeometry(w.w * 0.85, 0.8, w.d * 0.5), metal);
+        cabin.position.set(0, 1.4, 0);
+        car.add(body, cabin);
+        const along = w.w > w.d; // orient wheels along the longer axis
+        for (const a of [-0.32, 0.32])
+          for (const b of [-0.34, 0.34]) {
+            const wheel = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.42, 0.3, 10), tire);
+            wheel.rotation.z = Math.PI / 2;
+            if (along) wheel.position.set(a * w.w, 0.4, b * w.d);
+            else wheel.position.set(b * w.w, 0.4, a * w.d);
+            car.add(wheel);
+          }
+        car.position.set(w.x, 0, w.z);
+        this.group.add(car);
+      } else {
+        const m = new THREE.Mesh(new THREE.BoxGeometry(w.w, 1.8, w.d), concrete);
+        m.position.set(w.x, 0.9, w.z);
+        m.castShadow = true;
+        m.receiveShadow = true;
+        const top = new THREE.Mesh(new THREE.BoxGeometry(w.w + 0.1, 0.25, w.d + 0.1), cap);
+        top.position.set(w.x, 1.85, w.z);
+        this.group.add(m, top);
+      }
     }
   }
 
@@ -404,6 +464,18 @@ export class Scavenge {
     return false;
   }
 
+  /** Distance to the first wall along `facing` (so the cone stops at cover). */
+  private coneDist(gx: number, gz: number, facing: number): number {
+    const bx = gx + Math.sin(facing) * VISION_RANGE;
+    const bz = gz + Math.cos(facing) * VISION_RANGE;
+    let best = VISION_RANGE;
+    for (const w of WALLS) {
+      const t = segEntryT(gx, gz, bx, bz, w);
+      if (t !== Infinity) best = Math.min(best, t * VISION_RANGE);
+    }
+    return Math.max(2, best);
+  }
+
   private updateGuard(g: Guard, dt: number): void {
     // Detection: in range, within the cone, and not behind a wall
     const dx = this.ax - g.x;
@@ -459,9 +531,11 @@ export class Scavenge {
     g.group.position.set(g.x, 0, g.z);
     g.group.rotation.y = g.facing;
 
-    // Cone visual: amber when patrolling, red + brighter when hunting
+    // Cone visual: amber when patrolling, red + brighter when hunting; clipped
+    // to the nearest wall so it visibly stops at cover (matches the LoS check).
     const hunting = g.state === "chase";
-    g.cone.rotation.y = 0; // child rotates with group
+    const cd = this.coneDist(g.x, g.z, g.facing);
+    g.cone.scale.set(1, 1, cd / VISION_RANGE);
     g.coneMat.color.set(hunting ? THREAT : AMBER);
     g.coneMat.opacity = hunting ? 0.28 : 0.14;
     g.eyeMat.color.set(hunting ? THREAT : AMBER);
