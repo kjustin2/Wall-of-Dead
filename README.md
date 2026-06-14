@@ -1,84 +1,53 @@
 # Wall of Dead
 
-A moody, behind-the-wall zombie **survival defense**. Hold the wall through the
-night, scavenge by day, and push down the road to the safe zone — picking up
-weapons and rescuing survivors who fight beside you along the way.
+A moody, behind-the-wall zombie **survival defense**, in 3D. Stand on the
+rampart, strafe the barrier, and aim into the dark. Hold the wall through the
+night until dawn, scavenge the field by day, and push for the safe zone.
 
-> Vanilla ES6 + Canvas2D + Web Audio. **Zero runtime dependencies, no build
-> step.** Just serve the folder.
+Built with **Three.js + Vite + TypeScript** — procedural everything (no art or
+audio asset files): low-poly geometry under ACES tone mapping + bloom, a trauma
+camera, and synthesized Web Audio. This is a polished **vertical slice**:
+Title → 1 Night → 1 Day → Victory.
 
-## Play
+## Play / develop
 
 ```bash
-# Browser (primary)
-python -m http.server 8000
-# open http://localhost:8000
-
-# Desktop app (optional Electron wrapper — dev tooling only)
 npm install
-npm start
+npm run dev          # http://localhost:5180
 ```
 
-## How it plays
+- **A / D** — move along the wall
+- **Mouse** — aim · **Click** — fire (hold for autos)
+- **R** — reload · **1–3 / Q** — switch weapons
+- **F** — Last Stand (when the Adrenaline meter is full)
+- **Esc** — pause
+- Day: **WASD** to dash for supply crates, avoid the prowlers.
 
-- **Night — hold the wall.** Zombies emerge from the dark horizon and advance on
-  your barrier. Move along the wall, aim into the gloom, and thin the horde
-  before it claws through. Survive until **dawn**.
-- **Day — choose a scavenge run.** Each morning you pick one of three
-  expeditions, trading risk for supplies:
-  - *Quiet Cache* (low risk) — a steady-hands timing check, no zombies.
-  - *Outrun the Pack* (high risk) — survive unarmed in an arena, don't get caught.
-  - *Smash & Grab* (med) — collect as many crates as you can before time's up.
-  - *Fuel Siphon* (med) — hold a zone to fill the can; SPACE shoves the dead back.
+### Adrenaline
 
-  How well you do scales the haul (ammo, wall repair, healing); a botched risky
-  run can leave you bitten. You'll also pick up weapons and **rescue survivors**
-  along the way, then travel one leg down the road.
-- **Win** by reaching the safe zone (4 legs). **Lose** if you die or the wall is
-  fully overrun.
+The signature meter. Holding the line and landing kills runs it hot — faster
+fire, faster reloads, quicker feet, a brighter flashlight. Taking wall or player
+damage bleeds it cold. Fill it and spend it on a **Last Stand** shockwave that
+hurls the horde off the wall.
 
-### Controls
+## Build & desktop
 
-| Action | Input |
-| --- | --- |
-| Move along the wall | `A` / `D` (or `←` / `→`) |
-| Aim | Mouse |
-| Fire | Left click / hold |
-| Reload | `R` |
-| Swap weapon | `1` `2` `3` or scroll wheel |
-| Pause / menu | `Esc` |
-| Confirm / advance | `Space` / click |
+```bash
+npm run verify       # tsc --noEmit && vite build (type + build gate)
+npm run build        # production bundle → dist/
+npm run standalone   # build + run as an Electron desktop app
+npm run test:play    # build + drive the full slice in a real renderer,
+                     # capturing screenshots to shots/ and any errors
+```
 
-Day scavenge runs are unarmed and top-down: **WASD / arrows** to move, **Space**
-to shove (Fuel Siphon) or lock (Quiet Cache). A main menu, an ESC pause menu,
-and a settings panel (volume / mute / screen shake) are all in.
+## Project layout
 
-## Cast
+See [CLAUDE.md](CLAUDE.md) for the full architecture map and invariants. In
+short: `src/core` (events/input/math), `src/render` (stage post-FX, trauma
+camera, world, particles, telegraphs, floaters), `src/game` (player, zombies,
+wall, weapons, combat, the Adrenaline meter, wave director, run state),
+`src/minigames` (the day supply run), `src/ui` (DOM HUD + menus), `src/audio`
+(synth SFX). Boot + state machine live in `src/main.ts`.
 
-- **4 zombie types** — *shambler* (the bulk), *runner* (fast, rushes the wall),
-  *brute* (slow, heavy, smashes segments), *spitter* (hangs back and lobs acid
-  at you).
-- **4 weapons** — pistol, SMG, shotgun, hunting rifle (each with its own feel,
-  ammo, and reload).
-- **Companions** — rescued survivors auto-target and hold the wall with you.
-
-## Mood
-
-Everything is synthesized — no art or audio assets. Darkness with a lantern
-glow, depth-scaled silhouettes with glowing eyes, drifting fog, blood and gore
-particles, a dread vignette that creeps red when things go bad, and a Web Audio
-horror layer (wind drone, distant groans and screams, a heartbeat that quickens
-with the danger).
-
-## Develop
-
-- Source is plain ES6 modules under `src/**` — see [`CLAUDE.md`](CLAUDE.md) for
-  the architecture map and invariants.
-- `node check.mjs` runs a headless smoke test that drives a full run (and the
-  game-over paths) and validates content integrity.
-
-## Tech
-
-Hand-rolled Canvas2D rendering and Web Audio synthesis. `package.json` exists
-only to declare Electron + electron-builder as dev-time packaging tooling — the
-game itself imports nothing from `node_modules`.
+> Earlier this was a hand-rolled Canvas2D game; it was rebuilt from scratch on
+> Three.js in June 2026. The old version is preserved in git history.
