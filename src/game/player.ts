@@ -197,12 +197,17 @@ export class Player {
       this.reloadTimer -= dt;
       if (this.reloadTimer <= 0) this.finishReload();
     }
-    // Mid-night repair: hold E at a breach to plug the gap (can't fire meanwhile)
-    this.repairing = this.alive && input.down("KeyE") && this.ctx.wall.isBrokenAt(this.x);
-    if (this.repairing) {
-      this.ctx.wall.repair(18 * dt);
-      if (Math.random() < 0.3) {
-        this.ctx.fx.burst(this.x, 0.5, FIELD.wallZ, 2, 0xffcf6a, { speed: 4, up: 3, life: 0.25, size: 4 });
+    // Hold E (context): revive a downed ally nearby, else plug a breach.
+    this.repairing = false;
+    if (this.alive && input.down("KeyE")) {
+      if (this.ctx.companions.reviveTick(this.x, dt)) {
+        this.repairing = true;
+      } else if (this.ctx.wall.isBrokenAt(this.x)) {
+        this.repairing = true;
+        this.ctx.wall.repair(18 * dt);
+        if (Math.random() < 0.3) {
+          this.ctx.fx.burst(this.x, 0.5, FIELD.wallZ, 2, 0xffcf6a, { speed: 4, up: 3, life: 0.25, size: 4 });
+        }
       }
     }
     if (this.alive && !this.repairing) this.handleInput(dt);

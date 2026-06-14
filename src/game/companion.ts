@@ -7,6 +7,7 @@ import { makeGlow, makeLabel } from "../render/textures";
 const FIRE_CD = 0.55;
 const RANGE = 64;
 const ALLY = 0x52e0a0;
+const BARKS = ["On your left!", "Reloading!", "They're at the gate!", "Hold the line!", "Got your back!", "So many of 'em!"];
 
 /** A rescued survivor holding the wall beside you: stands on the firing step,
  * auto-targets the nearest threat in front and fires. Marked clearly as an ally
@@ -19,6 +20,8 @@ class Companion {
   private muzzle: THREE.PointLight;
   private marker = new THREE.Group();
   private t = 0;
+  private barkTimer = 5;
+  private reviveP = 0;
   private aimRig = new THREE.Group();
 
   constructor(public name: string, public x: number, scene: THREE.Scene) {
@@ -84,6 +87,13 @@ class Companion {
     if (this.down) return;
     this.cd -= dt;
 
+    // Occasional banter
+    this.barkTimer -= dt;
+    if (this.barkTimer <= 0) {
+      this.barkTimer = 6 + ctx.rng.next() * 8;
+      ctx.floaters.spawn(this.x, 2.7, this.group.position.z, ctx.rng.pick(BARKS), "heal");
+    }
+
     // Nearest live zombie in front
     let best: { x: number; z: number } | null = null;
     let bestD = RANGE * RANGE;
@@ -121,6 +131,22 @@ class Companion {
       ctx.events.emit("COMPANION_DOWN", { name: this.name });
     }
   }
+
+  /** Hold-E revive progress; returns true once back on their feet. */
+  revive(dt: number, ctx: Ctx): boolean {
+    if (!this.down) return false;
+    this.reviveP += dt / 2.5;
+    if (this.reviveP >= 1) {
+      this.down = false;
+      this.reviveP = 0;
+      this.hp = 45;
+      this.group.rotation.z = 0;
+      this.group.position.y = FIELD.rampartHeight;
+      ctx.floaters.spawn(this.x, 2.7, this.group.position.z, `${this.name} UP!`, "heal");
+      return true;
+    }
+    return false;
+  }
 }
 
 export class CompanionManager {
@@ -141,6 +167,19 @@ export class CompanionManager {
 
   get aliveCount(): number {
     return this.list.filter((c) => !c.down).length;
+  }
+
+  /** Revive a downed ally within reach of x while E is held. Returns true if one
+   * is being revived (so the player can't fire meanwhile). */
+  reviveTick(x: number, dt: number): boolean {
+    for (const c of this.list) {
+      if (!c.down) continue;
+      if (Math.abs(c.x - x) < 3.4) {
+        c.revive(dt, this.ctx);
+        return true;
+      }
+    }
+    return false;
   }
 
   update(dt: number): void {

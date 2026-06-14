@@ -23,6 +23,7 @@ interface Crate {
   x: number;
   z: number;
   got: boolean;
+  gold: boolean;
 }
 interface Chaser {
   group: THREE.Group;
@@ -47,6 +48,7 @@ export class Scavenge {
   got = 0;
   total = CRATES;
   timeLeft = DURATION;
+  stamina = 1;
 
   private group = new THREE.Group();
   private avatar = new THREE.Group();
@@ -167,34 +169,36 @@ export class Scavenge {
       }
   }
 
-  private makeCrate(x: number, z: number): Crate {
+  private makeCrate(x: number, z: number, gold: boolean): Crate {
     const g = new THREE.Group();
+    const tint = gold ? 0xc8961e : 0x8a5a1a;
+    const beacon = gold ? 0xffd84a : AMBER;
     const box = new THREE.Mesh(
       this.crateGeo,
-      new THREE.MeshStandardMaterial({ color: 0x8a5a1a, roughness: 0.85, emissive: new THREE.Color(0x3a2400), flatShading: true })
+      new THREE.MeshStandardMaterial({ color: tint, roughness: 0.85, emissive: new THREE.Color(gold ? 0x5a3a00 : 0x3a2400), flatShading: true })
     );
     box.position.y = 0.5;
     box.castShadow = true;
+    if (gold) box.scale.setScalar(1.15);
     g.add(box);
-    // Supply cross on top (emissive)
-    const crossMat = new THREE.MeshStandardMaterial({ color: 0xffcf6a, emissive: new THREE.Color(0xffae3c), emissiveIntensity: 0.9 });
+    const crossMat = new THREE.MeshStandardMaterial({ color: 0xffcf6a, emissive: new THREE.Color(beacon), emissiveIntensity: 0.9 });
     const c1 = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.08, 0.16), crossMat);
     const c2 = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.08, 0.6), crossMat);
     c1.position.y = 1.0;
     c2.position.y = 1.0;
     g.add(c1, c2);
-    // Beacon: pillar of light + ground ring + glow
-    const beam = new THREE.Mesh(this.beamGeo, this.beamMat);
+    const beam = new THREE.Mesh(this.beamGeo, gold ? this.beamMat.clone() : this.beamMat);
+    if (gold) (beam.material as THREE.MeshBasicMaterial).color.set(beacon);
     beam.position.y = 3.6;
     const ring = new THREE.Mesh(this.ringGeo, this.ringMat);
     ring.rotation.x = -Math.PI / 2;
     ring.position.y = 0.06;
-    const glow = makeGlow(AMBER, 2.6, 0.7);
+    const glow = makeGlow(beacon, gold ? 3.4 : 2.6, 0.7);
     glow.position.y = 1.1;
     g.add(beam, ring, glow);
     g.position.set(x, 0, z);
     this.group.add(g);
-    return { group: g, x, z, got: false };
+    return { group: g, x, z, got: false, gold };
   }
 
   private makeChaser(speed: number): Chaser {
@@ -238,10 +242,11 @@ export class Scavenge {
 
     for (const c of this.crates) this.group.remove(c.group);
     this.crates = [];
+    this.stamina = 1;
     for (let i = 0; i < CRATES; i++) {
       const x = this.ctx.rng.range(AREA.minX + 3, AREA.maxX - 3);
       const z = this.ctx.rng.range(AREA.minZ + 3, AREA.maxZ - 6);
-      this.crates.push(this.makeCrate(x, z));
+      this.crates.push(this.makeCrate(x, z, i < 2)); // first two are gold (bonus)
     }
 
     for (const c of this.chasers) this.group.remove(c.group);
@@ -270,10 +275,15 @@ export class Scavenge {
     this.ringMat.opacity = 0.4 + pulse * 0.35;
     this.threatMat.opacity = 0.35 + (0.5 + Math.sin(this.t * 9) * 0.5) * 0.4;
 
-    // Move avatar
+    // Move avatar (hold Shift to sprint while stamina lasts)
     const a = this.ctx.input.axis(this.tmp);
-    this.ax = clamp(this.ax + a.x * AV_SPEED * dt, AREA.minX, AREA.maxX);
-    this.az = clamp(this.az + a.y * AV_SPEED * dt, AREA.minZ, AREA.maxZ);
+    const moving = a.x !== 0 || a.y !== 0;
+    const sprint = this.ctx.input.down("ShiftLeft") && this.stamina > 0.05 && moving;
+    if (sprint) this.stamina = Math.max(0, this.stamina - dt * 0.5);
+    else this.stamina = Math.min(1, this.stamina + dt * 0.35);
+    const sp = sprint ? AV_SPEED * 1.6 : AV_SPEED;
+    this.ax = clamp(this.ax + a.x * sp * dt, AREA.minX, AREA.maxX);
+    this.az = clamp(this.az + a.y * sp * dt, AREA.minZ, AREA.maxZ);
     this.avatar.position.set(this.ax, 0, this.az);
     if (a.x || a.y) this.avatar.rotation.y = Math.atan2(a.x, a.y);
 
@@ -288,10 +298,16 @@ export class Scavenge {
         c.got = true;
         c.group.visible = false;
         this.got++;
-        this.ctx.floaters.spawn(c.x, 1.6, c.z, "+SUPPLY", "heal");
-        this.ctx.fx.burst(c.x, 0.9, c.z, 16, AMBER, { speed: 7, up: 5, life: 0.5 });
+        if (c.gold) {
+          this.ctx.stats.cratesGrabbed += 1; // gold is worth an extra supply
+          this.ctx.floaters.spawn(c.x, 1.7, c.z, "+2 SUPPLY", "crit");
+          this.ctx.fx.burst(c.x, 1.0, c.z, 26, 0xffd84a, { speed: 9, up: 7, life: 0.6, size: 8 });
+        } else {
+          this.ctx.floaters.spawn(c.x, 1.6, c.z, "+SUPPLY", "heal");
+          this.ctx.fx.burst(c.x, 0.9, c.z, 16, AMBER, { speed: 7, up: 5, life: 0.5 });
+        }
         this.ctx.events.emit("CRATE_GRABBED", { got: this.got, total: this.total });
-        this.ctx.events.emit("SFX", { id: "crate" });
+        this.ctx.events.emit("SFX", { id: "pickup" });
       }
     }
 
@@ -327,6 +343,23 @@ export class Scavenge {
     this.ctx.stats.cratesGrabbed += this.got;
     const frac = this.got / this.total;
     this.ctx.events.emit("DAY_DONE", { tier: tierFromFrac(frac), frac });
+  }
+
+  private nearest = new THREE.Vector3();
+  /** World position of the nearest uncollected crate, or null. (For the compass.) */
+  nearestCratePos(): THREE.Vector3 | null {
+    let best: Crate | null = null;
+    let bestD = Infinity;
+    for (const c of this.crates) {
+      if (c.got) continue;
+      const d = (c.x - this.ax) ** 2 + (c.z - this.az) ** 2;
+      if (d < bestD) {
+        bestD = d;
+        best = c;
+      }
+    }
+    if (!best) return null;
+    return this.nearest.set(best.x, 1, best.z);
   }
 
   /** Smoke-test helper: instantly finish a successful run. */
