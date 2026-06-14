@@ -2,15 +2,16 @@ import { approach } from "../core/math";
 
 export type MusicCue = "menu" | "night" | "surge" | "day" | "victory" | "defeat";
 
-// Tracks live in public/music (copied from the sister project for now).
+// Final original tracks live in public/music. One track per mood; the manager
+// crossfades between them as the cue changes.
 const BASE = import.meta.env.BASE_URL;
 const TRACKS: Record<MusicCue, string[]> = {
-  menu: ["Main_Menu.mp3", "Main_Menu3.mp3"],
-  night: ["Normal_Battle.mp3", "Normal_Battle3.mp3", "Normal_Battle8.mp3"],
-  surge: ["Boss_Battle.mp3", "Boss_Battle3.mp3"],
-  day: ["Selection_Map.mp3", "Selection_Map3.mp3"],
-  victory: ["Main_Menu3.mp3"],
-  defeat: ["Boss_Battle3.mp3"],
+  menu: ["menu.mp3"], // title / main menu
+  night: ["action.mp3"], // the defense
+  surge: ["boss.mp3"], // dawn push + mini-boss
+  day: ["shop.mp3"], // day supply run
+  victory: ["menu.mp3"], // resolved / safe
+  defeat: ["boss.mp3"], // grim
 };
 
 interface Slot {
