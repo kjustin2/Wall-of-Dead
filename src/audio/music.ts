@@ -43,8 +43,8 @@ export class Music {
   }
 
   setVolume(v: number): void {
-    // Cap so even slider-at-middle stays a quiet underscore behind the SFX.
-    this.master = v * 0.4;
+    // Background music — capped low so even slider-at-middle is a faint bed.
+    this.master = v * 0.22;
     const a = this.slots[this.active];
     if (a.el && a.target > 0) a.target = this.master;
   }

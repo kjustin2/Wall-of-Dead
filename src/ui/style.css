@@ -481,6 +481,19 @@ body {
 }
 .settings-row label { color: var(--dim); }
 .settings-row input[type="range"] { width: 180px; accent-color: var(--accent); }
+/* ---------------------------------------------------------------- help */
+.help-cols { display: flex; gap: 48px; margin-top: 8px; text-align: left; }
+.help-col h3 {
+  font-family: var(--display);
+  letter-spacing: 3px;
+  font-size: 15px;
+  color: var(--accent);
+  margin: 14px 0 8px;
+}
+.help-col ul { list-style: none; display: flex; flex-direction: column; gap: 5px; }
+.help-col li { font-size: 15px; letter-spacing: 0.5px; color: var(--ink); }
+.help-col b { color: #fff; }
+
 .settings-row select {
   background: var(--panel);
   color: var(--ink);

@@ -136,6 +136,24 @@ app.whenReady().then(async () => {
       await shot(win, "08-victory.png");
       if (finalState !== "victory") errors.push("FLOW: expected victory, got " + finalState);
       console.log("  final state:", finalState);
+
+      // Edge case: restarting while the supply run is on screen must clear it.
+      const js = (s) => win.webContents.executeJavaScript(s);
+      await js(`(()=>{const b=document.querySelector('.act-replay'); if(b) b.click();})()`);
+      await sleep(900);
+      await js(`window.dispatchEvent(new KeyboardEvent('keydown',{code:'Escape'}))`); // skip story
+      await sleep(1200);
+      await js(`window.__wod.forceDawn();`);
+      await sleep(1600);
+      await js(`(()=>{const b=document.querySelector('.act-start'); if(b) b.click();})()`); // start supply run
+      await sleep(1200);
+      if (!(await js(`window.__wod.scavengeShown()`))) errors.push("EDGE: supply run not shown during day");
+      await js(`window.dispatchEvent(new KeyboardEvent('keydown',{code:'Escape'}))`); // pause
+      await sleep(400);
+      await js(`(()=>{const b=document.querySelector('.act-restart'); if(b) b.click();})()`); // restart run
+      await sleep(1100);
+      if (await js(`window.__wod.scavengeShown()`)) errors.push("EDGE: supply-run map still visible after restart");
+      await shot(win, "09-restart-clean.png");
     } catch (e) {
       errors.push("EXCEPTION: " + (e && e.message ? e.message : String(e)));
     }

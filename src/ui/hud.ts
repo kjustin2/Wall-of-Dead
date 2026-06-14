@@ -29,7 +29,7 @@ export class Hud {
         <div class="hud-left">
           <div class="stat"><span class="stat-tag">HEALTH</span><div class="bar bar-hp"><div class="bar-fill"></div></div></div>
           <div class="stat"><span class="stat-tag">WALL</span><div class="bar bar-wall"><div class="bar-fill"></div></div></div>
-          <div class="wall-pips"></div>
+          <div class="stat"><span class="stat-tag">SEGMENTS</span><div class="wall-pips"></div></div>
         </div>
         <div class="hud-center">
           <div class="adr"><div class="adr-fill"></div><div class="adr-tick"></div></div>
@@ -131,6 +131,9 @@ export class Hud {
 
   setMode(mode: Mode): void {
     this.mode = mode;
+    // Clear any in-flight banner so it doesn't bleed across a scene change.
+    this.el.banner.classList.remove("banner--show");
+    this.bannerTimer = 0;
     const night = mode === "night";
     const day = mode === "day";
     this.el.top.style.display = night ? "" : "none";

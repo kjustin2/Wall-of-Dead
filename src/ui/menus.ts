@@ -147,12 +147,54 @@ export class Menus {
         <p class="subtitle">Hold the barrier until dawn.</p>
         <div class="menu">
           <button class="mbtn mbtn--primary act-start">BEGIN</button>
+          <button class="mbtn act-help">HOW TO PLAY</button>
           <button class="mbtn act-settings">SETTINGS</button>
         </div>
         <p class="controls">A / D move &nbsp;·&nbsp; MOUSE aim &nbsp;·&nbsp; CLICK fire &nbsp;·&nbsp; R reload &nbsp;·&nbsp; E repair/revive &nbsp;·&nbsp; SPACE shove &nbsp;·&nbsp; F frag</p>
       </div>`);
     this.btn(".act-start", onStart);
+    this.btn(".act-help", () => this.showHelp(() => this.showTitle(onStart, onSettings)));
     this.btn(".act-settings", onSettings);
+  }
+
+  /** How-to-play + controls reference, reachable from the title and pause. */
+  showHelp(onBack: () => void): void {
+    this.paint(`
+      <div class="screen screen--help">
+        <h2 class="panel-title">HOW TO PLAY</h2>
+        <p class="subtitle">Hold the wall each night until dawn. By day, sneak the dark for supplies. Survive three nights of road to reach the safe zone.</p>
+        <div class="help-cols">
+          <div class="help-col">
+            <h3>NIGHT — DEFEND</h3>
+            <ul>
+              <li><b>A / D</b> — move along the wall</li>
+              <li><b>Mouse</b> — aim (the red ring shows where shots land)</li>
+              <li><b>Click</b> — fire (hold for automatics)</li>
+              <li><b>R</b> — reload &nbsp; <b>1–3</b> — switch weapons</li>
+              <li><b>Space</b> — shove zombies off the wall</li>
+              <li><b>E</b> — repair a breach / revive a downed ally</li>
+              <li><b>F (hold)</b> — lob a frag when Adrenaline is full</li>
+            </ul>
+          </div>
+          <div class="help-col">
+            <h3>DAY — SUPPLY RUN</h3>
+            <ul>
+              <li><b>WASD</b> — move (you sneak; the map is dark)</li>
+              <li><b>Shift</b> — sprint (short — to escape)</li>
+              <li>Stay out of the <b>amber sight cones</b></li>
+              <li>Grab the glowing <b>supply crates</b></li>
+              <li>Get spotted &amp; caught and the run <b>ends</b></li>
+            </ul>
+            <h3>TIPS</h3>
+            <ul>
+              <li>Precise center hits are <b>headshots</b>.</li>
+              <li>Keep the meter <b>hot</b> — faster, harder, brighter.</li>
+            </ul>
+          </div>
+        </div>
+        <div class="menu"><button class="mbtn mbtn--primary act-back">BACK</button></div>
+      </div>`);
+    this.btn(".act-back", onBack);
   }
 
   showPause(
@@ -160,6 +202,7 @@ export class Menus {
     onRestart: () => void,
     onSettings: () => void,
     onTitle: () => void,
+    onControls: () => void,
     stats?: Stats
   ): void {
     const line = stats
@@ -171,12 +214,14 @@ export class Menus {
         ${line}
         <div class="menu">
           <button class="mbtn mbtn--primary act-resume">RESUME</button>
+          <button class="mbtn act-controls">CONTROLS</button>
           <button class="mbtn act-restart">RESTART RUN</button>
           <button class="mbtn act-settings">SETTINGS</button>
           <button class="mbtn act-title">MAIN MENU</button>
         </div>
       </div>`);
     this.btn(".act-resume", onResume);
+    this.btn(".act-controls", onControls);
     this.btn(".act-restart", onRestart);
     this.btn(".act-settings", onSettings);
     this.btn(".act-title", onTitle);

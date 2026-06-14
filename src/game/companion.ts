@@ -196,6 +196,10 @@ export class CompanionManager {
     }
   }
 
+  setVisible(b: boolean): void {
+    for (const c of this.list) c.group.visible = b;
+  }
+
   clear(): void {
     for (const c of this.list) this.scene.remove(c.group);
     this.list.length = 0;

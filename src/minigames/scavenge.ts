@@ -143,7 +143,6 @@ export class Scavenge {
   private az = -7;
   private crates: Crate[] = [];
   private guards: Guard[] = [];
-  private invuln = 0;
   private t = 0;
   private tmp = new THREE.Vector2();
   private coneGeo: THREE.BufferGeometry;
@@ -310,7 +309,6 @@ export class Scavenge {
     this.done = false;
     this.got = 0;
     this.timeLeft = DURATION;
-    this.invuln = 0;
     this.stamina = 1;
     this.spotted = false;
     this.ax = 0;
@@ -342,7 +340,6 @@ export class Scavenge {
     if (!this.active || this.done) return;
     this.t += dt;
     this.timeLeft -= dt;
-    if (this.invuln > 0) this.invuln -= dt;
 
     // Move (sneak, or sprint while stamina holds)
     const a = this.ctx.input.axis(this.tmp);
@@ -436,17 +433,14 @@ export class Scavenge {
       tx = this.ax;
       tz = this.az;
       speed = 8.2;
-      // Catch
-      if (dist < 1.5 && this.invuln <= 0) {
-        this.invuln = 1.1;
-        this.got = Math.max(0, this.got - 1);
-        const n = dist || 1;
-        this.ax = clamp(this.ax - (dx / n) * 4, AREA.minX, AREA.maxX);
-        this.az = clamp(this.az - (dz / n) * 4, AREA.minZ, AREA.maxZ);
-        this.ctx.cam.addTrauma(0.4);
-        this.ctx.stage.punch(0.35);
+      // Caught — the run ends right here.
+      if (dist < 1.4) {
         this.ctx.floaters.spawn(this.ax, 2, this.az, "CAUGHT!", "warn");
         this.ctx.events.emit("SFX", { id: "player_hurt" });
+        this.ctx.cam.addTrauma(0.5);
+        this.ctx.stage.punch(0.45);
+        this.finish();
+        return;
       }
     } else {
       const p = g.patrol[g.pIdx];
@@ -493,6 +487,7 @@ export class Scavenge {
   }
 
   private finish(): void {
+    if (this.done) return;
     this.done = true;
     this.active = false;
     this.timeLeft = Math.max(0, this.timeLeft);
@@ -515,5 +510,9 @@ export class Scavenge {
   hide(): void {
     this.group.visible = false;
     this.active = false;
+  }
+
+  get visible(): boolean {
+    return this.group.visible;
   }
 }
