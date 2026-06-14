@@ -9,6 +9,7 @@ const CAP = 40;
  * #floaters layer. CSS animates the rise + fade (see ui/style.css). Pooled.
  */
 export class Floaters {
+  enabled = true;
   private root: HTMLElement;
   private nodes: HTMLDivElement[] = [];
   private life = new Float32Array(CAP);
@@ -30,6 +31,7 @@ export class Floaters {
   }
 
   spawn(x: number, y: number, z: number, text: string, kind: FloaterKind = "hit"): void {
+    if (!this.enabled) return;
     const i = this.cursor;
     this.cursor = (this.cursor + 1) % CAP;
     this.life[i] = 0.85;

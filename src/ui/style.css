@@ -15,6 +15,23 @@
   box-sizing: border-box;
 }
 
+/* Accessibility toggles (set on <body> by Settings) */
+body.cb {
+  --accent: #ff7f0e;
+  --good: #1f77ff;
+}
+body.cb .dmg--left,
+body.cb .dmg--right,
+body.cb .dmg--top { filter: hue-rotate(40deg); }
+body.bigtext .stat-tag { font-size: 13px; }
+body.bigtext .ammo { font-size: 36px; }
+body.bigtext .adr-label,
+body.bigtext .dawn-label,
+body.bigtext .subtitle,
+body.bigtext .report li { font-size: 1.18em; }
+body.reduced .dmg { display: none !important; }
+body.reduced .adr--ready { animation: none; }
+
 html,
 body {
   width: 100%;

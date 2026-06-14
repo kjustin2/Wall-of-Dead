@@ -301,7 +301,8 @@ function openPause(): void {
     () => {
       menus.clear();
       toTitle();
-    }
+    },
+    ctx.stats
   );
 }
 function resume(): void {
@@ -410,7 +411,7 @@ ctx.stage.renderer.setAnimationLoop(() => {
     ctx.input.updateAim(ctx.stage.camera);
     director.update(dt);
     ctx.world.setDawn(Math.min(0.5, director.progress * 0.5));
-    hud.setDawnProgress(director.progress);
+    hud.setDawnProgress(director.progress, director.length * (1 - director.progress));
     if (!surgeMusic && director.progress > 0.82) {
       surgeMusic = true;
       ctx.music.play("surge");

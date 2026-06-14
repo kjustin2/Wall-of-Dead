@@ -8,12 +8,28 @@ export interface Settings {
   muted: boolean;
   quality: Quality;
   shake: number;
+  floaters: boolean;
+  reducedFx: boolean;
+  colorblind: boolean;
+  bigText: boolean;
+  fov: number;
 }
 
 const KEY = "wod-settings";
 
 function loadSettings(): Settings {
-  const def: Settings = { volume: 0.7, music: 0.5, muted: false, quality: "high", shake: 1 };
+  const def: Settings = {
+    volume: 0.7,
+    music: 0.5,
+    muted: false,
+    quality: "high",
+    shake: 1,
+    floaters: true,
+    reducedFx: false,
+    colorblind: false,
+    bigText: false,
+    fov: 52,
+  };
   try {
     const raw = localStorage.getItem(KEY);
     if (raw) return { ...def, ...JSON.parse(raw) };
@@ -49,6 +65,13 @@ export class Menus {
     this.ctx.music.setVolume(s.muted ? 0 : s.music);
     this.ctx.stage.applyQuality(s.quality);
     this.ctx.cam.shakeScale = s.shake;
+    this.ctx.floaters.enabled = s.floaters;
+    this.ctx.stage.setReduced(s.reducedFx);
+    this.ctx.world.reducedFx = s.reducedFx;
+    this.ctx.cam.setBaseFov(s.fov);
+    document.body.classList.toggle("cb", s.colorblind);
+    document.body.classList.toggle("bigtext", s.bigText);
+    document.body.classList.toggle("reduced", s.reducedFx);
   }
 
   clear(): void {
@@ -132,10 +155,20 @@ export class Menus {
     this.btn(".act-settings", onSettings);
   }
 
-  showPause(onResume: () => void, onRestart: () => void, onSettings: () => void, onTitle: () => void): void {
+  showPause(
+    onResume: () => void,
+    onRestart: () => void,
+    onSettings: () => void,
+    onTitle: () => void,
+    stats?: Stats
+  ): void {
+    const line = stats
+      ? `<p class="subtitle">Kills ${stats.kills} · Headshots ${stats.headshots} · Survived ${Math.round(stats.time)}s</p>`
+      : "";
     this.paint(`
       <div class="screen screen--pause">
         <h2 class="panel-title">PAUSED</h2>
+        ${line}
         <div class="menu">
           <button class="mbtn mbtn--primary act-resume">RESUME</button>
           <button class="mbtn act-restart">RESTART RUN</button>
@@ -165,6 +198,11 @@ export class Menus {
           </select>
         </div>
         <div class="settings-row"><label>Screen shake</label><input type="range" min="0" max="1.5" step="0.1" value="${s.shake}" class="set-shake"></div>
+        <div class="settings-row"><label>Field of view</label><input type="range" min="44" max="66" step="1" value="${s.fov}" class="set-fov"></div>
+        <div class="settings-row"><label>Damage numbers</label><input type="checkbox" class="set-floaters" ${s.floaters ? "checked" : ""}></div>
+        <div class="settings-row"><label>Reduced flashing</label><input type="checkbox" class="set-reduced" ${s.reducedFx ? "checked" : ""}></div>
+        <div class="settings-row"><label>Colorblind palette</label><input type="checkbox" class="set-cb" ${s.colorblind ? "checked" : ""}></div>
+        <div class="settings-row"><label>Large text</label><input type="checkbox" class="set-big" ${s.bigText ? "checked" : ""}></div>
         <div class="menu"><button class="mbtn mbtn--primary act-back">BACK</button></div>
       </div>`);
     const vol = this.root.querySelector(".set-vol") as HTMLInputElement;
@@ -197,6 +235,19 @@ export class Menus {
       this.applySettings();
       saveSettings(s);
     });
+    const bind = (sel: string, set: (el: HTMLInputElement) => void) => {
+      const el = this.root.querySelector(sel) as HTMLInputElement;
+      el.addEventListener(el.type === "checkbox" ? "change" : "input", () => {
+        set(el);
+        this.applySettings();
+        saveSettings(s);
+      });
+    };
+    bind(".set-fov", (el) => (s.fov = parseFloat(el.value)));
+    bind(".set-floaters", (el) => (s.floaters = el.checked));
+    bind(".set-reduced", (el) => (s.reducedFx = el.checked));
+    bind(".set-cb", (el) => (s.colorblind = el.checked));
+    bind(".set-big", (el) => (s.bigText = el.checked));
     this.btn(".act-back", onBack);
   }
 

@@ -41,6 +41,7 @@ export class Stage {
   private stress = 0;
   private baseVignette = 0.5;
   private baseAberration = 0.0011;
+  private reduced = false;
 
   constructor(canvas: HTMLCanvasElement) {
     this.renderer = new THREE.WebGLRenderer({
@@ -165,6 +166,11 @@ export class Stage {
     this.composer.setSize(w, h);
   }
 
+  /** Photosensitivity-safe mode: tames stress aberration/vignette swings. */
+  setReduced(b: boolean): void {
+    this.reduced = b;
+  }
+
   /** Punch the screen — hurt, breach, crash, big impacts. amount 0..1. */
   punch(amount: number): void {
     this.stress = clamp01(this.stress + amount);
@@ -172,10 +178,10 @@ export class Stage {
 
   update(dt: number): void {
     this.stress = damp(this.stress, 0, 6, dt);
-    const s = this.stress;
+    const s = this.reduced ? this.stress * 0.3 : this.stress;
     this.vignette.darkness = this.baseVignette + s * 0.4;
     if (this.aberration) {
-      const ab = this.baseAberration + s * 0.012;
+      const ab = this.reduced ? this.baseAberration : this.baseAberration + s * 0.012;
       this.aberration.offset.set(ab, ab);
     }
   }

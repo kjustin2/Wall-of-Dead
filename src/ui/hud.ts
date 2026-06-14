@@ -227,10 +227,13 @@ export class Hud {
     this.el.kills.textContent = `KILLS ${c.stats.kills}`;
   }
 
-  /** night-phase clock fill (called by the night scene). */
-  setDawnProgress(p: number): void {
+  /** night-phase clock fill + countdown (called by the night loop). */
+  setDawnProgress(p: number, secondsLeft: number): void {
     this.el.dawnFill.style.width = `${p * 100}%`;
-    this.el.dawnLabel.textContent = p > 0.92 ? "DAWN" : p > 0.6 ? "LATE NIGHT" : "NIGHT";
+    const s = Math.max(0, Math.ceil(secondsLeft));
+    const mmss = `${Math.floor(s / 60)}:${(s % 60).toString().padStart(2, "0")}`;
+    const phase = p > 0.92 ? "DAWN" : p > 0.82 ? "⚠ SURGE" : p > 0.6 ? "LATE NIGHT" : "NIGHT";
+    this.el.dawnLabel.textContent = `${phase}  ·  DAWN ${mmss}`;
   }
 
   bindScavenge(s: Scavenge): void {

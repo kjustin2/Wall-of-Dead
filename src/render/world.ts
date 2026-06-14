@@ -37,6 +37,8 @@ export class World {
   private flashT = 0;
   /** main sets this to play thunder when a flash fires. */
   onFlash: (() => void) | null = null;
+  /** photosensitivity-safe: suppresses lightning flashes. */
+  reducedFx = false;
   private rng = new Rng(1337);
   private t = 0;
   private dawn = 0;
@@ -583,7 +585,7 @@ export class World {
     }
 
     // Distant lightning (night only): a quick flash + delayed thunder
-    if (this.dawn < 0.55) {
+    if (this.dawn < 0.55 && !this.reducedFx) {
       this.lightningTimer -= dt;
       if (this.lightningTimer <= 0) {
         this.lightningTimer = this.rng.range(11, 26);

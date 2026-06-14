@@ -38,6 +38,12 @@ export class CameraRig {
     this.trauma = clamp(this.trauma + amount, 0, 1);
   }
 
+  setBaseFov(f: number): void {
+    this.baseFov = f;
+    this.camera.fov = f;
+    this.camera.updateProjectionMatrix();
+  }
+
   kick(dirX: number, dirZ: number, strength: number): void {
     this.kickVel.x += dirX * strength;
     this.kickVel.z += dirZ * strength;
