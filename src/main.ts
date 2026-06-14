@@ -16,6 +16,7 @@ import { Input } from "./core/input";
 import { EventBus } from "./core/events";
 import { Rng } from "./core/rng";
 import { Sfx } from "./audio/sfx";
+import { Music } from "./audio/music";
 import { Adrenaline } from "./game/adrenaline";
 import { Wall } from "./game/wall";
 import { Combat } from "./game/combat";
@@ -56,6 +57,7 @@ ctx.tele = new Telegraphs(ctx.stage.scene);
 ctx.floaters = new Floaters(ctx.stage.camera);
 ctx.world = new World(ctx.stage);
 ctx.sfx = new Sfx(ctx.events);
+ctx.music = new Music();
 ctx.stats = freshStats();
 ctx.playing = false;
 ctx.adrenaline = new Adrenaline(ctx.events);
@@ -81,10 +83,13 @@ let resumeState: GameState = "night";
 let settingsReturn: () => void = () => toTitle();
 let director: WaveDirector | null = null;
 let lootContinue: () => void = () => {};
+let surgeMusic = false;
+let heartbeatTimer = 0;
 
 // Audio unlock on first gesture
 const unlock = () => {
   ctx.sfx.resume();
+  ctx.music.resume();
   window.removeEventListener("pointerdown", unlock);
   window.removeEventListener("keydown", unlock);
 };
@@ -107,6 +112,7 @@ function toTitle(): void {
   hud.setMode("hidden");
   scavenge.hide();
   ctx.sfx.startAmbient();
+  ctx.music.play("menu");
   menus.showTitle(startRun, () => {
     settingsReturn = () => menus.showTitle(startRun, settingsReturn);
     menus.showSettings(() => toTitle());
@@ -162,6 +168,8 @@ function beginNight(): void {
   ctx.input.enabled = true;
   state = "night";
   ctx.sfx.startAmbient();
+  surgeMusic = false;
+  ctx.music.play("night");
   ctx.events.emit("NIGHT_START", { night: ctx.run.night });
   hud.banner(`NIGHT ${ctx.run.night}`, "Hold until dawn");
 }
@@ -172,6 +180,7 @@ function onDawn(): void {
   ctx.run.wallHp = ctx.wall.totalHp();
   ctx.stats.wallHeld = ctx.wall.integrityFrac() * 100;
   ctx.world.setDawn(0.7);
+  ctx.events.emit("SFX", { id: "dawn_sting" });
   hud.setMode("hidden");
   const lines = [
     `Kills tonight — ${ctx.stats.kills}`,
@@ -189,6 +198,7 @@ function startDay(): void {
   ctx.world.setDawn(0.9);
   hud.setMode("day");
   ctx.input.enabled = true;
+  ctx.music.play("day");
   scavenge.start();
   state = "day";
   hud.banner("GRAB THE SUPPLIES", "Reach the lit crates · avoid the dead");
@@ -229,6 +239,7 @@ function onVictory(): void {
   ctx.cam.mode = "menu";
   ctx.world.setDawn(1);
   hud.setMode("hidden");
+  ctx.music.play("victory");
   ctx.events.emit("RUN_VICTORY", {});
   menus.showVictory(ctx.stats, startRun, toTitle);
 }
@@ -241,6 +252,7 @@ function defeat(reason: string): void {
   ctx.stage.punch(0.6);
   ctx.events.emit("SFX", { id: "defeat" });
   ctx.events.emit("RUN_DEFEAT", { reason });
+  ctx.music.play("defeat");
   hud.setMode("hidden");
   menus.showDeath(reason, ctx.stats, startRun, toTitle);
 }
@@ -291,6 +303,9 @@ ctx.events.on("PLAYER_DIED", () => {
   if (state === "night") defeat("You fell at the wall.");
 });
 ctx.events.on("DAY_DONE", ({ tier, frac }) => onDayDone(tier, frac));
+ctx.events.on("ADRENALINE_ZONE", ({ zone, prev }) => {
+  if (zone === "surge" && prev !== "surge") ctx.events.emit("SFX", { id: "meter_full" });
+});
 
 window.addEventListener("keydown", (e) => {
   if (e.code === "Escape") {
@@ -313,6 +328,10 @@ ctx.stage.renderer.setAnimationLoop(() => {
     director.update(dt);
     ctx.world.setDawn(Math.min(0.5, director.progress * 0.5));
     hud.setDawnProgress(director.progress);
+    if (!surgeMusic && director.progress > 0.82) {
+      surgeMusic = true;
+      ctx.music.play("surge");
+    }
     ctx.player.update(dt);
     ctx.enemies.update(dt);
     ctx.bullets.update(dt);
@@ -320,6 +339,14 @@ ctx.stage.renderer.setAnimationLoop(() => {
     ctx.companions.update(dt);
     ctx.adrenaline.update(dt);
     if (ctx.input.pressed("KeyF")) doLastStand();
+    // Low-HP heartbeat
+    if (ctx.player.alive && ctx.player.hp / ctx.player.maxHp < 0.3) {
+      heartbeatTimer -= dt;
+      if (heartbeatTimer <= 0) {
+        heartbeatTimer = 0.9;
+        ctx.events.emit("SFX", { id: "heartbeat" });
+      }
+    }
     hud.update(dt);
     if (ctx.wall.fullyOverrun()) defeat("The wall was overrun.");
     else if (director.done) onDawn();
@@ -336,6 +363,7 @@ ctx.stage.renderer.setAnimationLoop(() => {
   ctx.tele.update(dt);
   ctx.floaters.update(dt);
   ctx.cam.update(dt);
+  ctx.music.update(dt);
   ctx.stage.update(dt);
   ctx.stage.render(dt);
   ctx.input.endFrame();

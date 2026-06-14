@@ -7,8 +7,9 @@
 export type AdrenalineZone = "shaken" | "steady" | "focused" | "surge";
 
 export interface EventMap {
-  /** Fire-and-forget one-shot sound; the id must resolve in audio/sfx.ts. */
-  SFX: { id: string };
+  /** Fire-and-forget one-shot sound; the id must resolve in audio/sfx.ts.
+   *  Optional pan in [-1,1] for positional stereo. */
+  SFX: { id: string; pan?: number };
 
   SHOOT: { weapon: string; x: number; y: number; z: number };
   RELOAD: { weapon: string };

@@ -8,6 +8,7 @@ import type { Telegraphs } from "../render/telegraphs";
 import type { Floaters } from "../render/floaters";
 import type { World } from "../render/world";
 import type { Sfx } from "../audio/sfx";
+import type { Music } from "../audio/music";
 import type { Combat } from "./combat";
 import type { Adrenaline } from "./adrenaline";
 import type { Wall } from "./wall";
@@ -43,6 +44,7 @@ export interface Ctx {
   floaters: Floaters;
   world: World;
   sfx: Sfx;
+  music: Music;
   combat: Combat;
   adrenaline: Adrenaline;
   wall: Wall;

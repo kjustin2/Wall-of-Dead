@@ -25,6 +25,8 @@ const MIME = {
   ".webp": "image/webp",
   ".ico": "image/x-icon",
   ".wasm": "application/wasm",
+  ".mp3": "audio/mpeg",
+  ".ogg": "audio/ogg",
   ".woff": "font/woff",
   ".woff2": "font/woff2",
   ".ttf": "font/ttf",

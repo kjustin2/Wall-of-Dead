@@ -1,6 +1,7 @@
 import type { Ctx } from "./ctx";
 import type { Zombie } from "./zombie";
-import { PAL } from "../config";
+import { PAL, FIELD } from "../config";
+import { clamp } from "../core/math";
 
 /**
  * The single funnel for all damage. Centralizing it keeps feedback consistent:
@@ -42,6 +43,7 @@ export class Combat {
       size: 6,
     });
     this.ctx.floaters.spawn(z.x, hy + 0.4, z.z, `${Math.round(dmg)}`, headshot ? "crit" : "hit");
+    const pan = clamp(z.x / FIELD.wallHalf, -1, 1);
     this.ctx.events.emit("ZOMBIE_HIT", {
       x: z.x,
       y: hy,
@@ -51,14 +53,14 @@ export class Combat {
       killed,
       heavy: z.heavy,
     });
-    this.ctx.events.emit("SFX", { id: headshot ? "zombie_head" : "zombie_hit" });
+    this.ctx.events.emit("SFX", { id: headshot ? "zombie_head" : "zombie_hit", pan });
 
     if (killed) {
       this.ctx.stats.kills++;
       if (headshot) this.ctx.stats.headshots++;
       this.ctx.fx.burst(z.x, 1.0, z.z, 24, PAL.blood, { speed: 12, up: 8, life: 0.7, size: 8 });
       this.ctx.events.emit("ZOMBIE_KILLED", { x: z.x, z: z.z, kind: z.kind });
-      this.ctx.events.emit("SFX", { id: "zombie_die" });
+      this.ctx.events.emit("SFX", { id: "zombie_die", pan });
       if (fromPlayer) this.ctx.adrenaline.gain(headshot ? 15 : 10);
     } else if (fromPlayer) {
       this.ctx.adrenaline.gain(2);

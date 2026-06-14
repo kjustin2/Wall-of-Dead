@@ -378,7 +378,7 @@ export class Zombie {
           ctx.wall.damageAt(this.x, this.t.claw * 1.4);
           ctx.fx.burst(this.x, 1.2, FIELD.wallZ, 14, 0x8899aa, { speed: 9, up: 6, life: 0.5 });
           ctx.cam.addTrauma(0.18);
-          ctx.events.emit("SFX", { id: "brute_slam" });
+          ctx.events.emit("SFX", { id: "brute_slam", pan: clamp(this.x / FIELD.wallHalf, -1, 1) });
           this.clawTimer = this.t.clawCD;
         }
         return;
@@ -396,7 +396,7 @@ export class Zombie {
       this.clawTimer = this.t.clawCD;
       ctx.wall.damageAt(this.x, this.t.claw);
       ctx.fx.burst(this.x, 1.0, FIELD.wallZ, 5, 0x6b7280, { speed: 4, up: 3, life: 0.35 });
-      ctx.events.emit("SFX", { id: "zombie_claw" });
+      ctx.events.emit("SFX", { id: "zombie_claw", pan: clamp(this.x / FIELD.wallHalf, -1, 1) });
     }
   }
 
@@ -407,7 +407,7 @@ export class Zombie {
       if (this.winding <= 0) {
         const tx = clamp(this.x, -FIELD.wallHalf + 1, FIELD.wallHalf - 1);
         ctx.enemies.spawnAcid(this.x, 1.5 * this.t.scale, this.z, tx, FIELD.wallZ, this.t.spitDmg ?? 9);
-        ctx.events.emit("SFX", { id: "spit" });
+        ctx.events.emit("SFX", { id: "spit", pan: clamp(this.x / FIELD.wallHalf, -1, 1) });
         this.spitTimer = this.t.spitCD ?? 2.7;
       }
       return;
@@ -569,7 +569,7 @@ export class EnemyManager {
         a.active = false;
         a.mesh.visible = false;
         this.ctx.fx.burst(a.x, 0.2, a.z, 16, PAL.acid, { speed: 7, up: 4, life: 0.5, size: 6 });
-        this.ctx.events.emit("SFX", { id: "acid_hit" });
+        this.ctx.events.emit("SFX", { id: "acid_hit", pan: clamp(a.x / FIELD.wallHalf, -1, 1) });
         if (this.ctx.wall.isBrokenAt(a.x)) {
           // No wall here — splash the defender if they're close.
           const p = this.ctx.player;

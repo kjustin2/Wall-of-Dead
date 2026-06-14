@@ -14,6 +14,8 @@ export class Sfx {
   private ambientNodes: AudioNode[] = [];
   private ambientOn = false;
   private noiseBuf: AudioBuffer | null = null;
+  /** transient routing target for the current play() call (for panning) */
+  private dest: AudioNode | null = null;
 
   constructor(events: EventBus) {
     try {
@@ -26,7 +28,7 @@ export class Sfx {
     } catch {
       this.ac = null;
     }
-    events.on("SFX", ({ id }) => this.play(id));
+    events.on("SFX", ({ id, pan }) => this.play(id, pan ?? 0));
     events.on("LAST_STAND", () => this.play("last_stand"));
     events.on("RUN_VICTORY", () => this.play("victory"));
     events.on("PLAYER_DIED", () => this.play("defeat"));
@@ -81,7 +83,7 @@ export class Sfx {
     g.gain.exponentialRampToValueAtTime(gain, t0 + 0.005);
     g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
     osc.connect(g);
-    g.connect(this.master);
+    g.connect(this.dest ?? this.master);
     osc.start(t0);
     osc.stop(t0 + dur + 0.02);
   }
@@ -99,13 +101,26 @@ export class Sfx {
     g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
     src.connect(filt);
     filt.connect(g);
-    g.connect(this.master);
+    g.connect(this.dest ?? this.master);
     src.start(t0);
     src.stop(t0 + dur + 0.02);
   }
 
-  play(id: string): void {
+  private panNode(pan: number): AudioNode {
+    if (!this.ac || !this.master) return this.master as AudioNode;
+    try {
+      const p = this.ac.createStereoPanner();
+      p.pan.value = Math.max(-1, Math.min(1, pan));
+      p.connect(this.master);
+      return p;
+    } catch {
+      return this.master;
+    }
+  }
+
+  play(id: string, pan = 0): void {
     if (!this.ac) return;
+    this.dest = pan ? this.panNode(pan) : this.master;
     switch (id) {
       case "shot_pistol":
         this.burst(0.09, 0.5, 1800);
@@ -190,6 +205,34 @@ export class Sfx {
       case "ui_click":
         this.tone(660, 0.05, "triangle", 0.12, 880);
         break;
+      case "ui_hover":
+        this.tone(520, 0.03, "sine", 0.06, 600);
+        break;
+      case "heartbeat":
+        this.tone(60, 0.12, "sine", 0.5, 40);
+        this.tone(55, 0.14, "sine", 0.4, 36, 0.18);
+        break;
+      case "meter_full":
+        this.tone(660, 0.1, "triangle", 0.18, 990);
+        this.tone(990, 0.18, "triangle", 0.16, 1320, 0.08);
+        break;
+      case "dawn_sting":
+        [523, 659, 784, 1047, 1319].forEach((f, i) => this.tone(f, 0.7, "triangle", 0.18, undefined, i * 0.12));
+        break;
+      case "hitmark":
+        this.tone(1400, 0.03, "square", 0.07, 1100);
+        break;
+      case "streak":
+        this.tone(700, 0.08, "triangle", 0.14, 1100);
+        break;
+      case "shove":
+        this.burst(0.14, 0.4, 700);
+        this.tone(150, 0.12, "square", 0.2, 70);
+        break;
+      case "pickup":
+        this.tone(560, 0.08, "triangle", 0.16, 840);
+        this.tone(840, 0.1, "triangle", 0.14, 1120, 0.07);
+        break;
       case "victory":
         [523, 659, 784, 1047].forEach((f, i) => this.tone(f, 0.5, "triangle", 0.2, undefined, i * 0.16));
         break;
@@ -199,6 +242,7 @@ export class Sfx {
       default:
         break;
     }
+    this.dest = this.master;
   }
 
   startAmbient(): void {

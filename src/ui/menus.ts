@@ -4,6 +4,7 @@ import type { Stats } from "../game/ctx";
 
 export interface Settings {
   volume: number;
+  music: number;
   muted: boolean;
   quality: Quality;
   shake: number;
@@ -12,7 +13,7 @@ export interface Settings {
 const KEY = "wod-settings";
 
 function loadSettings(): Settings {
-  const def: Settings = { volume: 0.7, muted: false, quality: "high", shake: 1 };
+  const def: Settings = { volume: 0.7, music: 0.5, muted: false, quality: "high", shake: 1 };
   try {
     const raw = localStorage.getItem(KEY);
     if (raw) return { ...def, ...JSON.parse(raw) };
@@ -45,6 +46,7 @@ export class Menus {
     const s = this.settings;
     this.ctx.sfx.setVolume(s.volume);
     this.ctx.sfx.setMuted(s.muted);
+    this.ctx.music.setVolume(s.muted ? 0 : s.music);
     this.ctx.stage.applyQuality(s.quality);
     this.ctx.cam.shakeScale = s.shake;
   }
@@ -61,11 +63,13 @@ export class Menus {
 
   private btn(sel: string, fn: () => void): void {
     const b = this.root.querySelector(sel) as HTMLElement | null;
-    if (b)
+    if (b) {
+      b.addEventListener("mouseenter", () => this.ctx.events.emit("SFX", { id: "ui_hover" }));
       b.addEventListener("click", () => {
         this.ctx.events.emit("SFX", { id: "ui_click" });
         fn();
       });
+    }
   }
 
   /** Sequential story lines over the cutscene camera; click advances, Esc skips. */
@@ -150,7 +154,8 @@ export class Menus {
     this.paint(`
       <div class="screen screen--settings">
         <h2 class="panel-title">SETTINGS</h2>
-        <div class="settings-row"><label>Volume</label><input type="range" min="0" max="1" step="0.05" value="${s.volume}" class="set-vol"></div>
+        <div class="settings-row"><label>SFX volume</label><input type="range" min="0" max="1" step="0.05" value="${s.volume}" class="set-vol"></div>
+        <div class="settings-row"><label>Music volume</label><input type="range" min="0" max="1" step="0.05" value="${s.music}" class="set-music"></div>
         <div class="settings-row"><label>Mute</label><input type="checkbox" class="set-mute" ${s.muted ? "checked" : ""}></div>
         <div class="settings-row"><label>Quality</label>
           <select class="set-quality">
@@ -163,11 +168,17 @@ export class Menus {
         <div class="menu"><button class="mbtn mbtn--primary act-back">BACK</button></div>
       </div>`);
     const vol = this.root.querySelector(".set-vol") as HTMLInputElement;
+    const music = this.root.querySelector(".set-music") as HTMLInputElement;
     const mute = this.root.querySelector(".set-mute") as HTMLInputElement;
     const qual = this.root.querySelector(".set-quality") as HTMLSelectElement;
     const shake = this.root.querySelector(".set-shake") as HTMLInputElement;
     vol.addEventListener("input", () => {
       s.volume = parseFloat(vol.value);
+      this.applySettings();
+      saveSettings(s);
+    });
+    music.addEventListener("input", () => {
+      s.music = parseFloat(music.value);
       this.applySettings();
       saveSettings(s);
     });
