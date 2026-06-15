@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import type { Ctx } from "../game/ctx";
-import { makeGlow, makeLabel } from "../render/textures";
+import { makeGlow, makeLabel, concreteTexture, stencilTexture } from "../render/textures";
 import { clamp } from "../core/math";
 import { TRAITS } from "../game/traits";
 
@@ -235,6 +235,7 @@ export class Scavenge {
   private guards: Guard[] = [];
   private survivor: Survivor | null = null;
   private redLights: { light: THREE.PointLight; glow: THREE.Sprite; phase: number }[] = [];
+  private signs: { mat: THREE.MeshBasicMaterial; glow: THREE.Sprite; phase: number }[] = [];
   private fogPrev = 0.017;
   private groanT = 4;
   private t = 0;
@@ -252,9 +253,11 @@ export class Scavenge {
     this.avatar.add(makeGlow(0x6fc3ff, 2.4, 0.5));
     this.group.add(this.avatar);
 
+    this.buildFloor();
     this.buildWalls();
     this.buildBoundary();
     this.buildSetDressing();
+    this.buildScaryExtras();
     this.buildHideAndExtract();
 
     // Sight-cone sector geometry (points +Z; rotated to each guard's facing).
@@ -289,6 +292,29 @@ export class Scavenge {
       this.avatar.add(leg);
     }
     this.avatar.add(torso, pack, head, helmet);
+  }
+
+  /** A dedicated cracked-concrete lot floor under the run, with faded painted
+   * lane lines — reads as an urban yard rather than open ground. */
+  private buildFloor(): void {
+    const tex = concreteTexture();
+    tex.repeat.set(11, 9);
+    const floor = new THREE.Mesh(
+      new THREE.PlaneGeometry(96, 76),
+      new THREE.MeshStandardMaterial({ color: 0x2b323a, map: tex, roughness: 0.85, metalness: 0.08 })
+    );
+    floor.rotation.x = -Math.PI / 2;
+    floor.position.set(0, 0.01, (AREA.minZ + AREA.maxZ) / 2);
+    floor.receiveShadow = true;
+    this.group.add(floor);
+    // Faded yellow parking/lane lines.
+    const lineMat = new THREE.MeshBasicMaterial({ color: 0x6a5a22, transparent: true, opacity: 0.35, depthWrite: false });
+    for (let i = 0; i < 6; i++) {
+      const line = new THREE.Mesh(new THREE.PlaneGeometry(0.3, 9), lineMat);
+      line.rotation.x = -Math.PI / 2;
+      line.position.set(-30 + i * 12, 0.03, -20);
+      this.group.add(line);
+    }
   }
 
   private buildWalls(): void {
@@ -436,6 +462,83 @@ export class Scavenge {
     this.group.add(this.extractMarker);
   }
 
+  /** Mood layer: floor graffiti, a flickering neon hazard sign, drifting fog,
+   * hanging cables, and glints of broken glass. */
+  private buildScaryExtras(): void {
+    const rng = this.ctx.rng;
+    const spot = () => {
+      for (let i = 0; i < 16; i++) {
+        const x = rng.range(AREA.minX + 3, AREA.maxX - 3);
+        const z = rng.range(AREA.minZ + 3, AREA.maxZ - 3);
+        if (!this.inWall(x, z, 1.6)) return { x, z };
+      }
+      return { x: 0, z: -24 };
+    };
+
+    // Stencilled graffiti on the floor.
+    const words = ["RUN", "NO EXIT", "QUARANTINE", "TURN BACK", "DEAD ZONE", "HELP US"];
+    for (let i = 0; i < 4; i++) {
+      const p = spot();
+      const tex = stencilTexture(rng.pick(words), i === 0 ? "#c23a2a" : "#7a8a3a");
+      const mat = new THREE.MeshBasicMaterial({ map: tex, transparent: true, opacity: 0.5, depthWrite: false });
+      const tag = new THREE.Mesh(new THREE.PlaneGeometry(5, 2.5), mat);
+      tag.rotation.x = -Math.PI / 2;
+      tag.rotation.z = rng.range(0, Math.PI);
+      tag.position.set(p.x, 0.04, p.z);
+      this.group.add(tag);
+    }
+
+    // A couple of flickering neon hazard signs mounted high.
+    for (let i = 0; i < 2; i++) {
+      const p = spot();
+      const mat = new THREE.MeshBasicMaterial({ color: i === 0 ? 0xff3a2a : 0x3affc0, fog: false, transparent: true, opacity: 0.9 });
+      const sign = new THREE.Mesh(new THREE.PlaneGeometry(3.2, 0.9), mat);
+      sign.position.set(p.x, 3.4, p.z);
+      sign.rotation.y = rng.range(-0.5, 0.5);
+      const glow = makeGlow(i === 0 ? 0xff5a3a : 0x5affd0, 4, 0.6);
+      glow.position.copy(sign.position);
+      this.group.add(sign, glow);
+      this.signs.push({ mat, glow, phase: rng.range(0, 6) });
+    }
+
+    // Drifting low fog cards.
+    const fogTex = makeGlow(0xffffff, 1).material.map;
+    for (let i = 0; i < 7; i++) {
+      const p = spot();
+      const fmat = new THREE.MeshBasicMaterial({ map: fogTex, color: 0x2a3540, transparent: true, opacity: 0.14, depthWrite: false });
+      const fog = new THREE.Mesh(new THREE.PlaneGeometry(20, 20), fmat);
+      fog.rotation.x = -Math.PI / 2;
+      fog.position.set(p.x, rng.range(0.3, 1.0), p.z);
+      this.group.add(fog);
+    }
+
+    // Hanging cables strung across the lot.
+    const cableMat = new THREE.LineBasicMaterial({ color: 0x05080a, transparent: true, opacity: 0.6, fog: true });
+    for (let i = 0; i < 4; i++) {
+      const ax = rng.range(AREA.minX + 4, AREA.maxX - 4);
+      const az = rng.range(AREA.minZ + 6, AREA.maxZ - 6);
+      const pts: THREE.Vector3[] = [];
+      const len = rng.range(8, 16);
+      const dir = rng.range(0, Math.PI);
+      for (let k = 0; k <= 8; k++) {
+        const t = k / 8;
+        const sag = Math.sin(t * Math.PI) * 1.6;
+        pts.push(new THREE.Vector3(ax + Math.cos(dir) * (t - 0.5) * len, 3.6 - sag, az + Math.sin(dir) * (t - 0.5) * len));
+      }
+      const line = new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), cableMat);
+      line.frustumCulled = false;
+      this.group.add(line);
+    }
+
+    // Glints of broken glass scattered on the ground (cheap additive sprites).
+    for (let i = 0; i < 18; i++) {
+      const p = spot();
+      const glint = makeGlow(0xbfe0ff, rng.range(0.2, 0.5), rng.range(0.2, 0.5));
+      glint.position.set(p.x + rng.range(-2, 2), 0.06, p.z + rng.range(-2, 2));
+      this.group.add(glint);
+    }
+  }
+
   private buildBoundary(): void {
     const mat = new THREE.MeshBasicMaterial({
       color: 0x3a6a8a,
@@ -541,25 +644,42 @@ export class Scavenge {
 
   private makeGuard(center?: { x: number; z: number }): Guard {
     const g = new THREE.Group();
-    const body = new THREE.Mesh(
-      new THREE.BoxGeometry(0.8, 1.25, 0.5),
-      new THREE.MeshStandardMaterial({ color: 0x3a4a30, roughness: 1, flatShading: true })
-    );
-    body.position.y = 0.9;
-    body.rotation.x = 0.18;
-    body.castShadow = true;
-    const head = new THREE.Mesh(
-      new THREE.BoxGeometry(0.44, 0.44, 0.44),
-      new THREE.MeshStandardMaterial({ color: 0x495a3c, roughness: 1, flatShading: true })
-    );
-    head.position.set(0, 1.55, 0.15);
+    const flesh = new THREE.MeshStandardMaterial({ color: 0x35402c, roughness: 1, flatShading: true });
+    const coat = new THREE.MeshStandardMaterial({ color: 0x232a1c, roughness: 1, flatShading: true });
+    // A hunched, gaunt patroller — reads as a threat, not a tidy soldier.
+    const torso = new THREE.Mesh(new THREE.BoxGeometry(0.66, 1.0, 0.4), coat);
+    torso.position.set(0, 0.95, 0);
+    torso.rotation.x = 0.28; // hunched forward
+    torso.castShadow = true;
+    const hump = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.4, 0.34), coat);
+    hump.position.set(0, 1.2, -0.16);
+    const head = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.4, 0.4), flesh);
+    head.position.set(0, 1.5, 0.26); // jutting ahead
+    const jaw = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.12, 0.26), flesh);
+    jaw.position.set(0, 1.36, 0.42);
+    jaw.rotation.x = 0.4;
+    // Long gaunt arms hanging forward.
+    for (const ax of [-0.42, 0.42]) {
+      const arm = new THREE.Mesh(new THREE.BoxGeometry(0.13, 0.9, 0.13), flesh);
+      arm.position.set(ax, 0.85, 0.24);
+      arm.rotation.x = 0.5;
+      g.add(arm);
+    }
+    for (const lx of [-0.16, 0.16]) {
+      const leg = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.8, 0.18), coat);
+      leg.position.set(lx, 0.4, 0);
+      g.add(leg);
+    }
     const eyeMat = new THREE.MeshBasicMaterial({ color: AMBER, fog: false });
-    for (const ex of [-0.12, 0.12]) {
-      const eye = new THREE.Mesh(new THREE.SphereGeometry(0.09, 6, 6), eyeMat);
-      eye.position.set(ex, 1.58, 0.36);
+    for (const ex of [-0.1, 0.1]) {
+      const eye = new THREE.Mesh(new THREE.SphereGeometry(0.07, 6, 6), eyeMat);
+      eye.position.set(ex, 1.53, 0.46);
       g.add(eye);
     }
-    g.add(body, head);
+    // A faint eye-glow so cones read back to a face in the dark.
+    const eyeGlow = makeGlow(AMBER, 0.9, 0.5);
+    eyeGlow.position.set(0, 1.52, 0.5);
+    g.add(torso, hump, head, jaw, eyeGlow);
     const coneMat = new THREE.MeshBasicMaterial({
       color: AMBER,
       transparent: true,
@@ -738,6 +858,14 @@ export class Scavenge {
       const n = 0.5 + 0.5 * Math.sin(this.t * 3 + r.phase);
       r.light.intensity = 1 + n * 4;
       r.glow.material.opacity = 0.25 + n * 0.45;
+    }
+    // Failing neon signs — a stuttering flicker.
+    for (const s of this.signs) {
+      const f = Math.sin(this.t * 17 + s.phase) * Math.sin(this.t * 4.3 + s.phase * 2);
+      const on = f > -0.4;
+      const lvl = on ? 0.7 + 0.3 * (0.5 + 0.5 * Math.sin(this.t * 40)) : 0.05;
+      s.mat.opacity = lvl;
+      s.glow.material.opacity = lvl * 0.7;
     }
     // Time pressure — heartbeat in the final stretch
     if (this.timeLeft < 12 && Math.floor(this.timeLeft) !== Math.floor(this.timeLeft + dt)) {
