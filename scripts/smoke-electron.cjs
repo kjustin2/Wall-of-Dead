@@ -218,15 +218,12 @@ app.whenReady().then(async () => {
         if (!started) errors.push("FLOW: no Supply Run button on report (leg " + leg + ")");
         await sleep(1200);
         if (leg === 0) {
-          // Exercise the stealth verbs: move into the lot, lure, takedown-scan.
+          // Exercise the stealth verbs (toggle flashlight + lure) while backing to
+          // the safe entrance edge, away from the guards deeper in the lot — caught
+          // now ends the run on first contact, so don't wander into one.
           await win.webContents.executeJavaScript(`(()=>{
-            const fire = (code, type) => window.dispatchEvent(new KeyboardEvent(type, { code }));
-            fire('KeyW','keydown'); fire('KeyQ','keydown'); fire('KeyE','keydown');
-          })()`);
-          await sleep(900);
-          await win.webContents.executeJavaScript(`(()=>{
-            const fire = (code, type) => window.dispatchEvent(new KeyboardEvent(type, { code }));
-            fire('KeyD','keydown'); fire('KeyE','keyup');
+            const fire = (code, type) => window.dispatchEvent(new KeyboardEvent(type || 'keydown', { code }));
+            fire('KeyF'); fire('KeyQ'); fire('KeyF'); fire('KeyS','keydown');
           })()`);
           // Let the opening banner fade so the shot shows the lot, not the title.
           await sleep(1700);
@@ -234,10 +231,7 @@ app.whenReady().then(async () => {
           const dayObjs = await win.webContents.executeJavaScript(`window.__wod.dayObjectCount()`);
           if (!(dayObjs > 60)) errors.push("GRAPHICS: supply-run scene sparse (" + dayObjs + " objects)");
           await shot(win, "06-day-scavenge.png");
-          await win.webContents.executeJavaScript(`(()=>{
-            const fire = (code, type) => window.dispatchEvent(new KeyboardEvent(type, { code }));
-            fire('KeyW','keyup'); fire('KeyD','keyup');
-          })()`);
+          await win.webContents.executeJavaScript(`window.dispatchEvent(new KeyboardEvent('keyup',{code:'KeyS'}))`);
         }
         await win.webContents.executeJavaScript(`window.__wod.completeDay();`);
         await sleep(1100);

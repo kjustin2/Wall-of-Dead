@@ -15,13 +15,10 @@ const KIT_CRATES = 2; // bonus wall-repair-kit pickups
 const AV_R = 0.6;
 const VISION_RANGE = 15;
 const CONE_HALF = 0.52; // radians, half-angle of a guard's sight cone
-const TD_RANGE = 2.4; // takedown reach
-const TD_TIME = 0.7; // hold time for a silent takedown
 const NOISE_SPRINT = 12; // a sprinting avatar is heard within this radius
 const LURE_RANGE = 20; // guards within this of a lure go investigate it
 const LURE_CD = 8;
 const HIDE_R = 2.6; // radius of a hiding alcove
-const MAX_CATCHES = 3; // caught this many times → dragged off (run ends)
 
 export type Tier = "S" | "A" | "B" | "C" | "D";
 
@@ -210,21 +207,15 @@ export class Scavenge {
   spotted = false;
   // HUD-facing state (read by the day HUD)
   promptText = "";
-  takedownFrac = 0;
   lightOn = true;
-  catches = 0;
   extractOpen = false;
 
   private group = new THREE.Group();
-  private stunT = 0; // post-catch stun (can't move)
-  private graceT = 0; // post-catch detection grace
   private lures: Lure[] = [];
   private lureCd = 0;
   private hideZones: HideZone[] = [];
   private extractZone = { x: 0, z: -5 };
   private extractMarker = new THREE.Group();
-  private tdGuard: Guard | null = null;
-  private tdProgress = 0;
   private hidden = false;
   private lightDefault = 19;
   private avatar = new THREE.Group();
@@ -723,16 +714,10 @@ export class Scavenge {
     this.az = -7;
     this.group.visible = true;
     this.groanT = 4;
-    this.stunT = 0;
-    this.graceT = 0;
     this.lureCd = 0;
-    this.catches = 0;
     this.extractOpen = false;
     this.extractMarker.visible = false;
     this.lightOn = true;
-    this.tdGuard = null;
-    this.tdProgress = 0;
-    this.takedownFrac = 0;
     this.promptText = "";
     for (const l of this.lures) this.group.remove(l.glow);
     this.lures = [];
@@ -774,8 +759,6 @@ export class Scavenge {
     if (!this.active || this.done) return;
     this.t += dt;
     this.timeLeft -= dt;
-    if (this.stunT > 0) this.stunT -= dt;
-    if (this.graceT > 0) this.graceT -= dt;
     if (this.lureCd > 0) this.lureCd -= dt;
     this.promptText = "";
 
@@ -786,8 +769,8 @@ export class Scavenge {
       this.ctx.events.emit("SFX", { id: "ui_click" });
     }
 
-    // Move (sneak, or sprint while stamina holds) — frozen briefly when grabbed.
-    const a = this.stunT > 0 ? this.tmp.set(0, 0) : this.ctx.input.axis(this.tmp);
+    // Move (sneak, or sprint while stamina holds).
+    const a = this.ctx.input.axis(this.tmp);
     const moving = a.x !== 0 || a.y !== 0;
     const sprint = this.ctx.input.down("ShiftLeft") && this.stamina > 0.05 && moving;
     this.stamina = sprint ? Math.max(0, this.stamina - dt * 0.55) : Math.min(1, this.stamina + dt * 0.3);
@@ -830,9 +813,6 @@ export class Scavenge {
         }
       }
     }
-
-    // Stealth takedown (hold E behind an unaware guard).
-    this.updateTakedown(dt);
 
     // Guards
     let anyChase = false;
@@ -989,85 +969,13 @@ export class Scavenge {
     }
   }
 
-  /** Hold E behind an unaware guard to take it down silently. */
-  private updateTakedown(dt: number): void {
-    let target: Guard | null = null;
-    let bestD = TD_RANGE * TD_RANGE;
-    for (const g of this.guards) {
-      if (g.dead || g.state === "chase") continue;
-      const dx = this.ax - g.x;
-      const dz = this.az - g.z;
-      const d2 = dx * dx + dz * dz;
-      if (d2 > bestD) continue;
-      const dot = dx * Math.sin(g.facing) + dz * Math.cos(g.facing); // <0 ⇒ behind
-      if (dot >= 0) continue;
-      bestD = d2;
-      target = g;
-    }
-    if (!target) {
-      this.tdGuard = null;
-      this.tdProgress = 0;
-      this.takedownFrac = 0;
-      return;
-    }
-    this.promptText = "HOLD  E  — TAKEDOWN";
-    if (this.ctx.input.down("KeyE")) {
-      if (this.tdGuard !== target) {
-        this.tdGuard = target;
-        this.tdProgress = 0;
-      }
-      this.tdProgress += dt;
-      this.takedownFrac = clamp(this.tdProgress / TD_TIME, 0, 1);
-      if (this.tdProgress >= TD_TIME) this.doTakedown(target);
-    } else {
-      this.tdGuard = null;
-      this.tdProgress = 0;
-      this.takedownFrac = 0;
-    }
-  }
-
-  /** Grabbed by a chaser: a setback (drop supplies, shoved free, brief grace),
-   * unless it's the final grab — then you're dragged off and the run ends. */
-  private onCaught(g: Guard): void {
-    this.catches++;
+  /** Caught by a chaser — the run ends immediately. */
+  private onCaught(): void {
+    this.ctx.floaters.spawn(this.ax, 2.2, this.az, "CAUGHT!", "warn");
+    this.ctx.events.emit("SFX", { id: "player_hurt" });
     this.ctx.cam.addTrauma(0.5);
     this.ctx.stage.punch(0.45);
-    this.ctx.events.emit("SFX", { id: "player_hurt" });
-    if (this.catches >= MAX_CATCHES) {
-      this.ctx.floaters.spawn(this.ax, 2.2, this.az, "DRAGGED OFF!", "warn");
-      this.finish();
-      return;
-    }
-    const drop = Math.min(this.got, 2);
-    this.got = Math.max(0, this.got - drop);
-    // Dropping below the goal re-locks the exit (no "clean extraction" on a
-    // run you no longer have the supplies for).
-    if (this.got < this.total && this.extractOpen) {
-      this.extractOpen = false;
-      this.extractMarker.visible = false;
-    }
-    this.ctx.floaters.spawn(this.ax, 2.2, this.az, drop > 0 ? `GRABBED!  -${drop} SUPPLIES` : "GRABBED!", "warn");
-    this.stunT = 0.6;
-    this.graceT = 2.2;
-    // Shove the guard back and reset it so you get a moment to break away.
-    const bdx = g.x - this.ax;
-    const bdz = g.z - this.az;
-    const bd = Math.hypot(bdx, bdz) || 1;
-    g.x = clamp(g.x + (bdx / bd) * 6, AREA.minX, AREA.maxX);
-    g.z = clamp(g.z + (bdz / bd) * 6, AREA.minZ, AREA.maxZ);
-    g.state = "patrol";
-    g.alertT = 0;
-  }
-
-  private doTakedown(g: Guard): void {
-    g.dead = true;
-    g.group.visible = false;
-    this.tdGuard = null;
-    this.tdProgress = 0;
-    this.takedownFrac = 0;
-    this.ctx.floaters.spawn(g.x, 2, g.z, "TAKEDOWN", "crit");
-    this.ctx.fx.burst(g.x, 1.0, g.z, 14, 0x7a0d10, { speed: 6, up: 5, life: 0.5, size: 6 });
-    this.ctx.events.emit("SFX", { id: "shove" });
+    this.finish();
   }
 
   private losBlocked(ax: number, az: number, bx: number, bz: number): boolean {
@@ -1100,7 +1008,7 @@ export class Scavenge {
     const dist = Math.hypot(dx, dz);
     const range = this.lightOn ? VISION_RANGE : VISION_RANGE * 0.5;
     let sees = false;
-    if (dist < range && !this.hidden && this.graceT <= 0) {
+    if (dist < range && !this.hidden) {
       const toAvatar = Math.atan2(dx, dz);
       let diff = toAvatar - g.facing;
       while (diff > Math.PI) diff -= Math.PI * 2;
@@ -1127,11 +1035,9 @@ export class Scavenge {
       tx = this.ax;
       tz = this.az;
       speed = 8.2;
-      // Caught — a setback, not an instant loss: you're grabbed, drop some
-      // supplies, get shoved free with a brief grace. Too many grabs and you're
-      // dragged off (run ends).
-      if (dist < 1.4 && this.graceT <= 0) {
-        this.onCaught(g);
+      // Caught — the run ends right here.
+      if (dist < 1.4) {
+        this.onCaught();
         return;
       }
     } else if (g.state === "investigate") {

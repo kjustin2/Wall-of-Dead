@@ -145,6 +145,20 @@ export class Stage {
     this.composer.setSize(window.innerWidth, window.innerHeight);
   }
 
+  /** Cheap, mid-fight perf relief: drop render resolution one step WITHOUT
+   * rebuilding the post chain. Rebuilding (applyQuality→buildPost) disposes and
+   * recreates the whole composer, forcing synchronous shader recompilation that
+   * stalls the main thread for hundreds of ms — perceived as a random freeze.
+   * Returns false once it's at the resolution floor. */
+  downscale(): boolean {
+    const cur = this.renderer.getPixelRatio();
+    if (cur <= 0.75) return false;
+    this.renderer.setPixelRatio(Math.max(0.75, cur - 0.25));
+    this.renderer.setSize(window.innerWidth, window.innerHeight);
+    this.composer.setSize(window.innerWidth, window.innerHeight);
+    return true;
+  }
+
   applyQuality(q: Quality): void {
     if (q === this.quality) return;
     this.quality = q;

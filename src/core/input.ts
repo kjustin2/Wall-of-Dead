@@ -32,10 +32,9 @@ export class Input {
   // Standard-mapping button → game key code.
   private static PAD_KEYS: Record<number, string> = {
     0: "Space", // A — shove
-    1: "KeyE", // B — interact (repair/revive/takedown)
+    1: "KeyE", // B — interact (repair/revive)
     2: "KeyR", // X — reload
     3: "KeyF", // Y — flashlight / last-stand
-    6: "KeyG", // LT — flare
     9: "Escape", // Start — pause
     12: "KeyT", // dpad up — trap
     13: "KeyC", // dpad down — command allies

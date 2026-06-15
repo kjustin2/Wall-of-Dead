@@ -310,7 +310,7 @@ function beginNight(): void {
       }, delay);
     tip(4500, "MOVE & AIM", "A / D move · mouse aim · click fire");
     tip(9500, "HOLD THE WALL", "R reload · SPACE shove · E plug a breach");
-    tip(14500, "FIELD TACTICS", "T drop a spike trap · G pop a flare");
+    tip(14500, "FIELD TACTICS", "Press T to drop a spike trap in front of the wall");
     tip(19500, "ORDER ALLIES", "C makes allies focus-fire your mark");
     tip(24500, "ADRENALINE", "Fill the meter, then hold F to lob a frag");
   }
@@ -670,17 +670,16 @@ ctx.stage.renderer.setAnimationLoop(() => {
     probeFrames++;
   }
 
-  // Adaptive quality: if sustained FPS is poor, step quality down once so the
-  // game never *feels* like it's lagging. Never below the user's choice floor.
+  // Adaptive quality: if sustained FPS is poor, lower the render resolution a
+  // step. Crucially this uses stage.downscale() (cheap) — NOT applyQuality(),
+  // which rebuilds the whole post chain and would stall (= the "random freeze").
   if (ctx.playing) {
     fpsAccum += realDt;
     fpsFrames++;
     if (fpsAccum >= 2 && !qualityNudged) {
       const fps = fpsFrames / fpsAccum;
       if (fps < 45) {
-        if (ctx.stage.quality === "high") ctx.stage.applyQuality("medium");
-        else if (ctx.stage.quality === "medium") ctx.stage.applyQuality("low");
-        qualityNudged = true;
+        if (!ctx.stage.downscale()) qualityNudged = true; // hit the floor — stop
       }
       fpsAccum = 0;
       fpsFrames = 0;

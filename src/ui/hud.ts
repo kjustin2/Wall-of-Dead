@@ -34,7 +34,7 @@ export class Hud {
           <div class="stat"><span class="stat-tag">HEALTH</span><div class="bar bar-hp"><div class="bar-fill"></div></div></div>
           <div class="stat"><span class="stat-tag">WALL</span><div class="bar bar-wall"><div class="bar-fill"></div></div></div>
           <div class="kits">🔧 REPAIR KITS <span class="kits-n">0</span></div>
-          <div class="tactics">🪤 TRAPS <span class="traps-n">0</span> <span class="tac-sep">·</span> <span class="flare-state">FLARE  G</span></div>
+          <div class="tactics">🪤 TRAPS <span class="traps-n">0</span> <span class="tac-sep">·</span> <span class="tac-key">T</span></div>
         </div>
         <div class="repair"><div class="repair-label">REPAIRING…</div><div class="bar bar-repair"><div class="bar-fill"></div></div></div>
         <div class="prompt"></div>
@@ -55,7 +55,7 @@ export class Hud {
         <div class="day-crates">SUPPLIES 0/0</div>
         <div class="bar bar-day"><div class="bar-fill"></div></div>
         <div class="stamina"><div class="stamina-fill"></div></div>
-        <div class="day-obj">Grab supplies · rescue survivors · then reach the exit · SHIFT sprint (loud!) · E takedown · Q lure · F light</div>
+        <div class="day-obj">Grab supplies · rescue survivors · reach the exit · SHIFT sprint (loud!) · Q lure · F light · don't get caught</div>
         <div class="day-status"></div>
       </div>
       <div class="day-prompt"></div>
@@ -78,7 +78,6 @@ export class Hud {
       wallFill: q(".bar-wall .bar-fill"),
       kitsN: q(".kits-n"),
       trapsN: q(".traps-n"),
-      flareState: q(".flare-state"),
       repair: q(".repair"),
       repairFill: q(".bar-repair .bar-fill"),
       prompt: q(".prompt"),
@@ -196,6 +195,8 @@ export class Hud {
     this.bannerTimer = 2.6;
   }
 
+  private lastSlots = "";
+  private lastComps = "";
   private buildSlots(): void {
     const w = this.ctx.run.weapons;
     let html = "";
@@ -203,7 +204,12 @@ export class Hud {
       const active = i === this.ctx.run.weaponIndex ? " slot--active" : "";
       html += `<div class="slot${active}">${i + 1} ${w[i].def.name}</div>`;
     }
-    this.el.slots.innerHTML = html;
+    // Only touch the DOM when it actually changed — reparsing this every frame
+    // is needless layout + GC churn.
+    if (html !== this.lastSlots) {
+      this.el.slots.innerHTML = html;
+      this.lastSlots = html;
+    }
   }
 
   update(dt: number): void {
@@ -225,13 +231,6 @@ export class Hud {
     this.el.wallFill.style.width = `${c.wall.integrityFrac() * 100}%`;
     this.el.kitsN.textContent = `${c.run.repairKits}`;
     this.el.trapsN.textContent = `${c.run.traps}`;
-    if (c.player.flareReady) {
-      this.el.flareState.textContent = "FLARE  G";
-      this.el.flareState.classList.remove("tac--cooling");
-    } else {
-      this.el.flareState.textContent = `FLARE ${Math.ceil(c.player.flareCooldown)}s`;
-      this.el.flareState.classList.add("tac--cooling");
-    }
 
     // Repair progress (hold E at a breach)
     if (c.player.repairing && c.player.repairFrac > 0) {
@@ -293,12 +292,15 @@ export class Hud {
     }
     this.buildSlots();
 
-    // Companions
+    // Companions (only re-render on change)
     let cHtml = "";
     for (const comp of c.companions.list) {
       cHtml += `<div class="comp ${comp.down ? "comp--down" : ""}">${comp.name}</div>`;
     }
-    this.el.companions.innerHTML = cHtml;
+    if (cHtml !== this.lastComps) {
+      this.el.companions.innerHTML = cHtml;
+      this.lastComps = cHtml;
+    }
 
     this.el.kills.textContent = `KILLS ${c.stats.kills}`;
 
@@ -391,21 +393,14 @@ export class Hud {
     this.el.dayCrates.style.color = s.spotted || low ? "#ff5a3c" : "#ffce7a";
     this.el.stamina.style.width = `${s.stamina * 100}%`;
 
-    // Light state + grab counter
-    const caughtBit = s.catches > 0 ? `  ·  GRABS ${s.catches}/3` : "";
-    this.el.dayStatus.textContent = `${s.lightOn ? "🔦 LIGHT ON" : "🌑 LIGHT OFF"}${caughtBit}`;
+    // Light state
+    this.el.dayStatus.textContent = s.lightOn ? "🔦 LIGHT ON" : "🌑 LIGHT OFF";
     this.el.dayStatus.style.color = s.lightOn ? "#9dd0ff" : "#6a7a8a";
 
-    // Contextual prompt (takedown / hidden / extraction), with a takedown bar.
+    // Contextual prompt (hidden / reach the exit)
     if (s.promptText) {
       this.el.dayPrompt.style.display = "";
-      const fr = s.takedownFrac;
-      if (fr > 0) {
-        const n = Math.round(fr * 10);
-        this.el.dayPrompt.textContent = `${s.promptText}  [${"▮".repeat(n)}${"▯".repeat(10 - n)}]`;
-      } else {
-        this.el.dayPrompt.textContent = s.promptText;
-      }
+      this.el.dayPrompt.textContent = s.promptText;
     } else {
       this.el.dayPrompt.style.display = "none";
     }

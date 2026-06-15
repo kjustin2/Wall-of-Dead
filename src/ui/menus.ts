@@ -224,7 +224,7 @@ export class Menus {
               <li><b>R</b> — reload (nail the green zone for a fast reload)</li>
               <li><b>1–5 / wheel</b> — switch weapons</li>
               <li><b>Space</b> — shove zombies off (finishes the wounded)</li>
-              <li><b>T</b> — drop a spike trap &nbsp; <b>G</b> — pop a flare</li>
+              <li><b>T</b> — drop a spike trap in front of the wall</li>
               <li><b>C</b> — order allies to focus your mark</li>
               <li><b>E</b> — repair a breach / revive a downed ally</li>
               <li><b>F (hold)</b> — lob a frag when Adrenaline is full</li>
@@ -235,12 +235,11 @@ export class Menus {
             <ul>
               <li><b>WASD</b> — move (you sneak; the map is dark)</li>
               <li><b>Shift</b> — sprint (short — and <b>loud</b>)</li>
-              <li><b>E</b> — silent takedown from behind a guard</li>
               <li><b>Q</b> — throw a lure to distract guards</li>
               <li><b>F</b> — toggle flashlight (off = stealthier, blind)</li>
               <li>Tuck into a <b>dumpster</b> to break a chase</li>
               <li>Grab <b>supplies</b> &amp; <b>repair kits</b>, then hit the <b>exit</b></li>
-              <li>Caught is a setback — three grabs and you're dragged off</li>
+              <li>Stay out of the sight cones — <b>get caught and the run ends</b></li>
             </ul>
             <h3>TIPS</h3>
             <ul>

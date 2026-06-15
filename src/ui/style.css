@@ -231,8 +231,7 @@ body {
 .tactics { margin-top: 3px; font-family: var(--display); font-size: 12px; letter-spacing: 2px; color: #9dd0ff; }
 .traps-n { color: #fff; }
 .tac-sep { opacity: 0.4; }
-.flare-state { color: #ffd27a; }
-.flare-state.tac--cooling { color: #6a7a8a; }
+.tac-key { color: #ffd27a; }
 .repair {
   position: absolute;
   bottom: 120px;

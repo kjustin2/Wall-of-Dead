@@ -143,6 +143,23 @@ class Companion {
     scene.add(this.group);
   }
 
+  /** Free this ally's per-instance geometry/materials/label textures (called on
+   * clear so repeated runs don't leak GPU memory). */
+  dispose(): void {
+    this.group.traverse((o) => {
+      const mesh = o as THREE.Mesh & { material?: THREE.Material | THREE.Material[] };
+      mesh.geometry?.dispose?.();
+      const mat = mesh.material;
+      if (Array.isArray(mat)) for (const m of mat) this.disposeMat(m);
+      else if (mat) this.disposeMat(mat);
+    });
+  }
+  private disposeMat(m: THREE.Material): void {
+    const withMap = m as THREE.Material & { map?: THREE.Texture | null };
+    withMap.map?.dispose?.();
+    m.dispose();
+  }
+
   /** Toggle the floating UI markers (nameplate, chevron, glow, melee/hp) — kept
    * off during cutscenes/reports so they don't intrude on those screens. */
   showMarkers(b: boolean): void {
@@ -360,7 +377,10 @@ export class CompanionManager {
   }
 
   clear(): void {
-    for (const c of this.list) this.scene.remove(c.group);
+    for (const c of this.list) {
+      this.scene.remove(c.group);
+      c.dispose();
+    }
     this.list.length = 0;
   }
 }
