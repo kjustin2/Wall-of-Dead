@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import type { Stage } from "./stage";
-import { makeGlow } from "./textures";
+import { makeGlow, groundTexture } from "./textures";
 import { clamp01, lerp } from "../core/math";
 import { FIELD, PAL, CHOKES } from "../config";
 import { Rng } from "../core/rng";
@@ -65,6 +65,7 @@ export class World {
     this.buildRubble();
     this.buildChokes();
     this.buildProps();
+    this.buildFieldDetail();
     this.buildAtmosphere();
     const e = this.buildEmbers();
     this.embers = e.points;
@@ -75,16 +76,34 @@ export class World {
 
   private buildGround(): void {
     const geo = new THREE.PlaneGeometry(420, 320, 1, 1);
+    const gtex = groundTexture({ base: "#0b0f13", speck: "#171e25", cracks: 8, key: "field" });
+    gtex.repeat.set(34, 26);
     const mat = new THREE.MeshStandardMaterial({
       color: PAL.ground,
-      roughness: 1,
-      metalness: 0,
+      map: gtex,
+      roughness: 0.95,
+      metalness: 0.05,
     });
     const ground = new THREE.Mesh(geo, mat);
     ground.rotation.x = -Math.PI / 2;
     ground.position.z = -60;
     ground.receiveShadow = true;
     this.group.add(ground);
+
+    // A few dark, glossy puddles near the wall that catch the light.
+    const puddleMat = new THREE.MeshStandardMaterial({ color: 0x0a0f15, roughness: 0.12, metalness: 0.6 });
+    for (const [px, pz, pr] of [
+      [-14, -8, 3.4],
+      [9, -16, 2.6],
+      [18, -5, 2.0],
+      [-6, -26, 3.0],
+    ] as [number, number, number][]) {
+      const pud = new THREE.Mesh(new THREE.CircleGeometry(pr, 20), puddleMat);
+      pud.rotation.x = -Math.PI / 2;
+      pud.position.set(px, 0.025, pz);
+      pud.scale.y = 0.7;
+      this.group.add(pud);
+    }
 
     // Faint guide grid out in the field — eerie, catches the eye.
     const grid = new THREE.GridHelper(260, 52, 0x1c2630, 0x10161c);
@@ -110,10 +129,12 @@ export class World {
     const metal = new THREE.MeshStandardMaterial({ color: 0x20242a, roughness: 0.8, metalness: 0.3, flatShading: true });
     const tire = new THREE.MeshStandardMaterial({ color: 0x0c0c0e, roughness: 1 });
 
-    // The road the convoy came in on — a darker asphalt strip down the field.
+    // The road the convoy came in on — wet asphalt strip down the field.
+    const roadTex = groundTexture({ base: "#0e1216", speck: "#1c232a", cracks: 10, key: "road" });
+    roadTex.repeat.set(2, 20);
     const road = new THREE.Mesh(
       new THREE.PlaneGeometry(13, 130),
-      new THREE.MeshStandardMaterial({ color: 0x121519, roughness: 1 })
+      new THREE.MeshStandardMaterial({ color: 0x121519, map: roadTex, roughness: 0.5, metalness: 0.35 })
     );
     road.rotation.x = -Math.PI / 2;
     road.position.set(0, 0.015, -64);
@@ -217,12 +238,93 @@ export class World {
     this.buildSkyline();
   }
 
+  /** Extra field silhouettes: dead gnarled trees along the edges, scattered
+   * concrete jersey barriers, and drooping power cables between the streetlights.
+   * All in the `field` group so the day's stealth run doesn't overlap them. */
+  private buildFieldDetail(): void {
+    const bark = new THREE.MeshStandardMaterial({ color: 0x12100c, roughness: 1, flatShading: true });
+    const concrete = new THREE.MeshStandardMaterial({ color: 0x20242a, roughness: 1, flatShading: true });
+
+    // Dead trees down both field edges, thinning into the dark.
+    for (let i = 0; i < 9; i++) {
+      const side = i % 2 === 0 ? -1 : 1;
+      const tx = side * this.rng.range(22, 30);
+      const tz = -16 - i * 8 - this.rng.range(0, 4);
+      const tree = new THREE.Group();
+      const h = this.rng.range(4.5, 7.5);
+      const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.4, h, 6), bark);
+      trunk.position.y = h / 2;
+      trunk.castShadow = true;
+      tree.add(trunk);
+      const branches = 3 + Math.floor(this.rng.range(0, 3));
+      for (let b = 0; b < branches; b++) {
+        const bl = this.rng.range(1.2, 2.6);
+        const branch = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.13, bl, 5), bark);
+        const by = h * this.rng.range(0.55, 0.95);
+        branch.position.y = by;
+        branch.rotation.z = this.rng.range(-1.1, 1.1);
+        branch.rotation.y = this.rng.range(0, Math.PI);
+        branch.translateY(bl * 0.4);
+        tree.add(branch);
+      }
+      tree.position.set(tx, 0, tz);
+      tree.rotation.y = this.rng.range(0, Math.PI);
+      tree.rotation.z = this.rng.range(-0.08, 0.08);
+      this.field.add(tree);
+    }
+
+    // Jersey barriers in a couple of loose clusters near the road.
+    const barrierSpots: [number, number, number][] = [
+      [-6, -18, 0.1],
+      [-3.4, -18.4, 0.1],
+      [7, -46, 1.5],
+      [9.4, -45.4, 1.5],
+      [-12, -64, 0.3],
+    ];
+    for (const [bx, bz, ry] of barrierSpots) {
+      const b = new THREE.Group();
+      const base = new THREE.Mesh(new THREE.BoxGeometry(2.6, 0.5, 0.9), concrete);
+      base.position.y = 0.25;
+      const top = new THREE.Mesh(new THREE.BoxGeometry(2.4, 0.6, 0.42), concrete);
+      top.position.y = 0.78;
+      base.castShadow = true;
+      top.castShadow = true;
+      b.add(base, top);
+      b.position.set(bx, 0, bz);
+      b.rotation.y = ry;
+      this.field.add(b);
+    }
+
+    // Drooping power cables between same-side streetlights (catenary lines).
+    const cableMat = new THREE.LineBasicMaterial({ color: 0x080a0c, transparent: true, opacity: 0.7, fog: true });
+    for (const side of [-1, 1]) {
+      for (let i = 0; i < 4; i++) {
+        const z0 = -14 - i * 26;
+        const z1 = z0 - 26;
+        const x = side * 8.5;
+        const pts: THREE.Vector3[] = [];
+        const N = 10;
+        for (let k = 0; k <= N; k++) {
+          const t = k / N;
+          const sag = Math.sin(t * Math.PI) * 1.4;
+          pts.push(new THREE.Vector3(x, 6.0 - sag, z0 + (z1 - z0) * t));
+        }
+        const g = new THREE.BufferGeometry().setFromPoints(pts);
+        const line = new THREE.Line(g, cableMat);
+        line.frustumCulled = false;
+        this.field.add(line);
+      }
+    }
+  }
+
   /** A coherent ruined-city skyline: two depth layers, some windows still lit. */
   private buildSkyline(): void {
     const dark = new THREE.MeshStandardMaterial({ color: 0x05080a, roughness: 1 });
     const near = new THREE.MeshStandardMaterial({ color: 0x0a1014, roughness: 1, flatShading: true });
     const winMat = new THREE.MeshBasicMaterial({ color: 0xffcf7a, fog: false });
+    const farthest = new THREE.MeshStandardMaterial({ color: 0x03060a, roughness: 1 });
     const rows: { z: number; mat: THREE.Material; min: number; max: number; n: number; windows: boolean }[] = [
+      { z: -205, mat: farthest, min: 30, max: 80, n: 16, windows: false },
       { z: -165, mat: dark, min: 22, max: 60, n: 18, windows: false },
       { z: -128, mat: near, min: 14, max: 38, n: 14, windows: true },
     ];
@@ -253,7 +355,45 @@ export class World {
         }
       }
     }
+
+    // Landmarks: a water tower and a radio mast break up the silhouette.
+    const steel = new THREE.MeshStandardMaterial({ color: 0x070b0f, roughness: 1, flatShading: true });
+    const tower = new THREE.Group();
+    const tank = new THREE.Mesh(new THREE.CylinderGeometry(7, 7, 9, 10), steel);
+    tank.position.y = 40;
+    const cone = new THREE.Mesh(new THREE.ConeGeometry(7.5, 4, 10), steel);
+    cone.position.y = 46;
+    for (let i = 0; i < 4; i++) {
+      const a = (i / 4) * Math.PI * 2;
+      const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.5, 36, 5), steel);
+      leg.position.set(Math.cos(a) * 5, 18, Math.sin(a) * 5);
+      leg.rotation.z = Math.cos(a) * 0.12;
+      leg.rotation.x = -Math.sin(a) * 0.12;
+      tower.add(leg);
+    }
+    tower.add(tank, cone);
+    tower.position.set(-86, 0, -150);
+    this.group.add(tower);
+
+    const mast = new THREE.Group();
+    const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.6, 1.2, 70, 6), steel);
+    pole.position.y = 35;
+    mast.add(pole);
+    for (const my of [22, 40, 56]) {
+      const cross = new THREE.Mesh(new THREE.BoxGeometry(10, 0.5, 0.5), steel);
+      cross.position.y = my;
+      mast.add(cross);
+    }
+    // Blinking aircraft-warning beacon at the top.
+    const beacon = makeGlow(0xff3030, 5, 0.9);
+    beacon.position.y = 71;
+    mast.add(beacon);
+    mast.position.set(78, 0, -158);
+    this.group.add(mast);
+    this.beacon = beacon;
   }
+
+  private beacon: THREE.Sprite | null = null;
 
   private buildSky(): THREE.Mesh {
     const geo = new THREE.SphereGeometry(200, 32, 16);
@@ -681,6 +821,12 @@ export class World {
     }
     rp.needsUpdate = true;
     (this.rain.material as THREE.LineBasicMaterial).opacity = lerp(0.22, 0.06, this.dawn);
+    }
+
+    // Radio-mast beacon: a slow red blink.
+    if (this.beacon) {
+      const b = (Math.sin(this.t * 2.2) + 1) * 0.5;
+      this.beacon.material.opacity = (0.2 + b * b * 0.8) * (1 - this.dawn * 0.7);
     }
 
     // Distant battle flashes

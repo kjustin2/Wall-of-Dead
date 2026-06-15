@@ -306,6 +306,10 @@ function buildZombieGeo(t: ZType): { body: THREE.BufferGeometry; eyes: THREE.Buf
     box(0.3 * s, 0.12 * s, 0.28 * s, 0, 1.5 * s, 0.36 * s), // upper jaw
     box(0.28 * s, 0.12 * s, 0.26 * s, 0, 1.36 * s, 0.42 * s, 0.5), // hanging open lower jaw
     box(0.7 * s, 0.5 * s, 0.06 * s, 0, 0.5 * s, 0.28 * s, 0.3), // torn cloth
+    // Tattered, hanging rag strips (baked into the merged mesh — no extra draws).
+    box(0.14 * s, 0.6 * s, 0.04 * s, -0.26 * s, 0.45 * s, 0.26 * s, 0.12),
+    box(0.12 * s, 0.5 * s, 0.04 * s, 0.22 * s, 0.5 * s, 0.27 * s, -0.1),
+    box(0.1 * s, 0.42 * s, 0.04 * s, 0.05 * s, 0.38 * s, 0.3 * s, 0.05),
   ];
   // Exposed ribs
   for (const ry of [0.78, 0.62, 0.46]) p.push(box(0.5 * s, 0.05 * s, 0.48 * s, 0, ry * s, 0.04 * s, lean));
@@ -373,6 +377,7 @@ export class Zombie {
   private body: THREE.Mesh;
   private bodyMat: THREE.MeshStandardMaterial;
   private glow!: THREE.Sprite;
+  private bellyGlow?: THREE.Sprite;
   private targetX: number;
   private clawTimer = 0;
   private touchTimer = 0;
@@ -426,6 +431,8 @@ export class Zombie {
       flatShading: true,
       emissive: new THREE.Color(0x000000),
     });
+    // Per-instance skin-tone jitter so a horde never looks like clones.
+    this.bodyMat.color.offsetHSL((ctx.rng.next() - 0.5) * 0.06, (ctx.rng.next() - 0.5) * 0.18, (ctx.rng.next() - 0.5) * 0.12);
     this.body = new THREE.Mesh(geo.body, this.bodyMat);
     this.body.castShadow = true;
     this.group.add(this.body);
@@ -436,6 +443,13 @@ export class Zombie {
     this.glow = makeGlow(t.eye, 1.7 * s, 0.6);
     this.glow.position.set(0, 1.66 * s, 0.4 * s);
     this.group.add(this.glow);
+
+    // Exploder: a sickly green glow on the swollen, gas-filled belly.
+    if (t.key === "exploder") {
+      this.bellyGlow = makeGlow(0xc6ff3a, 2.2 * s, 0.7);
+      this.bellyGlow.position.set(0, 0.82 * s, 0.5 * s);
+      this.group.add(this.bellyGlow);
+    }
 
     // Riot shield: a battered steel plate held out front (toward the wall, +Z).
     if (t.shield) {
@@ -611,6 +625,13 @@ export class Zombie {
     if (this.state !== "dying") {
       this.bob += dt * this.t.speed * 1.4;
       this.body.position.y = Math.sin(this.bob) * 0.05;
+    }
+    // Exploder belly pulses like it's about to burst.
+    if (this.bellyGlow) {
+      const p = 0.5 + 0.5 * Math.sin(this.bob * 2.2);
+      this.bellyGlow.material.opacity = 0.45 + p * 0.45;
+      const s = (2.0 + p * 0.5) * this.t.scale;
+      this.bellyGlow.scale.set(s, s, 1);
     }
   }
 
@@ -847,6 +868,7 @@ export class Zombie {
     // Geometry + eye material are shared/cached; only free per-instance bits.
     this.bodyMat.dispose();
     this.glow.material.dispose();
+    this.bellyGlow?.material.dispose();
   }
 }
 

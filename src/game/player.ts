@@ -153,6 +153,40 @@ export class Player {
       pouch.position.set(px, 0.95, -0.27);
       this.group.add(pouch);
     }
+    // Flared storm-coat skirt below the vest (reads as a long coat from behind).
+    for (const [sx, rz] of [[-0.22, 0.12], [0.22, -0.12], [0, 0]] as [number, number][]) {
+      const flap = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.5, 0.12), coat);
+      flap.position.set(sx, 0.6, 0.16);
+      flap.rotation.z = rz;
+      this.group.add(flap);
+    }
+    // Raised hood collar behind the head.
+    const hood = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.34, 0.24), coat);
+    hood.position.set(0, 1.66, 0.24);
+    hood.rotation.x = 0.3;
+    this.group.add(hood);
+    // Backpack roll + a radio antenna with a faint emissive tip.
+    const roll = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.12, 0.5, 8), olive);
+    roll.rotation.z = Math.PI / 2;
+    roll.position.set(0, 1.42, 0.4);
+    this.group.add(roll);
+    const antenna = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.02, 1.0, 4), dark);
+    antenna.position.set(0.2, 1.7, 0.42);
+    antenna.rotation.z = -0.12;
+    this.group.add(antenna);
+    const antTip = new THREE.Mesh(
+      new THREE.SphereGeometry(0.04, 6, 6),
+      new THREE.MeshStandardMaterial({ color: 0x300, emissive: new THREE.Color(0xff4030), emissiveIntensity: 1 })
+    );
+    antTip.position.set(0.26, 2.2, 0.43);
+    this.group.add(antTip);
+    // Gloves at the gun grip + kneepads.
+    const gloveMat = new THREE.MeshStandardMaterial({ color: 0x14181c, roughness: 1, flatShading: true });
+    for (const lx of [-0.18, 0.18]) {
+      const knee = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.16, 0.28), gloveMat);
+      knee.position.set(lx, 0.66, 0.04);
+      this.group.add(knee);
+    }
 
     // Aim rig — yaws toward the cursor. Holds the rifle, arms, flashlight, muzzle.
     this.aimRig.position.y = 1.4;
@@ -169,6 +203,14 @@ export class Player {
     armL.position.set(-0.06, -0.02, -0.2);
     armL.rotation.y = -0.5;
     this.aimRig.add(armL);
+    // Gloved hands on the grip + foregrip.
+    const handMat = new THREE.MeshStandardMaterial({ color: 0x101316, roughness: 1, flatShading: true });
+    const handR = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.14, 0.16), handMat);
+    handR.position.set(0.12, 0.0, -0.7);
+    this.aimRig.add(handR);
+    const handL = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.14, 0.16), handMat);
+    handL.position.set(0.1, -0.02, -0.36);
+    this.aimRig.add(handL);
 
     this.flashlight = new THREE.SpotLight(0xfff0d0, 14, 90, 0.5, 0.45, 1.2);
     this.flashlight.position.set(0.16, 0.1, -0.5);

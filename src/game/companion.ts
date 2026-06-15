@@ -58,8 +58,46 @@ class Companion {
       const leg = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.8, 0.22), vest);
       leg.position.set(lx, 0.4, 0);
       this.group.add(leg);
+      const boot = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.14, 0.34), vest);
+      boot.position.set(lx, 0.07, 0.05);
+      this.group.add(boot);
     }
-    this.group.add(torso, chest, head, cap);
+    // Shoulders, a small backpack, and a coat skirt — same build language as the
+    // defender so allies read as part of the same crew.
+    const shoulders = new THREE.Mesh(new THREE.BoxGeometry(0.82, 0.2, 0.46), coat);
+    shoulders.position.y = 1.34;
+    const pack = new THREE.Mesh(new THREE.BoxGeometry(0.46, 0.56, 0.28), vest);
+    pack.position.set(0, 0.98, 0.34);
+    pack.castShadow = true;
+    const skirt = new THREE.Mesh(new THREE.BoxGeometry(0.66, 0.4, 0.14), coat);
+    skirt.position.set(0, 0.58, 0.12);
+    this.group.add(torso, chest, head, cap, shoulders, pack, skirt);
+
+    // Trait-distinct gear + accent color on the nameplate-matching kit.
+    if (this.trait) {
+      const accent = new THREE.Color(TRAITS[this.trait].color);
+      const accMat = new THREE.MeshStandardMaterial({ color: accent, roughness: 0.8, flatShading: true, emissive: accent.clone().multiplyScalar(0.25) });
+      if (this.trait === "medic") {
+        // a white cross on the pack
+        const cm = new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: new THREE.Color(0x66ffaa), emissiveIntensity: 0.7 });
+        const c1 = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.09, 0.06), cm);
+        const c2 = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.3, 0.06), cm);
+        c1.position.set(0, 1.0, 0.49);
+        c2.position.set(0, 1.0, 0.49);
+        this.group.add(c1, c2);
+      } else if (this.trait === "gunner") {
+        // a bandolier across the chest
+        const belt = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.9, 0.14), accMat);
+        belt.position.set(0, 1.0, -0.22);
+        belt.rotation.z = 0.7;
+        this.group.add(belt);
+      } else {
+        // marksman: a peaked cap + a scope rail accent
+        const peak = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.06, 0.2), accMat);
+        peak.position.set(0, 1.78, -0.22);
+        this.group.add(peak);
+      }
+    }
 
     this.aimRig.position.y = 1.25;
     this.aimRig.rotation.y = Math.PI;
