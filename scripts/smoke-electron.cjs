@@ -277,6 +277,22 @@ app.whenReady().then(async () => {
       await sleep(1100);
       if (await js(`window.__wod.scavengeShown()`)) errors.push("EDGE: supply-run map still visible after restart");
       await shot(win, "09-restart-clean.png");
+
+      // Defeat path: skip into the night, kill the player, confirm the death
+      // screen and that the save is cleared (this transition is otherwise untested).
+      await js(`window.dispatchEvent(new KeyboardEvent('keydown',{code:'Escape'}))`); // skip story → night
+      await sleep(1300);
+      if ((await js(`window.__wod.state()`)) === "night") {
+        await js(`window.__wod.ctx.combat.damagePlayer(9999, 0, 1)`);
+        await sleep(900);
+        const st = await js(`window.__wod.state()`);
+        if (st !== "dead") errors.push("DEFEAT: player death did not reach 'dead' (got " + st + ")");
+        if (!(await js(`!!document.querySelector('.screen--death')`))) errors.push("DEFEAT: death screen not shown");
+        if (!(await js(`!localStorage.getItem('wod-save')`))) errors.push("DEFEAT: save not cleared on death");
+        await shot(win, "10-defeat.png");
+      } else {
+        errors.push("DEFEAT: could not reach night to test the death path");
+      }
     } catch (e) {
       errors.push("EXCEPTION: " + (e && e.message ? e.message : String(e)));
     }
