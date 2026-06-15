@@ -257,6 +257,16 @@ export class Sfx {
         this.tone(560, 0.08, "triangle", 0.16, 840);
         this.tone(840, 0.1, "triangle", 0.14, 1120, 0.07);
         break;
+      case "boss_roar":
+        // a vast, guttural roar — low saw sweep + noise body + a higher snarl
+        this.tone(48, 1.3, "sawtooth", 0.5, 150);
+        this.tone(70, 1.1, "square", 0.22, 200, 0.05);
+        this.burst(1.1, 0.55, 700);
+        break;
+      case "birdsong":
+        // a gentle dawn chirp — soft rising sine pips
+        [1800, 2200, 1900, 2400].forEach((f, i) => this.tone(f, 0.09, "sine", 0.05, f + 300, i * 0.12));
+        break;
       case "victory":
         [523, 659, 784, 1047].forEach((f, i) => this.tone(f, 0.5, "triangle", 0.2, undefined, i * 0.16));
         break;

@@ -74,8 +74,9 @@ export class WaveDirector {
   private spawnTimer = 1.5;
   private clockDone = false;
   private fleeing = false;
-  private tankSpawned = false;
+  private bossSpawned = false;
   private signatureFired = false;
+  private surgeFired = false;
   // Per-night escalation (night 1 = base; later nights are longer + thicker).
   private maxAlive: number;
   private len: number;
@@ -110,12 +111,22 @@ export class WaveDirector {
       this.ctx.events.emit("NOTICE", { text: sig.name, sub: sig.sub });
     }
 
-    // Night 3's headline is the Tank mini-boss. Spawn it early enough AND closer
-    // in (z ≈ -48) so it actually reaches the wall before dawn.
-    if (this.ctx.run.night >= 3 && !this.tankSpawned && this.progress > 0.6 && this.elapsed < this.len - 18) {
-      this.tankSpawned = true;
-      this.ctx.enemies.spawn("tank", this.ctx.rng.range(-6, 6), -48);
-      this.ctx.events.emit("MINIBOSS", { name: "TANK" });
+    // Night 3 finale: the Behemoth boss. Spawn it with time to reach the wall and
+    // be fought down — the night won't end until it's dead (it never flees).
+    if (this.ctx.run.night >= 3 && !this.bossSpawned && this.progress > 0.45 && this.elapsed < this.len - 22) {
+      this.bossSpawned = true;
+      this.ctx.enemies.spawn("behemoth", 0, -44);
+      this.ctx.events.emit("MINIBOSS", { name: "THE BEHEMOTH" });
+    }
+
+    // Dawn surge: a desperate wall of bodies in the final stretch.
+    if (!this.surgeFired && !this.clockDone && this.elapsed < this.len && this.progress > 0.85) {
+      this.surgeFired = true;
+      this.ctx.events.emit("NOTICE", { text: "DAWN SURGE", sub: "Hold — first light is close!" });
+      for (let k = 0; k < 4; k++) {
+        const type = this.ctx.rng.weighted(["runner", "shambler", "crawler"], [3, 2, 2]);
+        this.ctx.enemies.spawn(type, this.ctx.rng.range(-FIELD.wallHalf + 2, FIELD.wallHalf - 2));
+      }
     }
 
     if (!this.clockDone) {
@@ -138,14 +149,16 @@ export class WaveDirector {
   }
 
   private spawnTick(dt: number): void {
-    if (this.ctx.enemies.count >= this.maxAlive) return;
+    const p = this.progress;
+    // The dawn surge lifts the alive cap and floods spawns.
+    const cap = p > 0.85 ? this.maxAlive + 10 : this.maxAlive;
+    if (this.ctx.enemies.count >= cap) return;
     this.spawnTimer -= dt;
     if (this.spawnTimer > 0) return;
 
-    const p = this.progress;
-    // Interval tightens; the last 12% is a surge.
+    // Interval tightens; the last stretch is a surge.
     let interval = lerp(this.startI, this.endI, p);
-    if (p > 0.88) interval *= 0.5;
+    if (p > 0.85) interval *= 0.4;
     this.spawnTimer = interval * this.ctx.rng.range(0.75, 1.25);
 
     const mix = p < 0.4 ? PLAN.early : PLAN.late;

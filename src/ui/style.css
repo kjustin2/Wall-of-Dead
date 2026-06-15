@@ -121,6 +121,33 @@ body {
   color: var(--dim);
 }
 
+.boss-bar {
+  display: none;
+  margin-top: 34px;
+  text-align: center;
+}
+.boss-name {
+  font-family: var(--display);
+  letter-spacing: 5px;
+  font-size: 15px;
+  color: #ff5a3c;
+  text-shadow: 0 0 12px rgba(255, 40, 24, 0.6);
+}
+.boss-track {
+  margin-top: 4px;
+  height: 12px;
+  background: #1a0c0c;
+  border: 1px solid #5a1414;
+  border-radius: 7px;
+  overflow: hidden;
+}
+.boss-fill {
+  height: 100%;
+  width: 100%;
+  background: linear-gradient(90deg, #7a0d10, #ff3030);
+  transition: width 0.12s linear;
+}
+
 .hud-bottom {
   position: absolute;
   bottom: 22px;

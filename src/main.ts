@@ -245,8 +245,10 @@ function onDawn(): void {
   ctx.input.enabled = false;
   ctx.run.wallHp = ctx.wall.totalHp();
   ctx.stats.wallHeld = ctx.wall.integrityFrac() * 100;
-  ctx.world.setDawn(0.7);
+  // Cinematic dawn: the sun crests and fog burns off over a short beat.
+  ctx.world.setDawn(0.92);
   ctx.events.emit("SFX", { id: "dawn_sting" });
+  ctx.events.emit("SFX", { id: "birdsong" });
   ctx.cam.pulseFov(0.5);
   requestSlowmo(1.0, 0.35); // a clear "you survived" beat
   hud.setMode("hidden");
@@ -258,7 +260,10 @@ function onDawn(): void {
     `Wall integrity — ${Math.round(ctx.wall.integrityFrac() * 100)}%`,
     `Allies — ${ctx.run.companions.length}${lost.length ? ` (lost ${lost.join(", ")})` : ""}`,
   ];
-  menus.showDayReport(lines, startDay);
+  // Let the dawn breathe for a moment before the report panel slides in.
+  window.setTimeout(() => {
+    if (state === "report") menus.showDayReport(lines, startDay);
+  }, 1300);
 }
 
 function startDay(): void {
@@ -401,8 +406,17 @@ ctx.events.on("MINIBOSS", ({ name }) => {
   ctx.cam.addTrauma(0.4);
   requestSlowmo(0.5, 0.5);
 });
-ctx.events.on("ZOMBIE_KILLED", () => {
+ctx.events.on("ZOMBIE_KILLED", ({ kind }) => {
   if (state !== "night") return;
+  if (kind === "behemoth") {
+    // Finale kill-cam: a long dilation + camera punch as the Behemoth falls.
+    requestSlowmo(1.6, 0.22);
+    ctx.cam.pulseFov(0.9);
+    ctx.cam.addTrauma(0.7);
+    ctx.stage.punch(0.6);
+    ctx.events.emit("SFX", { id: "boss_roar" });
+    hud.banner("THE BEHEMOTH FALLS", "Hold to first light");
+  }
   streak++;
   streakTimer = 2.6;
   if (streak === 5 || streak === 10 || streak === 15 || streak === 20 || streak === 30) {

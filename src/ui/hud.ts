@@ -23,6 +23,7 @@ export class Hud {
     this.root.innerHTML = `
       <div class="hud-top">
         <div class="dawn"><div class="dawn-fill"></div><div class="dawn-moon">🌙</div><span class="dawn-label">NIGHT</span></div>
+        <div class="boss-bar"><span class="boss-name">THE BEHEMOTH</span><div class="boss-track"><div class="boss-fill"></div></div></div>
       </div>
       <div class="hud-bottom">
         <div class="hud-left">
@@ -63,6 +64,9 @@ export class Hud {
     this.el = {
       dawnFill: q(".dawn-fill"),
       dawnLabel: q(".dawn-label"),
+      bossBar: q(".boss-bar"),
+      bossName: q(".boss-name"),
+      bossFill: q(".boss-fill"),
       hpFill: q(".bar-hp .bar-fill"),
       wallFill: q(".bar-wall .bar-fill"),
       kitsN: q(".kits-n"),
@@ -264,6 +268,15 @@ export class Hud {
     this.el.companions.innerHTML = cHtml;
 
     this.el.kills.textContent = `KILLS ${c.stats.kills}`;
+
+    // Boss health bar (night-3 finale). Explicit "block" — "" would fall back to
+    // the CSS default of display:none.
+    if (c.enemies.bossAlive) {
+      this.el.bossBar.style.display = "block";
+      this.el.bossFill.style.width = `${c.enemies.bossFrac() * 100}%`;
+    } else {
+      this.el.bossBar.style.display = "none";
+    }
   }
 
   /** night-phase clock fill + countdown (called by the night loop). */

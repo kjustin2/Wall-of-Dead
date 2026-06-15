@@ -102,9 +102,12 @@ app.whenReady().then(async () => {
       const ns = await win.webContents.executeJavaScript(`window.__wod.state()`);
       if (ns !== "night") errors.push("FLOW: expected night after cutscene, got " + ns);
 
-      // Let a wave build, then force some action
-      await win.webContents.executeJavaScript(`window.__wod.spawnWave('shambler', 6); window.__wod.spawnWave('runner', 3); window.__wod.spawnWave('brute', 1); window.__wod.spawnWave('spitter', 2); window.__wod.spawnWave('crawler', 3); window.__wod.spawnWave('armored', 2); window.__wod.spawnWave('screamer', 1); window.__wod.spawnWave('tank', 1);`);
+      // Let a wave build, then force some action (every zombie type renders here)
+      await win.webContents.executeJavaScript(`window.__wod.spawnWave('shambler', 6); window.__wod.spawnWave('runner', 3); window.__wod.spawnWave('brute', 1); window.__wod.spawnWave('spitter', 2); window.__wod.spawnWave('crawler', 3); window.__wod.spawnWave('armored', 2); window.__wod.spawnWave('screamer', 1); window.__wod.spawnWave('exploder', 2); window.__wod.spawnWave('shielded', 2); window.__wod.spawnWave('leaper', 2); window.__wod.spawnWave('tank', 1);`);
       await sleep(2000);
+      // Drop a trap + flare (tactics) so those render paths run too.
+      await win.webContents.executeJavaScript(`window.dispatchEvent(new KeyboardEvent('keydown',{code:'KeyT'})); window.dispatchEvent(new KeyboardEvent('keydown',{code:'KeyG'})); window.dispatchEvent(new KeyboardEvent('keydown',{code:'KeyC'}));`);
+      await sleep(300);
       // Exercise the melee bash (Space) swing path
       await win.webContents.executeJavaScript(`window.dispatchEvent(new KeyboardEvent('keydown',{code:'Space'}));`);
       await sleep(120);
@@ -122,6 +125,18 @@ app.whenReady().then(async () => {
       `);
       await sleep(1150);
       await shot(win, "04-grenade.png");
+
+      // Finale boss: spawn the Behemoth, confirm it lives + its bar shows, then
+      // shoot it a bit (drives boss phase logic + the wide-slam render path).
+      await win.webContents.executeJavaScript(`window.__wod.spawnWave('behemoth', 1);`);
+      await sleep(900);
+      const bossAlive = await win.webContents.executeJavaScript(`window.__wod.ctx.enemies.bossAlive`);
+      if (!bossAlive) errors.push("FINALE: behemoth boss did not spawn/register");
+      const barShown = await win.webContents.executeJavaScript(
+        `(()=>{const b=document.querySelector('.boss-bar'); return b && getComputedStyle(b).display !== 'none';})()`
+      );
+      if (!barShown) errors.push("FINALE: boss health bar not visible");
+      await shot(win, "04b-boss.png");
 
       // Loop the night -> day -> continue cycle until the safe zone (multi-night).
       let finalState = "";

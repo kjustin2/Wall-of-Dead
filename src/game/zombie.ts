@@ -34,6 +34,7 @@ export interface ZType {
   explodes?: boolean; // bursts a damaging gas cloud on death
   shield?: number; // frontal riot shield: absorbs body shots until broken
   miniboss?: boolean;
+  boss?: boolean; // the night-3 finale: phases, wide slam, spawns adds
 }
 
 export const TYPES: Record<string, ZType> = {
@@ -222,6 +223,25 @@ export const TYPES: Record<string, ZType> = {
     vaults: true,
     leaper: true,
   },
+  behemoth: {
+    key: "behemoth",
+    hp: 1150,
+    speed: 2.0,
+    radius: 2.6,
+    claw: 26,
+    clawCD: 2.3,
+    touch: 38,
+    touchCD: 1.6,
+    body: 0x190f14,
+    head: 0x241820,
+    eye: 0xff1414,
+    scale: 3.0,
+    heavy: true,
+    headshotChance: 0.06,
+    groan: "groan_brute",
+    slam: true,
+    boss: true,
+  },
   tank: {
     key: "tank",
     hp: 420,
@@ -293,10 +313,17 @@ function buildZombieGeo(t: ZType): { body: THREE.BufferGeometry; eyes: THREE.Buf
     p.push(box(0.22 * s, 0.85 * s, 0.22 * s, lx * s, 0.42 * s, 0));
     p.push(box(0.24 * s, 0.14 * s, 0.42 * s, lx * s, 0.07 * s, 0.12 * s));
   }
-  if (t.key === "brute") {
+  if (t.key === "brute" || t.key === "behemoth") {
     for (const sx of [-0.6, 0.6]) p.push(box(0.42 * s, 0.42 * s, 0.6 * s, sx * s, 1.5 * s, 0.1 * s));
     p.push(box(0.7 * s, 0.7 * s, 0.25 * s, 0, 1.2 * s, -0.3 * s));
-  } else if (t.key === "spitter") {
+  }
+  if (t.key === "behemoth") {
+    // jagged horns, a heavy back hump, and slab forearms
+    for (const hx of [-0.24, 0.24]) p.push(box(0.12 * s, 0.55 * s, 0.12 * s, hx * s, 1.96 * s, 0.16 * s, -0.45));
+    p.push(ball(0.55 * s, 0, 1.05 * s, -0.26 * s)); // spine hump
+    for (const ax of [-0.62, 0.62]) p.push(box(0.34 * s, 0.34 * s, 0.7 * s, ax * s, 0.7 * s, 0.5 * s, -0.5));
+  }
+  if (t.key === "spitter") {
     p.push(ball(0.42 * s, 0, 1.1 * s, -0.34 * s));
   } else if (t.key === "exploder") {
     p.push(ball(0.56 * s, 0, 0.82 * s, 0.22 * s)); // bloated, gas-filled belly
@@ -357,6 +384,8 @@ export class Zombie {
   private lungeCd: number;
   private lungeWind = 0;
   private lungeBoost = 0;
+  private bossPhase = 0;
+  private enrageMul = 1;
   private dieTimer = 0;
   private dieRoll = 0;
   private diePitch = 1.3;
@@ -447,6 +476,7 @@ export class Zombie {
 
   flee(): void {
     if (this.state === "dying") return;
+    if (this.t.boss) return; // the finale doesn't run from dawn — you must kill it
     this.state = "fleeing";
   }
 
@@ -501,6 +531,7 @@ export class Zombie {
 
   update(dt: number, ctx: Ctx): void {
     if (this.slowT > 0) this.slowT -= dt;
+    if (this.t.boss && this.state !== "dying") this.bossTick(ctx);
     // Hit flash decay
     if (this.hitFlash > 0) {
       this.hitFlash -= dt;
@@ -541,8 +572,27 @@ export class Zombie {
     if (dx || dz) this.group.rotation.y = Math.atan2(dx, dz);
   }
 
+  /** Boss phase transitions: at 66% and 33% HP it enrages (faster, harder slams)
+   * and vomits a wave of adds. */
+  private bossTick(ctx: Ctx): void {
+    const frac = this.hp / this.maxHp;
+    const phase = frac > 0.66 ? 0 : frac > 0.33 ? 1 : 2;
+    if (phase <= this.bossPhase) return;
+    this.bossPhase = phase;
+    this.enrageMul = 1 + phase * 0.32; // 1 → 1.32 → 1.64
+    ctx.events.emit("NOTICE", {
+      text: phase === 1 ? "THE BEHEMOTH RAGES" : "THE BEHEMOTH IS DESPERATE",
+      sub: "It's calling more down on you!",
+    });
+    ctx.events.emit("SFX", { id: "boss_roar", pan: clamp(this.x / FIELD.wallHalf, -1, 1) });
+    ctx.cam.addTrauma(0.5);
+    for (let k = 0; k < 2 + phase; k++) {
+      ctx.enemies.spawn(ctx.rng.chance(0.5) ? "runner" : "shambler", clamp(this.x + ctx.rng.range(-14, 14), -FIELD.wallHalf + 2, FIELD.wallHalf - 2));
+    }
+  }
+
   private advance(dt: number, ctx: Ctx): void {
-    const spd = this.t.speed * ctx.enemies.speedMul() * this.speedFactor();
+    const spd = this.t.speed * ctx.enemies.speedMul() * this.speedFactor() * this.enrageMul;
     if (this.t.screamer) {
       this.screamTimer -= dt;
       if (this.screamTimer <= 0) {
@@ -638,22 +688,32 @@ export class Zombie {
     }
 
     if (this.t.slam) {
+      const boss = this.t.boss;
       // Telegraphed heavy slam
       if (this.winding > 0) {
         this.winding -= dt;
         if (this.winding <= 0) {
-          ctx.wall.damageAt(this.x, this.t.claw * 1.4);
-          ctx.fx.burst(this.x, 1.2, FIELD.wallZ, 14, 0x8899aa, { speed: 9, up: 6, life: 0.5 });
-          ctx.cam.addTrauma(0.18);
-          ctx.events.emit("SFX", { id: "brute_slam", pan: clamp(this.x / FIELD.wallHalf, -1, 1) });
-          this.clawTimer = this.t.clawCD;
+          if (boss) {
+            // Wide slam — rips three segments at once.
+            const W = (FIELD.wallHalf * 2) / FIELD.segments;
+            for (const off of [-W, 0, W]) ctx.wall.damageAt(this.x + off, this.t.claw * 1.3);
+            ctx.fx.burst(this.x, 1.6, FIELD.wallZ, 28, 0x8899aa, { speed: 13, up: 9, life: 0.6, size: 9 });
+            ctx.cam.addTrauma(0.4);
+            ctx.events.emit("SFX", { id: "wall_breach", pan: clamp(this.x / FIELD.wallHalf, -1, 1) });
+          } else {
+            ctx.wall.damageAt(this.x, this.t.claw * 1.4);
+            ctx.fx.burst(this.x, 1.2, FIELD.wallZ, 14, 0x8899aa, { speed: 9, up: 6, life: 0.5 });
+            ctx.cam.addTrauma(0.18);
+            ctx.events.emit("SFX", { id: "brute_slam", pan: clamp(this.x / FIELD.wallHalf, -1, 1) });
+          }
+          this.clawTimer = this.t.clawCD / this.enrageMul;
         }
         return;
       }
       this.clawTimer -= dt;
       if (this.clawTimer <= 0) {
-        this.winding = 0.7;
-        ctx.tele.warn(this.x, FIELD.wallZ - 0.5, 2.4, 0xff3030, 0.7);
+        this.winding = 0.7 / this.enrageMul;
+        ctx.tele.warn(this.x, FIELD.wallZ - 0.5, boss ? 4.2 : 2.4, 0xff3030, 0.7 / this.enrageMul);
       }
       return;
     }
@@ -687,7 +747,7 @@ export class Zombie {
   }
 
   private cross(dt: number, ctx: Ctx): void {
-    const spd = this.t.speed * 1.05 * ctx.enemies.speedMul() * this.speedFactor();
+    const spd = this.t.speed * 1.05 * ctx.enemies.speedMul() * this.speedFactor() * this.enrageMul;
     // Vault hop arc as they come over the barricade.
     if (this.vault > 0) {
       this.vault -= dt;
@@ -764,9 +824,18 @@ const ACID_G = 22;
 /** Spawns, ticks and reaps zombies; also owns spitter acid projectiles. */
 export class EnemyManager {
   alive: Zombie[] = [];
+  boss: Zombie | null = null;
   private acids: Acid[] = [];
   private group = new THREE.Group();
   private screamBuffT = 0;
+
+  /** 0..1 boss health, or 0 if no boss is alive. */
+  bossFrac(): number {
+    return this.boss ? Math.max(0, this.boss.hp / this.boss.maxHp) : 0;
+  }
+  get bossAlive(): boolean {
+    return this.boss !== null && this.boss.killable;
+  }
 
   /** Horde speed multiplier — raised briefly when a screamer screams. */
   speedMul(): number {
@@ -814,6 +883,7 @@ export class EnemyManager {
     const z = new Zombie(t, x, this.ctx, atZ);
     this.group.add(z.group);
     this.alive.push(z);
+    if (t.boss) this.boss = z;
     // Spawn tell: a distant groan from the dark.
     if (this.ctx.rng.chance(0.35)) {
       this.ctx.events.emit("SFX", { id: "groan", pan: clamp(x / FIELD.wallHalf, -1, 1) });
@@ -848,6 +918,7 @@ export class EnemyManager {
     // Reap
     for (let i = this.alive.length - 1; i >= 0; i--) {
       if (this.alive[i].gone) {
+        if (this.alive[i] === this.boss) this.boss = null;
         this.alive[i].dispose();
         this.alive.splice(i, 1);
       }
@@ -884,6 +955,7 @@ export class EnemyManager {
   clear(): void {
     for (const z of this.alive) z.dispose();
     this.alive.length = 0;
+    this.boss = null;
     for (const a of this.acids) {
       a.active = false;
       a.mesh.visible = false;
