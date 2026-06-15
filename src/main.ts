@@ -685,7 +685,7 @@ ctx.stage.renderer.setAnimationLoop(() => {
     ctx.stats.time += dt;
     ctx.input.updateAim(ctx.stage.camera);
     director.update(dt);
-    ctx.world.setDawn(Math.min(0.34, director.progress * 0.42));
+    ctx.world.setDawn(Math.min(0.2, director.progress * 0.26));
     hud.setDawnProgress(director.progress, director.length * (1 - director.progress));
     if (!surgeMusic && director.progress > 0.82) {
       surgeMusic = true;
@@ -778,6 +778,9 @@ Promise.race([ctx.music.preload(), new Promise<void>((r) => window.setTimeout(r,
   completeDay: () => scavenge.debugComplete(),
   scavengeShown: () => scavenge.visible,
   dayObjectCount: () => scavenge.objectCount,
+  setNightProgress: (p: number) => {
+    if (director) director.elapsed = director.length * p;
+  },
   continueAfterLoot: () => lootContinue(),
   lastStand: doLastStand,
   spawnWave: (type: string, n: number) => {

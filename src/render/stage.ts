@@ -113,11 +113,11 @@ export class Stage {
       // neon, dawn) bloom — NOT ordinary lit surfaces like the flashlight's cone
       // on the ground, which at a low threshold blooms into a blinding wedge.
       this.bloom = new BloomEffect({
-        intensity: 0.95,
-        luminanceThreshold: 0.62,
-        luminanceSmoothing: 0.2,
+        intensity: 0.55,
+        luminanceThreshold: 0.8,
+        luminanceSmoothing: 0.18,
         mipmapBlur: true,
-        radius: 0.6,
+        radius: 0.5,
       });
       effects.push(this.bloom);
     }

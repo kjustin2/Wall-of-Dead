@@ -463,29 +463,24 @@ export class World {
   private buildMoon(): THREE.Group {
     const g = new THREE.Group();
     const moon = new THREE.Mesh(
-      new THREE.SphereGeometry(10, 32, 32),
+      new THREE.SphereGeometry(3.4, 20, 20),
       new THREE.MeshBasicMaterial({ color: PAL.moon, fog: false })
     );
     g.add(moon);
-    // Craters on the visible face (toward +Z, where the field looks from).
-    const craterMat = new THREE.MeshBasicMaterial({ color: 0xb7c0ad, fog: false });
-    const craters: [number, number, number, number][] = [
-      [-2.5, 2, 9.4, 1.6],
-      [3, -1, 9.3, 2.2],
-      [0.5, 3.5, 9.2, 1.1],
-      [-3.5, -3, 9.0, 1.3],
-      [2, 4.5, 8.9, 0.9],
-    ];
-    for (const [cx, cy, cz, r] of craters) {
-      const crater = new THREE.Mesh(new THREE.CircleGeometry(r, 12), craterMat);
-      crater.position.set(cx, cy, cz);
-      crater.lookAt(cx * 2, cy * 2, cz + 6);
+    // A couple of faint craters for character (sized to the small disc).
+    const craterMat = new THREE.MeshBasicMaterial({ color: 0xa8b0a0, fog: false });
+    for (const [cx, cy, r] of [[-0.9, 0.7, 0.6], [1.0, -0.4, 0.8], [0.2, 1.2, 0.4]] as [number, number, number][]) {
+      const crater = new THREE.Mesh(new THREE.CircleGeometry(r, 10), craterMat);
+      crater.position.set(cx, cy, 3.2);
       g.add(crater);
     }
-    const glow = makeGlow(0xdfeaff, 34, 0.5);
+    // A small, soft halo — kept tight so bloom can't smear it into a wedge.
+    const glow = makeGlow(0xb9cde8, 9, 0.22);
     glow.material.depthWrite = false;
     g.add(glow);
-    g.position.set(-62, 66, -150);
+    // Small, high, and pushed to the corner of the sky — well clear of the
+    // skyline so it never reads as a glaring disc among the buildings.
+    g.position.set(-72, 120, -172);
     this.group.add(g);
     return g;
   }
@@ -732,7 +727,7 @@ export class World {
       .copy(this.skyHorizonNight)
       .lerp(this.skyHorizonDawn, d);
     this.stage.fog.color.set(PAL.fogNight).lerp(new THREE.Color(PAL.fogDawn), d);
-    this.stage.fog.density = lerp(0.025, 0.011, d);
+    this.stage.fog.density = lerp(0.032, 0.012, d);
     this.stage.scene.background = this.stage.fog.color;
     this.stage.hemiLight.intensity = lerp(0.26, 0.8, d);
     this.stage.keyLight.intensity = lerp(0.3, 1.05, d);
@@ -741,7 +736,9 @@ export class World {
     const moonGlow = this.moon.children[1] as THREE.Sprite;
     (this.moon.children[0] as THREE.Mesh).visible = d < 0.85;
     moonGlow.material.opacity = lerp(0.45, 0, d);
-    this.dawnGlow.material.opacity = d * 0.9;
+    // The big horizon "sun" glow only blooms at the actual dawn (report screen),
+    // never during the night — so the field doesn't develop a bright wedge.
+    this.dawnGlow.material.opacity = Math.max(0, d - 0.45) * 1.7;
   }
 
   update(dt: number): void {

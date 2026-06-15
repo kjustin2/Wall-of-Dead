@@ -152,6 +152,11 @@ app.whenReady().then(async () => {
       await win.webContents.executeJavaScript(`window.dispatchEvent(new KeyboardEvent('keyup',{code:'Space'}));`);
       await sleep(1400);
       await shot(win, "03-night-action.png");
+      // Mid-night frame (dawn ramp partway up) — this is what the player sees most
+      // of the night, and where late-night lighting issues actually show.
+      await win.webContents.executeJavaScript(`window.__wod.setNightProgress(0.65)`);
+      await sleep(700);
+      await shot(win, "03c-night-mid.png");
 
       // Aim downfield, charge the meter, throw the Last Stand grenade
       await win.webContents.executeJavaScript(`
