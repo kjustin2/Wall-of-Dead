@@ -206,6 +206,13 @@ export class Stage {
     }
   }
 
+  /** Pre-compile shaders + warm the composer once at boot so the first heavy
+   * frame (first wave / first bloom) doesn't hitch on lazy GLSL compilation. */
+  warmUp(): void {
+    this.renderer.compile(this.scene, this.camera);
+    this.composer.render(0);
+  }
+
   render(dt: number): void {
     this.composer.render(dt);
   }

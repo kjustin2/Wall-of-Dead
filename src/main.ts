@@ -600,6 +600,23 @@ ctx.events.on("ADRENALINE_ZONE", ({ zone, prev }) => {
   if (zone === "surge" && prev !== "surge") {
     ctx.events.emit("SFX", { id: "meter_full" });
     requestSlowmo(0.22, 0.55);
+    // One-time teach for the signature mechanic the first time you hit surge.
+    if (state === "night") {
+      let taught = false;
+      try {
+        taught = !!localStorage.getItem("wod-surge-taught");
+      } catch {
+        /* ignore */
+      }
+      if (!taught) {
+        hud.banner("⚡ SURGE — LAST STAND READY", "Hold F to lob the frag");
+        try {
+          localStorage.setItem("wod-surge-taught", "1");
+        } catch {
+          /* ignore */
+        }
+      }
+    }
   }
 });
 
@@ -767,6 +784,7 @@ bootProbe = true;
 Promise.race([ctx.music.preload(), new Promise<void>((r) => window.setTimeout(r, 1200))]).then(() => {
   bootProbe = false;
   applyBootQuality();
+  ctx.stage.warmUp(); // pre-compile shaders so the first wave doesn't hitch
   toTitle();
 });
 

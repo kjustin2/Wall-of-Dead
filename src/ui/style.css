@@ -256,12 +256,26 @@ body {
   text-shadow: 0 0 10px rgba(0, 0, 0, 0.9);
   animation: ammoPulse 1.1s ease-in-out infinite;
 }
+.bar { position: relative; }
 .bar-hp .bar-fill { background: linear-gradient(90deg, #b53030, #ff6b5a); }
 .bar-wall .bar-fill { background: linear-gradient(90deg, #3a6b8a, #69d0c0); }
 .bar-fill {
+  position: relative;
+  z-index: 2;
   height: 100%;
   width: 100%;
   transition: width 0.15s linear;
+}
+/* Ghost trail — a red "chip" that lags behind after damage (JS-driven width). */
+.bar-ghost {
+  position: absolute;
+  left: 0;
+  top: 0;
+  z-index: 1;
+  height: 100%;
+  width: 100%;
+  background: #e0483a;
+  opacity: 0.7;
 }
 
 .hud-center { text-align: center; }
@@ -350,7 +364,34 @@ body {
   font-size: 14px;
   letter-spacing: 2px;
   color: var(--dim);
+  transform-origin: right center;
 }
+.kills--pop { animation: kills-pop 0.28s ease-out; }
+@keyframes kills-pop {
+  0% { transform: scale(1.5); color: #ffce5a; }
+  100% { transform: scale(1); color: var(--dim); }
+}
+
+/* Big-beat additive screen flash + critical danger edge-glow (HUD overlays) */
+.screenflash {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0;
+  mix-blend-mode: screen;
+  z-index: 8;
+}
+.danger-vig {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0;
+  box-shadow: inset 0 0 150px 44px rgba(200, 30, 30, 0.5);
+  transition: opacity 0.4s ease-out;
+  z-index: 4;
+}
+.danger-vig--on { opacity: 1; animation: dangerpulse 1.15s ease-in-out infinite; }
+@keyframes dangerpulse { 0%, 100% { opacity: 0.5; } 50% { opacity: 1; } }
 
 /* ---------------------------------------------------------------- day HUD */
 .day-hud {
@@ -600,7 +641,22 @@ body {
   letter-spacing: 1px;
   color: var(--ink);
 }
-.report li { color: var(--ink); }
+.report li {
+  color: var(--ink);
+  opacity: 0;
+  transform: translateY(8px);
+  animation: report-in 0.42s ease-out forwards;
+}
+/* Staggered "dealt out" reveal — pure CSS nth-child delays, no JS timers. */
+.report li:nth-child(1) { animation-delay: 0.05s; }
+.report li:nth-child(2) { animation-delay: 0.14s; }
+.report li:nth-child(3) { animation-delay: 0.23s; }
+.report li:nth-child(4) { animation-delay: 0.32s; }
+.report li:nth-child(5) { animation-delay: 0.41s; }
+.report li:nth-child(6) { animation-delay: 0.5s; }
+.report li:nth-child(n + 7) { animation-delay: 0.58s; }
+@keyframes report-in { to { opacity: 1; transform: translateY(0); } }
+body.reduced .report li { animation: none; opacity: 1; transform: none; }
 
 .settings-row {
   display: flex;

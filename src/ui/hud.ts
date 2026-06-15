@@ -31,8 +31,8 @@ export class Hud {
       </div>
       <div class="hud-bottom">
         <div class="hud-left">
-          <div class="stat"><span class="stat-tag">HEALTH</span><div class="bar bar-hp"><div class="bar-fill"></div></div></div>
-          <div class="stat"><span class="stat-tag">WALL</span><div class="bar bar-wall"><div class="bar-fill"></div></div></div>
+          <div class="stat"><span class="stat-tag">HEALTH</span><div class="bar bar-hp"><div class="bar-ghost"></div><div class="bar-fill"></div></div></div>
+          <div class="stat"><span class="stat-tag">WALL</span><div class="bar bar-wall"><div class="bar-ghost"></div><div class="bar-fill"></div></div></div>
           <div class="kits">🔧 REPAIR KITS <span class="kits-n">0</span></div>
           <div class="tactics">🪤 TRAPS <span class="traps-n">0</span> <span class="tac-sep">·</span> <span class="tac-key">T</span></div>
         </div>
@@ -65,6 +65,8 @@ export class Hud {
       <div class="dmg dmg--left"></div>
       <div class="dmg dmg--right"></div>
       <div class="dmg dmg--top"></div>
+      <div class="danger-vig"></div>
+      <div class="screenflash"></div>
     `;
     const q = (s: string) => this.root.querySelector(s) as HTMLElement;
     this.el = {
@@ -75,7 +77,9 @@ export class Hud {
       bossFill: q(".boss-fill"),
       wallStrip: q(".wall-strip"),
       hpFill: q(".bar-hp .bar-fill"),
+      hpGhost: q(".bar-hp .bar-ghost"),
       wallFill: q(".bar-wall .bar-fill"),
+      wallGhost: q(".bar-wall .bar-ghost"),
       kitsN: q(".kits-n"),
       trapsN: q(".traps-n"),
       repair: q(".repair"),
@@ -108,6 +112,8 @@ export class Hud {
       dmgLeft: q(".dmg--left"),
       dmgRight: q(".dmg--right"),
       dmgTop: q(".dmg--top"),
+      dangerVig: q(".danger-vig"),
+      screenflash: q(".screenflash"),
     };
 
     window.addEventListener("pointermove", (e) => {
@@ -117,6 +123,11 @@ export class Hud {
     this.ctx.events.on("SHOOT", () => this.fireKick());
     this.ctx.events.on("ZOMBIE_HIT", ({ headshot }) => this.hitmarker(headshot));
     this.ctx.events.on("PLAYER_HIT", ({ dirX }) => this.damageFlash(dirX));
+    // Big-beat additive screen flashes (color-coded by event).
+    this.ctx.events.on("WALL_BREACH", () => this.flash("#ff3a26", 0.5));
+    this.ctx.events.on("LAST_STAND", () => this.flash("#ffae3a", 0.6));
+    this.ctx.events.on("PLAYER_DIED", () => this.flash("#8a0d10", 0.85));
+    this.ctx.events.on("RUN_VICTORY", () => this.flash("#fff0c0", 0.7));
 
     // Wall threat strip: one cell per wall segment.
     const strip = this.el.wallStrip;
@@ -145,6 +156,29 @@ export class Hud {
   private tmpV = new THREE.Vector3();
   private cx = window.innerWidth / 2;
   private cy = window.innerHeight / 2;
+  private hpGhostV = 1;
+  private wallGhostV = 1;
+  private lastKills = -1;
+
+  /** Brief additive full-screen flash, color-coded by the event. Honors the
+   * reduced-flashing accessibility toggle (which sets body.reduced). */
+  flash(color: string, intensity: number): void {
+    const f = this.el.screenflash;
+    const k = document.body.classList.contains("reduced") ? intensity * 0.3 : intensity;
+    f.style.background = color;
+    f.style.transition = "none";
+    f.style.opacity = `${k}`;
+    void f.offsetWidth; // commit, then fade out via the transition
+    f.style.transition = "opacity 0.45s ease-out";
+    f.style.opacity = "0";
+  }
+
+  /** Re-fire a one-shot CSS animation by toggling a class (reflow in between). */
+  private replay(el: HTMLElement, cls: string): void {
+    el.classList.remove(cls);
+    void el.offsetWidth;
+    el.classList.add(cls);
+  }
 
   private fireKick(): void {
     if (this.mode !== "night") return;
@@ -186,6 +220,13 @@ export class Hud {
     if (!night) {
       this.el.repair.style.display = "none";
       this.el.prompt.style.display = "none";
+      this.el.dangerVig.classList.remove("danger-vig--on");
+    }
+    if (night) {
+      // Fresh night: reset the reactive HUD trails.
+      this.hpGhostV = 1;
+      this.wallGhostV = 1;
+      this.lastKills = -1;
     }
   }
 
@@ -221,14 +262,24 @@ export class Hud {
     if (this.mode === "night") {
       this.el.crosshair.style.left = `${this.cx}px`;
       this.el.crosshair.style.top = `${this.cy}px`;
-      this.updateNight();
+      this.updateNight(dt);
     } else if (this.mode === "day") this.updateDay();
   }
 
-  private updateNight(): void {
+  private updateNight(dt: number): void {
     const c = this.ctx;
-    this.el.hpFill.style.width = `${(c.player.hp / c.player.maxHp) * 100}%`;
-    this.el.wallFill.style.width = `${c.wall.integrityFrac() * 100}%`;
+    const hpFrac = Math.max(0, c.player.hp / c.player.maxHp);
+    const wallFrac = c.wall.integrityFrac();
+    this.el.hpFill.style.width = `${hpFrac * 100}%`;
+    this.el.wallFill.style.width = `${wallFrac * 100}%`;
+    // Ghost trail: a red chip that lags the real value down after damage.
+    this.hpGhostV = this.hpGhostV > hpFrac ? Math.max(hpFrac, this.hpGhostV - dt * 0.7) : hpFrac;
+    this.wallGhostV = this.wallGhostV > wallFrac ? Math.max(wallFrac, this.wallGhostV - dt * 0.7) : wallFrac;
+    this.el.hpGhost.style.width = `${this.hpGhostV * 100}%`;
+    this.el.wallGhost.style.width = `${this.wallGhostV * 100}%`;
+    // Danger edge-glow when HP or wall is critical.
+    const danger = hpFrac < 0.3 || wallFrac < 0.3;
+    this.el.dangerVig.classList.toggle("danger-vig--on", danger);
     this.el.kitsN.textContent = `${c.run.repairKits}`;
     this.el.trapsN.textContent = `${c.run.traps}`;
 
@@ -302,7 +353,11 @@ export class Hud {
       this.lastComps = cHtml;
     }
 
-    this.el.kills.textContent = `KILLS ${c.stats.kills}`;
+    if (c.stats.kills !== this.lastKills) {
+      this.el.kills.textContent = `KILLS ${c.stats.kills}`;
+      if (this.lastKills >= 0) this.replay(this.el.kills, "kills--pop");
+      this.lastKills = c.stats.kills;
+    }
 
     // Boss health bar (night-3 finale). Explicit "block" — "" would fall back to
     // the CSS default of display:none.
