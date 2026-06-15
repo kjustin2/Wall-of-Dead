@@ -128,13 +128,17 @@ class Companion {
       ctx.floaters.spawn(this.x, 3.4, this.group.position.z, ctx.rng.pick(BARKS), "heal");
     }
 
-    // Nearest live zombie in front
+    // Nearest live zombie in front — or nearest to the player's mark if commanded
+    const focus = ctx.companions.focusActive();
+    const fp = ctx.companions.focusPoint();
+    const ox = focus ? fp.x : this.x;
+    const oz = focus ? fp.z : this.group.position.z;
     let target: { x: number; z: number; obj: import("./zombie").Zombie } | null = null;
     let bestD = RANGE * RANGE;
     for (const z of ctx.enemies.alive) {
       if (!z.killable || z.z > this.group.position.z) continue;
-      const dx = z.x - this.x;
-      const dz = z.z - this.group.position.z;
+      const dx = z.x - ox;
+      const dz = z.z - oz;
       const d = dx * dx + dz * dz;
       if (d < bestD) {
         bestD = d;
@@ -213,8 +217,24 @@ class Companion {
 
 export class CompanionManager {
   list: Companion[] = [];
+  private focusX = 0;
+  private focusZ = 0;
+  private focusT = 0;
 
   constructor(private ctx: Ctx, private scene: THREE.Scene) {}
+
+  /** Order allies to concentrate fire on the mark for a few seconds. */
+  commandFocus(x: number, z: number): void {
+    this.focusX = x;
+    this.focusZ = z;
+    this.focusT = 5;
+  }
+  focusActive(): boolean {
+    return this.focusT > 0;
+  }
+  focusPoint(): { x: number; z: number } {
+    return { x: this.focusX, z: this.focusZ };
+  }
 
   spawnFromRun(): void {
     this.clear();
@@ -251,6 +271,7 @@ export class CompanionManager {
   }
 
   update(dt: number): void {
+    if (this.focusT > 0) this.focusT -= dt;
     for (const c of this.list) c.update(dt, this.ctx);
     for (const z of this.ctx.enemies.alive) {
       if (z.state !== "crossing") continue;

@@ -25,6 +25,7 @@ import { EnemyManager } from "./game/zombie";
 import { Bullets } from "./game/bullets";
 import { CompanionManager } from "./game/companion";
 import { GrenadeManager } from "./game/grenade";
+import { Deployables } from "./game/deployables";
 import { Player } from "./game/player";
 import { RunManager } from "./game/run";
 import { WaveDirector } from "./game/waveDirector";
@@ -75,6 +76,7 @@ ctx.enemies = new EnemyManager(ctx, ctx.stage.scene);
 ctx.bullets = new Bullets(ctx, ctx.stage.scene);
 ctx.companions = new CompanionManager(ctx, ctx.stage.scene);
 ctx.grenades = new GrenadeManager(ctx, ctx.stage.scene);
+ctx.deployables = new Deployables(ctx, ctx.stage.scene);
 ctx.player = new Player(ctx, ctx.stage.scene);
 ctx.run = new RunManager(ctx);
 
@@ -113,6 +115,7 @@ function toTitle(): void {
   ctx.enemies.clear();
   ctx.bullets.clear();
   ctx.grenades.clear();
+  ctx.deployables.clear();
   ctx.companions.clear();
   ctx.fx.clear();
   ctx.decals.clear();
@@ -171,6 +174,7 @@ function toCutscene(): void {
   ctx.enemies.clear();
   ctx.bullets.clear();
   ctx.grenades.clear();
+  ctx.deployables.clear();
   ctx.fx.clear();
   ctx.decals.clear();
   ctx.wall.setTotal(ctx.run.wallHp);
@@ -200,6 +204,7 @@ function beginNight(): void {
   ctx.enemies.clear();
   ctx.bullets.clear();
   ctx.grenades.clear();
+  ctx.deployables.clear();
   ctx.fx.clear();
   ctx.decals.clear();
   ctx.tele.clear();
@@ -229,7 +234,9 @@ function beginNight(): void {
       }, delay);
     tip(4500, "MOVE & AIM", "A / D move · mouse aim · click fire");
     tip(9500, "HOLD THE WALL", "R reload · SPACE shove · E plug a breach");
-    tip(14500, "ADRENALINE", "Fill the meter, then hold F to lob a frag");
+    tip(14500, "FIELD TACTICS", "T drop a spike trap · G pop a flare");
+    tip(19500, "ORDER ALLIES", "C makes allies focus-fire your mark");
+    tip(24500, "ADRENALINE", "Fill the meter, then hold F to lob a frag");
   }
 }
 
@@ -259,6 +266,7 @@ function startDay(): void {
   ctx.enemies.clear();
   ctx.bullets.clear();
   ctx.grenades.clear();
+  ctx.deployables.clear();
   hud.setMode("day");
   ctx.input.enabled = true;
   ctx.music.play("day");
@@ -284,6 +292,7 @@ function onDayDone(tier: string, frac: number): void {
   const found = finds.find((id) => !ctx.run.weapons.some((w) => w.def.id === id)) ?? null;
   if (found) ctx.run.grantWeapon(found);
   else ctx.run.addAmmo(60);
+  ctx.run.traps += 2;
 
   ctx.run.leg += 1;
 
@@ -487,8 +496,14 @@ ctx.stage.renderer.setAnimationLoop(() => {
     ctx.enemies.update(dt);
     ctx.bullets.update(dt);
     ctx.grenades.update(dt);
+    ctx.deployables.update(dt);
     ctx.companions.update(dt);
     ctx.adrenaline.update(dt);
+    // C — order allies to concentrate fire on the aim mark for a few seconds.
+    if (ctx.input.pressed("KeyC")) {
+      ctx.companions.commandFocus(ctx.input.aimWorld.x, ctx.input.aimWorld.z);
+      hud.banner("FOCUS FIRE", "Allies target your mark");
+    }
     // Hold F to aim the frag (landing ring preview), release to throw.
     if (ctx.adrenaline.canCrash() && ctx.input.down("KeyF")) {
       const tx = clamp(ctx.input.aimWorld.x, -FIELD.wallHalf + 2, FIELD.wallHalf - 2);

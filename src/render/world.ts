@@ -2,7 +2,7 @@ import * as THREE from "three";
 import type { Stage } from "./stage";
 import { makeGlow } from "./textures";
 import { clamp01, lerp } from "../core/math";
-import { FIELD, PAL } from "../config";
+import { FIELD, PAL, CHOKES } from "../config";
 import { Rng } from "../core/rng";
 
 const EMBERS = 150;
@@ -61,6 +61,7 @@ export class World {
     this.moon = this.buildMoon();
     this.dawnGlow = this.buildDawnGlow();
     this.buildRubble();
+    this.buildChokes();
     this.buildProps();
     this.buildAtmosphere();
     const e = this.buildEmbers();
@@ -370,6 +371,59 @@ export class World {
       rock.scale.y = 0.5;
       rock.castShadow = true;
       this.field.add(rock);
+    }
+  }
+
+  /** Solid wrecks at the CHOKES that the horde funnels around — a bus blocking
+   * one lane, a rubble heap blocking another. Sized to match the steering spans. */
+  private buildChokes(): void {
+    const busBody = new THREE.MeshStandardMaterial({ color: 0x4a5a30, roughness: 1, flatShading: true });
+    const glassMat = new THREE.MeshStandardMaterial({ color: 0x0c1418, roughness: 0.5, metalness: 0.3 });
+    const tireMat = new THREE.MeshStandardMaterial({ color: 0x0a0a0c, roughness: 1 });
+    const rubbleMat = new THREE.MeshStandardMaterial({ color: 0x20262b, roughness: 1, flatShading: true });
+
+    // Choke 0 — a wrecked bus lying across the lane (length runs along X).
+    const c0 = CHOKES[0];
+    if (c0) {
+      const bus = new THREE.Group();
+      const len = c0.halfW * 2 - 1;
+      const body = new THREE.Mesh(new THREE.BoxGeometry(len, 2.8, 3), busBody);
+      body.position.y = 1.5;
+      body.castShadow = true;
+      body.receiveShadow = true;
+      const win = new THREE.Mesh(new THREE.BoxGeometry(len - 1.5, 0.85, 3.05), glassMat);
+      win.position.y = 2.25;
+      bus.add(body, win);
+      for (const wx of [-len * 0.32, 0, len * 0.32])
+        for (const wz of [-1.1, 1.1]) {
+          const wheel = new THREE.Mesh(new THREE.CylinderGeometry(0.6, 0.6, 0.4, 12), tireMat);
+          wheel.position.set(wx, 0.5, wz);
+          bus.add(wheel);
+        }
+      bus.position.set(c0.x, 0, c0.z);
+      bus.rotation.set(0, 0.12, 0.06);
+      this.field.add(bus);
+    }
+
+    // Choke 1 — a rubble heap (toppled slab + boulders).
+    const c1 = CHOKES[1];
+    if (c1) {
+      const heap = new THREE.Group();
+      const slab = new THREE.Mesh(new THREE.BoxGeometry(c1.halfW * 1.7, 2.6, 1.1), rubbleMat);
+      slab.position.set(0, 1.1, 0);
+      slab.rotation.z = 0.4;
+      slab.castShadow = true;
+      heap.add(slab);
+      for (let i = 0; i < 9; i++) {
+        const s = this.rng.range(0.6, 1.6);
+        const rock = new THREE.Mesh(new THREE.DodecahedronGeometry(s, 0), rubbleMat);
+        rock.position.set(this.rng.range(-c1.halfW, c1.halfW), s * 0.4, this.rng.range(-c1.halfD, c1.halfD));
+        rock.rotation.set(this.rng.range(0, 3), this.rng.range(0, 3), this.rng.range(0, 3));
+        rock.castShadow = true;
+        heap.add(rock);
+      }
+      heap.position.set(c1.x, 0, c1.z);
+      this.field.add(heap);
     }
   }
 

@@ -29,6 +29,7 @@ export class Hud {
           <div class="stat"><span class="stat-tag">HEALTH</span><div class="bar bar-hp"><div class="bar-fill"></div></div></div>
           <div class="stat"><span class="stat-tag">WALL</span><div class="bar bar-wall"><div class="bar-fill"></div></div></div>
           <div class="kits">🔧 REPAIR KITS <span class="kits-n">0</span></div>
+          <div class="tactics">🪤 TRAPS <span class="traps-n">0</span> <span class="tac-sep">·</span> <span class="flare-state">FLARE  G</span></div>
         </div>
         <div class="repair"><div class="repair-label">REPAIRING…</div><div class="bar bar-repair"><div class="bar-fill"></div></div></div>
         <div class="prompt"></div>
@@ -65,6 +66,8 @@ export class Hud {
       hpFill: q(".bar-hp .bar-fill"),
       wallFill: q(".bar-wall .bar-fill"),
       kitsN: q(".kits-n"),
+      trapsN: q(".traps-n"),
+      flareState: q(".flare-state"),
       repair: q(".repair"),
       repairFill: q(".bar-repair .bar-fill"),
       prompt: q(".prompt"),
@@ -184,6 +187,14 @@ export class Hud {
     this.el.hpFill.style.width = `${(c.player.hp / c.player.maxHp) * 100}%`;
     this.el.wallFill.style.width = `${c.wall.integrityFrac() * 100}%`;
     this.el.kitsN.textContent = `${c.run.repairKits}`;
+    this.el.trapsN.textContent = `${c.run.traps}`;
+    if (c.player.flareReady) {
+      this.el.flareState.textContent = "FLARE  G";
+      this.el.flareState.classList.remove("tac--cooling");
+    } else {
+      this.el.flareState.textContent = `FLARE ${Math.ceil(c.player.flareCooldown)}s`;
+      this.el.flareState.classList.add("tac--cooling");
+    }
 
     // Repair progress (hold E at a breach)
     if (c.player.repairing && c.player.repairFrac > 0) {

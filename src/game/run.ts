@@ -20,6 +20,7 @@ export class RunManager {
   legsTotal = 3;
   wallHp: number = RUN.wallMaxHp;
   repairKits = 0;
+  traps = 0;
   name = "Defender";
   weapons: Loadout[] = [];
   weaponOwner: (string | null)[] = [];
@@ -35,6 +36,7 @@ export class RunManager {
     this.leg = 0;
     this.wallHp = RUN.wallMaxHp;
     this.repairKits = 1;
+    this.traps = 3;
     this.weapons = [
       makeLoadout("pistol", RESERVES.pistol),
       makeLoadout("smg", RESERVES.smg),

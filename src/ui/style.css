@@ -154,6 +154,11 @@ body {
 .reload-zone { position: absolute; top: 0; height: 100%; background: rgba(105, 208, 138, 0.7); z-index: 1; }
 .kits { margin-top: 6px; font-family: var(--display); font-size: 12px; letter-spacing: 2px; color: #ffce7a; }
 .kits-n { color: #fff; }
+.tactics { margin-top: 3px; font-family: var(--display); font-size: 12px; letter-spacing: 2px; color: #9dd0ff; }
+.traps-n { color: #fff; }
+.tac-sep { opacity: 0.4; }
+.flare-state { color: #ffd27a; }
+.flare-state.tac--cooling { color: #6a7a8a; }
 .repair {
   position: absolute;
   bottom: 120px;

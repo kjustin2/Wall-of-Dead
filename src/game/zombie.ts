@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import type { Ctx } from "./ctx";
-import { FIELD, PAL } from "../config";
+import { FIELD, PAL, CHOKES } from "../config";
 import { clamp } from "../core/math";
 import { makeGlow } from "../render/textures";
 
@@ -286,6 +286,7 @@ export class Zombie {
   private vaultT = -1;
   private vault = 0;
   private crippled = false;
+  private slowT = 0;
   private dieTimer = 0;
   private dieRoll = 0;
   private diePitch = 1.3;
@@ -370,6 +371,15 @@ export class Zombie {
     this.group.rotation.z = 0.18; // a permanent lean/limp
   }
 
+  /** Temporary slow (flares, traps). */
+  slow(dur: number): void {
+    this.slowT = Math.max(this.slowT, dur);
+  }
+
+  private speedFactor(): number {
+    return (this.crippled ? 0.55 : 1) * (this.slowT > 0 ? 0.5 : 1);
+  }
+
   /** Shove back out into the field (Last Stand shockwave). */
   repel(amount: number): void {
     if (this.state === "dying" || this.state === "fleeing") return;
@@ -381,6 +391,7 @@ export class Zombie {
   }
 
   update(dt: number, ctx: Ctx): void {
+    if (this.slowT > 0) this.slowT -= dt;
     // Hit flash decay
     if (this.hitFlash > 0) {
       this.hitFlash -= dt;
@@ -422,7 +433,7 @@ export class Zombie {
   }
 
   private advance(dt: number, ctx: Ctx): void {
-    const spd = this.t.speed * ctx.enemies.speedMul() * (this.crippled ? 0.55 : 1);
+    const spd = this.t.speed * ctx.enemies.speedMul() * this.speedFactor();
     if (this.t.screamer) {
       this.screamTimer -= dt;
       if (this.screamTimer <= 0) {
@@ -439,7 +450,19 @@ export class Zombie {
         this.targetX = clamp(ctx.player.x, -FIELD.wallHalf + 1, FIELD.wallHalf - 1);
     }
     const goalZ = this.t.standoff ? this.t.standoffZ! : FIELD.attackZ;
-    const dx = clamp(this.targetX - this.x, -1, 1);
+    // Funnel around static field wrecks: if a wreck blocks the lane ahead, slide
+    // toward the nearer gap before reaching it.
+    let aimX = this.targetX;
+    for (const c of CHOKES) {
+      if (this.z > c.z + c.halfD) continue; // already behind it
+      if (this.z < c.z - c.halfD - 6) continue; // still far out — no need to steer yet
+      const half = c.halfW + this.radius + 0.4;
+      if (Math.abs(this.x - c.x) < half) {
+        aimX = this.x < c.x ? c.x - half : c.x + half;
+      }
+    }
+    aimX = clamp(aimX, -FIELD.fieldHalf + 1, FIELD.fieldHalf - 1);
+    const dx = clamp(aimX - this.x, -1, 1);
     this.x += dx * spd * 0.5 * dt;
     this.z += spd * dt;
     this.faceTravel(dx, 1);
@@ -526,7 +549,7 @@ export class Zombie {
   }
 
   private cross(dt: number, ctx: Ctx): void {
-    const spd = this.t.speed * 1.05 * ctx.enemies.speedMul() * (this.crippled ? 0.55 : 1);
+    const spd = this.t.speed * 1.05 * ctx.enemies.speedMul() * this.speedFactor();
     // Vault hop arc as they come over the barricade.
     if (this.vault > 0) {
       this.vault -= dt;

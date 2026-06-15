@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import type { Ctx } from "./ctx";
 import type { Loadout } from "./weapons";
+import { Deployables } from "./deployables";
 import { makeGlow } from "../render/textures";
 import { FIELD, RUN } from "../config";
 import { clamp } from "../core/math";
@@ -56,6 +57,13 @@ export class Player {
   private t = 0;
   private shoveCd = 0;
   private shoveT = 0; // melee swing animation timer
+  private flareCd = 0;
+  get flareReady(): boolean {
+    return this.flareCd <= 0;
+  }
+  get flareCooldown(): number {
+    return this.flareCd;
+  }
   private heat = 0; // recoil climb on sustained auto fire
   repairing = false;
   repairFrac = 0; // 0..1 progress of the current breach repair (for the HUD)
@@ -319,6 +327,7 @@ export class Player {
     // Weapon handling
     this.fireCd -= dt;
     this.shoveCd -= dt;
+    this.flareCd = Math.max(0, this.flareCd - dt);
     this.buffT = Math.max(0, this.buffT - dt);
     this.overheatT = Math.max(0, this.overheatT - dt);
     this.heat = Math.max(0, this.heat - dt * (this.overheatT > 0 ? 0.55 : 0.9));
@@ -404,6 +413,15 @@ export class Player {
       else this.startReload();
     }
     if (input.pressed("Space") && this.shoveCd <= 0) this.shove();
+    // Deploy a spike trap (T) or pop a flare at the aim point (G)
+    if (input.pressed("KeyT") && this.ctx.run.traps > 0) {
+      this.ctx.deployables.placeTrap(this.x, Deployables.dropZ());
+      this.ctx.run.traps--;
+    }
+    if (input.pressed("KeyG") && this.flareCd <= 0) {
+      this.flareCd = 18;
+      this.ctx.deployables.placeFlare(this.ctx.input.aimWorld.x, this.ctx.input.aimWorld.z);
+    }
 
     if (this.overheatT > 0) return; // weapon jammed/overheated — can't fire
     const wantFire = def.auto ? input.mouseDown : input.mouseJustDown;

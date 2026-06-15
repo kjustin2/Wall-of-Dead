@@ -170,8 +170,11 @@ export class Menus {
               <li><b>A / D</b> — move along the wall</li>
               <li><b>Mouse</b> — aim (the red ring shows where shots land)</li>
               <li><b>Click</b> — fire (hold for automatics)</li>
-              <li><b>R</b> — reload &nbsp; <b>1–3</b> — switch weapons</li>
-              <li><b>Space</b> — shove zombies off the wall</li>
+              <li><b>R</b> — reload (nail the green zone for a fast reload)</li>
+              <li><b>1–5 / wheel</b> — switch weapons</li>
+              <li><b>Space</b> — shove zombies off (finishes the wounded)</li>
+              <li><b>T</b> — drop a spike trap &nbsp; <b>G</b> — pop a flare</li>
+              <li><b>C</b> — order allies to focus your mark</li>
               <li><b>E</b> — repair a breach / revive a downed ally</li>
               <li><b>F (hold)</b> — lob a frag when Adrenaline is full</li>
             </ul>

@@ -23,6 +23,15 @@ export const FIELD = {
   fireY: 2.0, // height tracers fly — clears the barrier
 } as const;
 
+// Static field wrecks that funnel the horde. Zombies steer around them, so the
+// approach narrows into lanes — where you stand and aim starts to matter.
+// x = center along the wall, halfW = half-width, z = depth into the field (-Z),
+// halfD = half-depth.
+export const CHOKES: readonly { x: number; halfW: number; z: number; halfD: number }[] = [
+  { x: -10, halfW: 6.5, z: -34, halfD: 2.6 }, // wrecked bus, blocking left-center
+  { x: 14, halfW: 4.5, z: -24, halfD: 2.4 }, // rubble heap, right
+];
+
 export const RUN = {
   nightLength: 96, // seconds dusk → dawn
   wallMaxHp: 360,
