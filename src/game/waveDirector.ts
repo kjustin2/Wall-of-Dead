@@ -85,10 +85,11 @@ export class WaveDirector {
 
   constructor(private ctx: Ctx) {
     const n = ctx.run.night;
-    this.maxAlive = PLAN.maxAlive + (n - 1) * 6;
+    const sr = ctx.tuning.spawnRate;
+    this.maxAlive = Math.round((PLAN.maxAlive + (n - 1) * 6) * sr);
     this.len = PLAN.length + (n - 1) * 8;
-    this.startI = PLAN.startInterval * Math.pow(0.92, n - 1);
-    this.endI = PLAN.endInterval * Math.pow(0.9, n - 1);
+    this.startI = (PLAN.startInterval * Math.pow(0.92, n - 1)) / sr;
+    this.endI = (PLAN.endInterval * Math.pow(0.9, n - 1)) / sr;
   }
 
   get progress(): number {

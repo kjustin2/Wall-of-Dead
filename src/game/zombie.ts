@@ -396,8 +396,8 @@ export class Zombie {
   constructor(t: ZType, x: number, ctx: Ctx, z?: number) {
     this.t = t;
     this.kind = t.key;
-    this.hp = t.hp;
-    this.maxHp = t.hp;
+    this.hp = t.hp * ctx.tuning.zHp;
+    this.maxHp = this.hp;
     this.radius = t.radius;
     this.heavy = t.heavy;
     this.headshotChance = t.headshotChance;

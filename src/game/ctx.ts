@@ -20,6 +20,7 @@ import type { CompanionManager } from "./companion";
 import type { GrenadeManager } from "./grenade";
 import type { Deployables } from "./deployables";
 import type { RunManager } from "./run";
+import type { Tuning } from "../config";
 
 export interface Stats {
   kills: number;
@@ -59,6 +60,8 @@ export interface Ctx {
   deployables: Deployables;
   run: RunManager;
   stats: Stats;
+  /** Difficulty multipliers, set from Settings. */
+  tuning: Tuning;
   /** True only while the active scene is in its interactive update phase. */
   playing: boolean;
 }

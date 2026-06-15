@@ -1,6 +1,7 @@
 import type { Ctx } from "../game/ctx";
 import type { Quality } from "../render/stage";
 import type { Stats } from "../game/ctx";
+import { DIFFICULTY, type DifficultyId } from "../config";
 
 export interface Settings {
   volume: number;
@@ -13,6 +14,8 @@ export interface Settings {
   colorblind: boolean;
   bigText: boolean;
   fov: number;
+  difficulty: DifficultyId;
+  aimAssist: boolean;
 }
 
 const KEY = "wod-settings";
@@ -29,6 +32,8 @@ function loadSettings(): Settings {
     colorblind: false,
     bigText: false,
     fov: 52,
+    difficulty: "normal",
+    aimAssist: false,
   };
   try {
     const raw = localStorage.getItem(KEY);
@@ -69,6 +74,8 @@ export class Menus {
     this.ctx.stage.setReduced(s.reducedFx);
     this.ctx.world.reducedFx = s.reducedFx;
     this.ctx.cam.setBaseFov(s.fov);
+    this.ctx.tuning = DIFFICULTY[s.difficulty] ?? DIFFICULTY.normal;
+    this.ctx.player.aimAssist = s.aimAssist;
     document.body.classList.toggle("cb", s.colorblind);
     document.body.classList.toggle("bigtext", s.bigText);
     document.body.classList.toggle("reduced", s.reducedFx);
@@ -241,6 +248,14 @@ export class Menus {
     this.paint(`
       <div class="screen screen--settings">
         <h2 class="panel-title">SETTINGS</h2>
+        <div class="settings-row"><label>Difficulty</label>
+          <select class="set-diff">
+            <option value="story" ${s.difficulty === "story" ? "selected" : ""}>Story (gentler)</option>
+            <option value="normal" ${s.difficulty === "normal" ? "selected" : ""}>Normal</option>
+            <option value="nightmare" ${s.difficulty === "nightmare" ? "selected" : ""}>Nightmare</option>
+          </select>
+        </div>
+        <div class="settings-row"><label>Aim assist</label><input type="checkbox" class="set-aim" ${s.aimAssist ? "checked" : ""}></div>
         <div class="settings-row"><label>SFX volume</label><input type="range" min="0" max="1" step="0.05" value="${s.volume}" class="set-vol"></div>
         <div class="settings-row"><label>Music volume</label><input type="range" min="0" max="1" step="0.05" value="${s.music}" class="set-music"></div>
         <div class="settings-row"><label>Mute</label><input type="checkbox" class="set-mute" ${s.muted ? "checked" : ""}></div>
@@ -297,6 +312,13 @@ export class Menus {
         saveSettings(s);
       });
     };
+    const diff = this.root.querySelector(".set-diff") as HTMLSelectElement;
+    diff.addEventListener("change", () => {
+      s.difficulty = diff.value as DifficultyId;
+      this.applySettings();
+      saveSettings(s);
+    });
+    bind(".set-aim", (el) => (s.aimAssist = el.checked));
     bind(".set-fov", (el) => (s.fov = parseFloat(el.value)));
     bind(".set-floaters", (el) => (s.floaters = el.checked));
     bind(".set-reduced", (el) => (s.reducedFx = el.checked));
@@ -323,6 +345,17 @@ export class Menus {
   /** Assign weapons from the shared armory to the player or an ally. */
   showLoadout(onBack: () => void): void {
     const run = this.ctx.run;
+    // One-time onboarding nudge the first time you open the loadout.
+    let firstTime = false;
+    try {
+      firstTime = !localStorage.getItem("wod-loadout-seen");
+      if (firstTime) localStorage.setItem("wod-loadout-seen", "1");
+    } catch {
+      /* ignore */
+    }
+    const nudge = firstTime
+      ? `<div class="lo-nudge">💡 SHARED ARMORY — a weapon you give an ally is theirs: they use its ammo and you can't carry it (and vice-versa). When a gun runs dry, you fall back to a melee bash (SPACE). Hand your spare to a survivor to cover a second lane.</div>`
+      : "";
     const rows = run.weapons
       .map((w, i) => {
         const cur = run.weaponOwner[i] ?? "You";
@@ -333,6 +366,7 @@ export class Menus {
       <div class="screen screen--loadout">
         <h2 class="panel-title">LOADOUT</h2>
         <p class="subtitle">Click a weapon to hand it to an ally (or take it back). An ally holding a weapon uses its ammo and falls back to melee when empty — you can't use it while they hold it.</p>
+        ${nudge}
         <div class="loadout">${rows || '<div class="lo-row">No weapons</div>'}</div>
         <div class="menu"><button class="mbtn mbtn--primary act-back">DONE</button></div>
       </div>`);

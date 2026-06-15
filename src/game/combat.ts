@@ -120,8 +120,9 @@ export class Combat {
     }
   }
 
-  damagePlayer(dmg: number, dirX: number, dirZ: number): void {
+  damagePlayer(dmgIn: number, dirX: number, dirZ: number): void {
     if (this.playerDead) return;
+    const dmg = dmgIn * this.ctx.tuning.enemyDmg;
     this.ctx.player.hurt(dmg);
     this.ctx.adrenaline.drain(dmg * 0.6);
     this.ctx.cam.addTrauma(Math.min(0.5, 0.18 + dmg * 0.012));

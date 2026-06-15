@@ -148,6 +148,53 @@ body {
   transition: width 0.12s linear;
 }
 
+.wall-strip {
+  display: flex;
+  gap: 2px;
+  margin-top: 6px;
+}
+.wall-cell {
+  flex: 1;
+  height: 6px;
+  border-radius: 2px;
+  background: #2a6a3a;
+  transition: background 0.2s linear;
+}
+.wall-cell--hot {
+  box-shadow: 0 0 8px 1px rgba(255, 60, 40, 0.9);
+  animation: wallpulse 0.7s ease-in-out infinite;
+}
+.wall-cell--breach { box-shadow: inset 0 0 0 1px #5a1414; }
+@keyframes wallpulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+.threat-arrow {
+  position: absolute;
+  width: 0;
+  height: 0;
+  border-top: 9px solid transparent;
+  border-bottom: 9px solid transparent;
+  border-left: 16px solid rgba(255, 70, 48, 0.9);
+  filter: drop-shadow(0 0 5px rgba(255, 40, 24, 0.7));
+  pointer-events: none;
+  z-index: 6;
+}
+
+.lo-nudge {
+  margin: 0 auto 12px;
+  max-width: 520px;
+  padding: 10px 14px;
+  border: 1px solid #4a6a3a;
+  border-radius: 8px;
+  background: rgba(40, 70, 40, 0.25);
+  color: #cfe8c0;
+  font-size: 13px;
+  letter-spacing: 1px;
+  line-height: 1.5;
+}
+
 .hud-bottom {
   position: absolute;
   bottom: 22px;

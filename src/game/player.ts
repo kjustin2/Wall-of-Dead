@@ -27,6 +27,7 @@ export class Player {
   hp: number = RUN.playerMaxHp;
   maxHp: number = RUN.playerMaxHp;
   alive = true;
+  aimAssist = false;
 
   private aimRig = new THREE.Group();
   private flashlight: THREE.SpotLight;

@@ -1,6 +1,9 @@
+import * as THREE from "three";
 import type { Ctx } from "../game/ctx";
 import type { AdrenalineZone } from "../core/events";
 import type { Scavenge } from "../minigames/scavenge";
+
+const THREAT_ARROWS = 6;
 
 const ZONE_COLOR: Record<AdrenalineZone, string> = {
   shaken: "#5a78a0",
@@ -24,6 +27,7 @@ export class Hud {
       <div class="hud-top">
         <div class="dawn"><div class="dawn-fill"></div><div class="dawn-moon">🌙</div><span class="dawn-label">NIGHT</span></div>
         <div class="boss-bar"><span class="boss-name">THE BEHEMOTH</span><div class="boss-track"><div class="boss-fill"></div></div></div>
+        <div class="wall-strip"></div>
       </div>
       <div class="hud-bottom">
         <div class="hud-left">
@@ -69,6 +73,7 @@ export class Hud {
       bossBar: q(".boss-bar"),
       bossName: q(".boss-name"),
       bossFill: q(".boss-fill"),
+      wallStrip: q(".wall-strip"),
       hpFill: q(".bar-hp .bar-fill"),
       wallFill: q(".bar-wall .bar-fill"),
       kitsN: q(".kits-n"),
@@ -114,9 +119,31 @@ export class Hud {
     this.ctx.events.on("ZOMBIE_HIT", ({ headshot }) => this.hitmarker(headshot));
     this.ctx.events.on("PLAYER_HIT", ({ dirX }) => this.damageFlash(dirX));
 
+    // Wall threat strip: one cell per wall segment.
+    const strip = this.el.wallStrip;
+    for (let i = 0; i < this.ctx.wall.segments; i++) {
+      const cell = document.createElement("div");
+      cell.className = "wall-cell";
+      strip.appendChild(cell);
+      this.wallCells.push(cell);
+    }
+    // Off-screen threat arrow pool.
+    for (let i = 0; i < THREAT_ARROWS; i++) {
+      const a = document.createElement("div");
+      a.className = "threat-arrow";
+      a.style.display = "none";
+      this.root.appendChild(a);
+      this.threatArrows.push(a);
+    }
+
     this.setMode("hidden");
   }
 
+  private wallCells: HTMLElement[] = [];
+  private threatArrows: HTMLElement[] = [];
+  private segFracs: number[] = [];
+  private pressure: number[] = [];
+  private tmpV = new THREE.Vector3();
   private cx = window.innerWidth / 2;
   private cy = window.innerHeight / 2;
 
@@ -156,6 +183,7 @@ export class Hud {
     this.el.dayHud.style.display = day ? "" : "none";
     this.el.dayPrompt.style.display = "none";
     this.el.crosshair.style.display = night ? "" : "none";
+    if (!night) for (const a of this.threatArrows) a.style.display = "none";
     if (!night) {
       this.el.repair.style.display = "none";
       this.el.prompt.style.display = "none";
@@ -282,6 +310,61 @@ export class Hud {
     } else {
       this.el.bossBar.style.display = "none";
     }
+
+    this.updateWallStrip();
+    this.updateThreatArrows();
+  }
+
+  /** Color each wall-strip cell by segment integrity, with a red pulse where
+   * zombies are pressing. */
+  private updateWallStrip(): void {
+    const wall = this.ctx.wall;
+    this.segFracs = wall.segmentFracs(this.segFracs);
+    // Pressure per segment from attacking/crossing zombies (reused buffer).
+    const seg = wall.segments;
+    for (let i = 0; i < seg; i++) this.pressure[i] = 0;
+    for (const z of this.ctx.enemies.alive) {
+      if (z.state === "attacking" || z.state === "crossing") this.pressure[wall.segAt(z.x)]++;
+    }
+    for (let i = 0; i < this.wallCells.length; i++) {
+      const f = this.segFracs[i] ?? 0;
+      const cell = this.wallCells[i];
+      const hue = Math.round(f * 120); // red(0) → green(120)
+      cell.style.background = f <= 0 ? "#1a0c0c" : `hsl(${hue}, 70%, ${20 + f * 22}%)`;
+      cell.classList.toggle("wall-cell--hot", this.pressure[i] > 0 && f > 0);
+      cell.classList.toggle("wall-cell--breach", f <= 0);
+    }
+  }
+
+  /** Edge arrows pointing at crossing zombies that aren't on screen. */
+  private updateThreatArrows(): void {
+    const cam = this.ctx.stage.camera;
+    const cxp = window.innerWidth / 2;
+    const cyp = window.innerHeight / 2;
+    const rx = window.innerWidth * 0.4;
+    const ry = window.innerHeight * 0.4;
+    let idx = 0;
+    for (const z of this.ctx.enemies.alive) {
+      if (idx >= THREAT_ARROWS) break;
+      if (z.state !== "crossing") continue;
+      this.tmpV.set(z.x, 1.2, z.z).project(cam);
+      let nx = this.tmpV.x;
+      let ny = this.tmpV.y;
+      const behind = this.tmpV.z > 1;
+      const onScreen = !behind && Math.abs(nx) <= 0.95 && Math.abs(ny) <= 0.95;
+      if (onScreen) continue; // visible — no marker needed
+      if (behind) {
+        nx = -nx;
+        ny = -ny;
+      }
+      const ang = Math.atan2(-ny, nx); // screen space (y points down)
+      const a = this.threatArrows[idx++];
+      a.style.display = "";
+      a.style.left = `${cxp + Math.cos(ang) * rx}px`;
+      a.style.top = `${cyp + Math.sin(ang) * ry}px`;
+      a.style.transform = `translate(-50%, -50%) rotate(${ang}rad)`;
+    }
+    for (let i = idx; i < this.threatArrows.length; i++) this.threatArrows[i].style.display = "none";
   }
 
   /** night-phase clock fill + countdown (called by the night loop). */

@@ -42,10 +42,11 @@ export class RunManager {
     this.wallHp = RUN.wallMaxHp;
     this.repairKits = 1;
     this.traps = 3;
+    const am = this.ctx.tuning.ammo;
     this.weapons = [
       makeLoadout("pistol", RESERVES.pistol),
-      makeLoadout("smg", RESERVES.smg),
-      makeLoadout("shotgun", RESERVES.shotgun),
+      makeLoadout("smg", Math.round(RESERVES.smg * am)),
+      makeLoadout("shotgun", Math.round(RESERVES.shotgun * am)),
     ];
     this.weaponOwner = [null, null, null]; // all yours until you assign one to an ally
     this.weaponIndex = 0;

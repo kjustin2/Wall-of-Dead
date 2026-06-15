@@ -41,6 +41,21 @@ export const RUN = {
 // Reference zombie HP so weapon tuning stays legible:
 // shambler 30, runner 14, spitter 22, brute 135.
 
+// Difficulty presets — multipliers applied across the run (ctx.tuning). Story is
+// gentler (weaker/fewer enemies, more ammo, you take less); Nightmare is harder.
+export type DifficultyId = "story" | "normal" | "nightmare";
+export interface Tuning {
+  zHp: number; // zombie HP scale
+  spawnRate: number; // >1 = more/faster spawns
+  enemyDmg: number; // damage dealt to you + the wall
+  ammo: number; // starting reserve scale
+}
+export const DIFFICULTY: Record<DifficultyId, Tuning> = {
+  story: { zHp: 0.75, spawnRate: 0.78, enemyDmg: 0.6, ammo: 1.5 },
+  normal: { zHp: 1.0, spawnRate: 1.0, enemyDmg: 1.0, ammo: 1.0 },
+  nightmare: { zHp: 1.35, spawnRate: 1.32, enemyDmg: 1.5, ammo: 0.8 },
+};
+
 export const PAL = {
   bg: 0x05070a,
   fogNight: 0x0a0e14,

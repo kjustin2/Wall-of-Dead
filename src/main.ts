@@ -34,7 +34,7 @@ import { Scavenge } from "./minigames/scavenge";
 import { Hud } from "./ui/hud";
 import { Menus } from "./ui/menus";
 import { freshStats, type Ctx } from "./game/ctx";
-import { FIELD } from "./config";
+import { FIELD, DIFFICULTY } from "./config";
 import { clamp } from "./core/math";
 
 type GameState = "menu" | "cutscene" | "night" | "day" | "report" | "loot" | "paused" | "dead" | "victory";
@@ -81,6 +81,7 @@ ctx.world = new World(ctx.stage);
 ctx.sfx = new Sfx(ctx.events);
 ctx.music = new Music();
 ctx.stats = freshStats();
+ctx.tuning = DIFFICULTY.normal;
 ctx.playing = false;
 ctx.adrenaline = new Adrenaline(ctx.events);
 ctx.wall = new Wall(ctx.stage.scene, ctx.events);
@@ -209,6 +210,7 @@ function beginNight(): void {
   scavenge.hide();
   ctx.run.refillMags();
   ctx.wall.setTotal(ctx.run.wallHp);
+  ctx.wall.dmgMul = ctx.tuning.enemyDmg;
   ctx.wall.group.visible = true;
   ctx.world.setFieldClutter(true);
   ctx.player.reset();

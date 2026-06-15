@@ -24,6 +24,8 @@ const C_WOOD = 0x47361f;
  */
 export class Wall {
   group = new THREE.Group();
+  /** Difficulty scalar on incoming wall damage (set per night). */
+  dmgMul = 1;
   private hp = new Float32Array(SEG);
   private segGroup: THREE.Group[] = [];
   private baseMat: THREE.MeshStandardMaterial[] = [];
@@ -191,7 +193,7 @@ export class Wall {
   damageAt(x: number, dmg: number): void {
     const i = this.segAt(x);
     if (this.hp[i] <= 0) return;
-    this.hp[i] = Math.max(0, this.hp[i] - dmg);
+    this.hp[i] = Math.max(0, this.hp[i] - dmg * this.dmgMul);
     this.events.emit("WALL_HIT", { seg: i, x: this.centerX(i), dmg });
     this.refresh(i);
     if (this.hp[i] <= 0) this.events.emit("WALL_BREACH", { seg: i, x: this.centerX(i) });
