@@ -39,7 +39,7 @@ export class Hud {
         <div class="hud-right">
           <div class="weapon-name">—</div>
           <div class="ammo"><span class="ammo-mag">0</span><span class="ammo-res">/0</span></div>
-          <div class="reload-bar"><div class="reload-fill"></div></div>
+          <div class="reload-bar"><div class="reload-zone"></div><div class="reload-fill"></div></div>
           <div class="slots"></div>
         </div>
       </div>
@@ -70,6 +70,7 @@ export class Hud {
       prompt: q(".prompt"),
       reloadBar: q(".reload-bar"),
       reloadFill: q(".reload-fill"),
+      reloadZone: q(".reload-zone"),
       adr: q(".adr"),
       adrFill: q(".adr-fill"),
       adrTick: q(".adr-tick"),
@@ -202,10 +203,13 @@ export class Hud {
       this.el.prompt.style.display = "none";
     }
 
-    // Reload bar
+    // Reload bar + active-reload sweet-spot marker
     if (c.player.reloading) {
       this.el.reloadBar.style.display = "";
       this.el.reloadFill.style.width = `${c.player.reloadFrac * 100}%`;
+      const [a, b] = c.player.reloadWindow;
+      this.el.reloadZone.style.left = `${a * 100}%`;
+      this.el.reloadZone.style.width = `${(b - a) * 100}%`;
     } else {
       this.el.reloadBar.style.display = "none";
     }
@@ -224,15 +228,19 @@ export class Hud {
 
     const lo = c.run.weapons[c.run.weaponIndex];
     if (lo) {
-      const empty = lo.ammo === 0 && lo.reserve === 0;
-      this.el.wname.textContent = empty
-        ? "OUT OF AMMO — 1–5 to switch · SPACE to bash"
-        : c.player.reloading
-          ? `${lo.def.name} — RELOADING`
-          : lo.def.name;
-      this.el.wname.classList.toggle("weapon-name--empty", empty);
+      const empty = lo.ammo === 0 && lo.reserve === 0 && !lo.def.sidearm;
+      this.el.wname.textContent = c.player.overheated
+        ? `${lo.def.name} — OVERHEATED`
+        : empty
+          ? "OUT OF AMMO — 1–5 to switch · SPACE to bash"
+          : c.player.reloading
+            ? `${lo.def.name} — RELOADING`
+            : c.player.buffed
+              ? `${lo.def.name} — ⚡BUFFED`
+              : lo.def.name;
+      this.el.wname.classList.toggle("weapon-name--empty", empty || c.player.overheated);
       this.el.ammoMag.textContent = `${lo.ammo}`;
-      this.el.ammoRes.textContent = `/${lo.reserve}`;
+      this.el.ammoRes.textContent = lo.def.sidearm ? "/∞" : `/${lo.reserve}`;
       this.el.ammoMag.classList.toggle("ammo-mag--low", lo.ammo > 0 && lo.ammo / lo.def.mag <= 0.25);
     }
     this.buildSlots();

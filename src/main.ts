@@ -240,7 +240,8 @@ function onDawn(): void {
   ctx.stats.wallHeld = ctx.wall.integrityFrac() * 100;
   ctx.world.setDawn(0.7);
   ctx.events.emit("SFX", { id: "dawn_sting" });
-  requestSlowmo(0.7, 0.45);
+  ctx.cam.pulseFov(0.5);
+  requestSlowmo(1.0, 0.35); // a clear "you survived" beat
   hud.setMode("hidden");
   // Allies still down at dawn are lost (their weapon returns to the pool).
   const lost = ctx.companions.downedNames();

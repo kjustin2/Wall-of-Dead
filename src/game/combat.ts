@@ -68,6 +68,8 @@ export class Combat {
       this.ctx.decals.spawn(z.x, z.z, 0x4a0708, 1.1 + (z.heavy ? 1.4 : 0));
       // Dismemberment: a headshot/explosion pops chunks of gore upward.
       if (headshot) this.ctx.fx.burst(z.x, z.headY, z.z, 10, 0x6a1010, { speed: 9, up: 12, life: 0.9, size: 11 });
+      // Gore chunks on every kill (more on big ones).
+      this.ctx.fx.burst(z.x, z.headY * 0.7, z.z, big ? 12 : 6, 0x6a1010, { speed: big ? 11 : 7, up: 10, life: 0.9, size: big ? 11 : 8 });
       this.ctx.events.emit("ZOMBIE_KILLED", { x: z.x, z: z.z, kind: z.kind });
       this.ctx.events.emit("SFX", { id: "zombie_die", pan });
       // A brief crunch only on the meaty kills, so it reads as punch not lag.
@@ -75,6 +77,8 @@ export class Combat {
       if (fromPlayer) this.ctx.adrenaline.gain(headshot ? 15 : 10);
     } else if (fromPlayer) {
       this.ctx.adrenaline.gain(2);
+      // Limb damage: a body hit can cripple (slow) a still-standing zombie.
+      if (!headshot && this.ctx.rng.chance(0.12)) z.cripple();
     }
   }
 

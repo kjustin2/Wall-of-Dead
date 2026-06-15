@@ -285,6 +285,7 @@ export class Zombie {
   private screamTimer = 4;
   private vaultT = -1;
   private vault = 0;
+  private crippled = false;
   private dieTimer = 0;
   private dieRoll = 0;
   private diePitch = 1.3;
@@ -362,6 +363,13 @@ export class Zombie {
     this.state = "fleeing";
   }
 
+  /** Limb damage — a crippled zombie limps along at reduced speed. */
+  cripple(): void {
+    if (this.crippled) return;
+    this.crippled = true;
+    this.group.rotation.z = 0.18; // a permanent lean/limp
+  }
+
   /** Shove back out into the field (Last Stand shockwave). */
   repel(amount: number): void {
     if (this.state === "dying" || this.state === "fleeing") return;
@@ -414,7 +422,7 @@ export class Zombie {
   }
 
   private advance(dt: number, ctx: Ctx): void {
-    const spd = this.t.speed * ctx.enemies.speedMul();
+    const spd = this.t.speed * ctx.enemies.speedMul() * (this.crippled ? 0.55 : 1);
     if (this.t.screamer) {
       this.screamTimer -= dt;
       if (this.screamTimer <= 0) {
@@ -518,7 +526,7 @@ export class Zombie {
   }
 
   private cross(dt: number, ctx: Ctx): void {
-    const spd = this.t.speed * 1.05 * ctx.enemies.speedMul();
+    const spd = this.t.speed * 1.05 * ctx.enemies.speedMul() * (this.crippled ? 0.55 : 1);
     // Vault hop arc as they come over the barricade.
     if (this.vault > 0) {
       this.vault -= dt;

@@ -2,7 +2,8 @@ import type { Ctx } from "./ctx";
 import { makeLoadout, type Loadout } from "./weapons";
 import { RUN } from "../config";
 
-const RESERVES: Record<string, number> = { pistol: 120, smg: 240, shotgun: 48, rifle: 64, lmg: 300 };
+// Tighter reserves so ammo is a real pressure; the pistol is an infinite sidearm.
+const RESERVES: Record<string, number> = { pistol: 60, smg: 120, shotgun: 30, rifle: 36, lmg: 160 };
 
 /**
  * Persistent run state — everything that must survive across the night/day

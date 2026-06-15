@@ -149,8 +149,9 @@ body {
 }
 .wall-pips { display: flex; gap: 2px; margin-top: 4px; width: 240px; }
 .pip { flex: 1; height: 5px; border-radius: 2px; background: #69d08a; transition: background 0.2s, opacity 0.2s; }
-.reload-bar { width: 120px; height: 5px; margin: 4px 0 0 auto; background: var(--panel); border-radius: 3px; overflow: hidden; }
-.reload-fill { height: 100%; width: 0%; background: linear-gradient(90deg, #ffce5a, #fff); }
+.reload-bar { position: relative; width: 120px; height: 6px; margin: 4px 0 0 auto; background: var(--panel); border-radius: 3px; overflow: hidden; }
+.reload-fill { height: 100%; width: 0%; background: linear-gradient(90deg, #ffce5a, #fff); position: relative; z-index: 2; }
+.reload-zone { position: absolute; top: 0; height: 100%; background: rgba(105, 208, 138, 0.7); z-index: 1; }
 .kits { margin-top: 6px; font-family: var(--display); font-size: 12px; letter-spacing: 2px; color: #ffce7a; }
 .kits-n { color: #fff; }
 .repair {

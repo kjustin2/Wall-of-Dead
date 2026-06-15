@@ -10,6 +10,8 @@ const GUN_REACH = 1.3;
 const FLY_Y = FIELD.fireY;
 const SHOVE_TIME = 0.28; // melee swing duration
 const REPAIR_TIME = 10; // seconds to fix a breached segment (per kit)
+const RELOAD_WIN_A = 0.5; // active-reload sweet spot (fraction of reload progress)
+const RELOAD_WIN_B = 0.72;
 
 /**
  * The defender. Strafes the rampart (A/D), aims with the mouse, fires the
@@ -38,6 +40,18 @@ export class Player {
   private fireCd = 0;
   private reloadTimer = 0;
   private reloadTotal = 1;
+  private reloadActiveDone = false;
+  private buffT = 0; // active-reload damage buff remaining
+  private overheatT = 0; // weapon overheated lockout
+  get overheated(): boolean {
+    return this.overheatT > 0;
+  }
+  get reloadWindow(): [number, number] {
+    return [RELOAD_WIN_A, RELOAD_WIN_B];
+  }
+  get buffed(): boolean {
+    return this.buffT > 0;
+  }
   private yaw = Math.PI;
   private t = 0;
   private shoveCd = 0;
@@ -305,7 +319,9 @@ export class Player {
     // Weapon handling
     this.fireCd -= dt;
     this.shoveCd -= dt;
-    this.heat = Math.max(0, this.heat - dt * 0.9);
+    this.buffT = Math.max(0, this.buffT - dt);
+    this.overheatT = Math.max(0, this.overheatT - dt);
+    this.heat = Math.max(0, this.heat - dt * (this.overheatT > 0 ? 0.55 : 0.9));
     if (this.reloadTimer > 0) {
       this.reloadTimer -= dt;
       if (this.reloadTimer <= 0) this.finishReload();
@@ -383,9 +399,13 @@ export class Player {
     const wheel = input.wheelStep();
     if (wheel !== 0) this.cycleWeapon(wheel);
 
-    if (input.pressed("KeyR")) this.startReload();
+    if (input.pressed("KeyR")) {
+      if (this.reloadTimer > 0) this.tryActiveReload();
+      else this.startReload();
+    }
     if (input.pressed("Space") && this.shoveCd <= 0) this.shove();
 
+    if (this.overheatT > 0) return; // weapon jammed/overheated — can't fire
     const wantFire = def.auto ? input.mouseDown : input.mouseJustDown;
     if (wantFire && this.fireCd <= 0 && this.reloadTimer <= 0) {
       if (lo.ammo > 0) {
@@ -417,12 +437,19 @@ export class Player {
     const mz = this.z + sz * GUN_REACH;
 
     const spread = def.spread + this.heat;
+    const dmg = def.damage * (this.buffT > 0 ? 1.25 : 1); // active-reload buff
     for (let p = 0; p < def.pellets; p++) {
       const a = base + (this.ctx.rng.next() - 0.5) * spread * 2;
-      this.ctx.bullets.spawn(mx, mz, Math.sin(a), Math.cos(a), def, def.damage, true);
+      this.ctx.bullets.spawn(mx, mz, Math.sin(a), Math.cos(a), def, dmg, true);
     }
     // Recoil climbs with sustained fire (more on autos), decays when you ease off.
     this.heat = Math.min(0.5, this.heat + (def.auto ? 0.05 : 0.02));
+    // Overheat: hold an automatic too long and it jams briefly.
+    if (def.auto && this.heat >= 0.5) {
+      this.overheatT = 1.2;
+      this.ctx.events.emit("SFX", { id: "dry_fire" });
+      this.ctx.fx.burst(mx, FLY_Y, mz, 6, 0x888888, { speed: 3, up: 4, life: 0.6, size: 6, drag: 1 });
+    }
     this.ctx.fx.cone(mx, FLY_Y, mz, sx, sz, 6, def.color, 20);
     // Muzzle smoke puff + an ejected shell casing
     this.ctx.fx.burst(mx, FLY_Y, mz, 2, 0x6a6a6a, { speed: 1.5, up: 1.5, life: 0.5, size: 5, drag: 1.2 });
@@ -461,8 +488,15 @@ export class Player {
     for (const z of this.ctx.enemies.alive) {
       if (!z.killable) continue;
       if (Math.abs(z.x - this.x) < 3.4 && z.z > -6) {
-        z.repel(8);
-        this.ctx.combat.damageZombie(z, 12, false, true);
+        // Execution: a bash finishes off a heavy that's already badly wounded.
+        if (z.heavy && z.hp <= z.maxHp * 0.2) {
+          this.ctx.combat.damageZombie(z, 99999, true, true);
+          this.ctx.events.emit("TIME_HITSTOP", { s: 0.06 });
+          this.ctx.floaters.spawn(z.x, z.headY, z.z, "EXECUTED", "crit");
+        } else {
+          z.repel(8);
+          this.ctx.combat.damageZombie(z, 12, false, true);
+        }
         hit = true;
       }
     }
@@ -476,17 +510,40 @@ export class Player {
   private startReload(): void {
     const lo = this.loadout;
     if (!lo || this.reloadTimer > 0) return;
-    if (lo.ammo >= lo.def.mag || lo.reserve <= 0) return;
+    if (lo.ammo >= lo.def.mag || (lo.reserve <= 0 && !lo.def.sidearm)) return;
     this.reloadTimer = lo.def.reload * this.ctx.adrenaline.reloadMult();
     this.reloadTotal = this.reloadTimer;
+    this.reloadActiveDone = false;
     this.ctx.events.emit("RELOAD", { weapon: lo.def.id });
     this.ctx.events.emit("SFX", { id: "reload" });
+  }
+
+  /** Active reload — tap R in the sweet spot to finish instantly + a damage buff;
+   * mistime it and it jams for a moment. */
+  private tryActiveReload(): void {
+    if (this.reloadTimer <= 0 || this.reloadActiveDone) return;
+    this.reloadActiveDone = true;
+    const f = 1 - this.reloadTimer / this.reloadTotal;
+    if (f >= RELOAD_WIN_A && f <= RELOAD_WIN_B) {
+      this.reloadTimer = 0;
+      this.finishReload();
+      this.buffT = 4;
+      this.ctx.events.emit("SFX", { id: "swap" });
+      this.ctx.floaters.spawn(this.x, 2.5, this.z, "ACTIVE!", "crit");
+    } else {
+      this.reloadTimer += 0.4; // jam penalty
+      this.ctx.events.emit("SFX", { id: "dry_fire" });
+    }
   }
 
   private finishReload(): void {
     const lo = this.loadout;
     if (!lo) return;
     const need = lo.def.mag - lo.ammo;
+    if (lo.def.sidearm) {
+      lo.ammo += need; // infinite reserve sidearm
+      return;
+    }
     const take = Math.min(need, lo.reserve);
     lo.ammo += take;
     lo.reserve -= take;

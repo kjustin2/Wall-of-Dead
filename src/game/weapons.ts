@@ -14,6 +14,7 @@ export interface WeaponDef {
   tracer: number; // tracer length (visual)
   color: number;
   sfx: string;
+  sidearm?: boolean; // always-available fallback — never runs out of reserve
 }
 
 // Tuned against reference HP: shambler 30, runner 14, spitter 22, brute 135.
@@ -34,6 +35,7 @@ export const WEAPONS: Record<string, WeaponDef> = {
     tracer: 3.2,
     color: 0xffd47a,
     sfx: "shot_pistol",
+    sidearm: true,
   },
   smg: {
     id: "smg",
