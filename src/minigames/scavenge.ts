@@ -2,6 +2,7 @@ import * as THREE from "three";
 import type { Ctx } from "../game/ctx";
 import { makeGlow, makeLabel } from "../render/textures";
 import { clamp } from "../core/math";
+import { TRAITS } from "../game/traits";
 
 const SURVIVOR_NAMES = ["Cole", "Reyes", "Tess", "Vance", "Okafor", "Lin", "Brenner"];
 
@@ -782,8 +783,14 @@ export class Scavenge {
         this.survivor.taken = true;
         this.survivor.group.visible = false;
         const name = SURVIVOR_NAMES.find((n) => !this.ctx.run.companions.includes(n));
-        if (name && this.ctx.run.companions.length < 4) this.ctx.run.companions.push(name);
-        this.ctx.floaters.spawn(this.survivor.x, 2, this.survivor.z, name ? `RESCUED ${name}!` : "RESCUED!", "heal");
+        if (name && this.ctx.run.companions.length < 4) {
+          const trait = this.ctx.run.recruit(name);
+          const t = TRAITS[trait];
+          this.ctx.floaters.spawn(this.survivor.x, 2.2, this.survivor.z, `RESCUED ${name} · ${t.label.toUpperCase()}`, "crit");
+          this.ctx.events.emit("NOTICE", { text: `${name} joins you`, sub: `${t.label} — "${t.recruitLine}"` });
+        } else {
+          this.ctx.floaters.spawn(this.survivor.x, 2, this.survivor.z, "RESCUED!", "heal");
+        }
         this.ctx.fx.burst(this.survivor.x, 1.2, this.survivor.z, 24, 0x7dffb0, { speed: 9, up: 7, life: 0.7, size: 8 });
         this.ctx.events.emit("SFX", { id: "meter_full" });
       }

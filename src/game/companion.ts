@@ -2,6 +2,7 @@ import * as THREE from "three";
 import type { Ctx } from "./ctx";
 import { FIELD } from "../config";
 import { makeGlow, makeLabel } from "../render/textures";
+import { TRAITS, type TraitId } from "./traits";
 
 const RANGE = 64;
 const ALLY = 0x52e0a0;
@@ -37,7 +38,7 @@ class Companion {
   private aimRig = new THREE.Group();
   private gun: THREE.Mesh;
 
-  constructor(public name: string, public x: number, scene: THREE.Scene) {
+  constructor(public name: string, public x: number, scene: THREE.Scene, public trait?: TraitId) {
     this.group.position.set(x, FIELD.rampartHeight, FIELD.rampartZ + 0.4);
     const coat = new THREE.MeshStandardMaterial({ color: 0x2f7d6c, roughness: 1, flatShading: true });
     const vest = new THREE.MeshStandardMaterial({ color: 0x1f4f45, roughness: 1, flatShading: true });
@@ -80,7 +81,8 @@ class Companion {
     const chevron = new THREE.Mesh(new THREE.ConeGeometry(0.26, 0.44, 4), new THREE.MeshBasicMaterial({ color: ALLY, fog: false }));
     chevron.rotation.x = Math.PI;
     chevron.position.y = 2.55;
-    const label = makeLabel(`${name}  ·  ALLY`, "#9dffd0");
+    const tLabel = trait ? TRAITS[trait].label.toUpperCase() : "ALLY";
+    const label = makeLabel(`${name}  ·  ${tLabel}`, trait ? TRAITS[trait].color : "#9dffd0");
     label.position.y = 3.05;
     this.meleeLabel = makeLabel("⚠ MELEE — NO AMMO", "#ff7a5a");
     this.meleeLabel.position.y = 2.78;
@@ -122,6 +124,13 @@ class Companion {
     if (this.down) return;
     this.cd -= dt;
 
+    // Medic: steadily patches themselves and the nearby defender.
+    if (this.trait === "medic") {
+      if (this.hp < this.maxHp) this.hp = Math.min(this.maxHp, this.hp + dt * 4);
+      const p = ctx.player;
+      if (p.alive && Math.abs(p.x - this.x) < 6 && p.hp < p.maxHp) p.heal(dt * 3);
+    }
+
     this.barkTimer -= dt;
     if (this.barkTimer <= 0) {
       this.barkTimer = 6 + ctx.rng.next() * 8;
@@ -162,13 +171,17 @@ class Companion {
         return;
       }
       lo.ammo--;
-      this.cd = lo.def.fireRate * 1.35;
+      // Gunner fires faster; Marksman shoots tighter and hits harder.
+      const rof = this.trait === "gunner" ? 0.62 : 1;
+      const spreadMul = this.trait === "marksman" ? 0.35 : 1;
+      const dmgMul = this.trait === "marksman" ? 1.3 : 1;
+      this.cd = lo.def.fireRate * 1.35 * rof;
       const dx = target.x - this.x;
       const dz = target.z - this.group.position.z;
       const base = Math.atan2(dx, dz);
       for (let p = 0; p < lo.def.pellets; p++) {
-        const a = base + (ctx.rng.next() - 0.5) * lo.def.spread * 2;
-        ctx.bullets.spawn(this.x, this.group.position.z, Math.sin(a), Math.cos(a), lo.def, lo.def.damage, false);
+        const a = base + (ctx.rng.next() - 0.5) * lo.def.spread * 2 * spreadMul;
+        ctx.bullets.spawn(this.x, this.group.position.z, Math.sin(a), Math.cos(a), lo.def, lo.def.damage * dmgMul, false);
       }
       this.gun.visible = true;
       this.muzzle.intensity = 4;
@@ -242,7 +255,7 @@ export class CompanionManager {
     const n = names.length;
     for (let i = 0; i < n; i++) {
       const x = n === 1 ? -8 : -16 + (32 / Math.max(1, n - 1)) * i;
-      this.list.push(new Companion(names[i], x, this.scene));
+      this.list.push(new Companion(names[i], x, this.scene, this.ctx.run.companionTraits[names[i]]));
     }
   }
 

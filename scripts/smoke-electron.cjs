@@ -169,6 +169,12 @@ app.whenReady().then(async () => {
         await win.webContents.executeJavaScript(
           `(()=>{const b=document.querySelector('.act-cont'); if(b) b.click();})()`
         );
+        await sleep(700);
+        // A dawn dilemma may appear before the next night — pick the first option.
+        const dilemma = await win.webContents.executeJavaScript(
+          `(()=>{const b=document.querySelector('.act-choice-0'); if(b){b.click(); return true;} return false;})()`
+        );
+        if (leg === 0 && !dilemma) errors.push("STAKES: no dawn dilemma after the first day");
         await sleep(1400);
         finalState = await win.webContents.executeJavaScript(`window.__wod.state()`);
         if (finalState === "victory") break;

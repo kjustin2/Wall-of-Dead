@@ -28,6 +28,7 @@ import { GrenadeManager } from "./game/grenade";
 import { Deployables } from "./game/deployables";
 import { Player } from "./game/player";
 import { RunManager } from "./game/run";
+import { TRAITS } from "./game/traits";
 import { WaveDirector } from "./game/waveDirector";
 import { Scavenge } from "./minigames/scavenge";
 import { Hud } from "./ui/hud";
@@ -50,6 +51,18 @@ const NIGHT_FLAVOR = [
   "They came back angrier. Hold the line.",
   "Last stretch of road. Whatever it takes — hold.",
 ];
+
+// Inter-night radio chatter shown on the dawn report after surviving night N.
+const STORY_BEATS: Record<number, string> = {
+  1: "Convoy: 'You held. Two legs of road left to the safe zone. Move at dusk.'",
+  2: "Convoy: 'Something big is dragging itself toward you. Last night — make it count.'",
+};
+
+// A radio bark as each later night begins (drip-feeds the convoy's plight).
+const NIGHT_RADIO: Record<number, string> = {
+  2: "Convoy: 'Fuel's low, road's long — buy us one more dawn.'",
+  3: "Convoy: 'This is the gate. Hold it and we all walk out.'",
+};
 
 const canvas = document.getElementById("game") as HTMLCanvasElement;
 
@@ -226,6 +239,14 @@ function beginNight(): void {
   ctx.events.emit("NIGHT_START", { night: ctx.run.night });
   hud.banner(`NIGHT ${ctx.run.night} / ${ctx.run.legsTotal}`, NIGHT_FLAVOR[(ctx.run.night - 1) % NIGHT_FLAVOR.length]);
 
+  // A radio beat as later nights open.
+  const radio = NIGHT_RADIO[ctx.run.night];
+  if (radio) {
+    window.setTimeout(() => {
+      if (state === "night") hud.banner("📻 RADIO", radio);
+    }, 3200);
+  }
+
   // First-night tutorial prompts
   if (ctx.run.night === 1) {
     const tip = (delay: number, t: string, s: string) =>
@@ -252,13 +273,22 @@ function onDawn(): void {
   ctx.cam.pulseFov(0.5);
   requestSlowmo(1.0, 0.35); // a clear "you survived" beat
   hud.setMode("hidden");
-  // Allies still down at dawn are lost (their weapon returns to the pool).
+  ctx.run.nightsWallHeld.push(Math.round(ctx.wall.integrityFrac() * 100));
+  // Allies still down at dawn are lost (their weapon returns to the pool). Their
+  // trait gives the loss a voice.
   const lost = ctx.companions.downedNames();
+  const eulogies = lost.map((n) => {
+    const tr = ctx.run.companionTraits[n];
+    return tr ? `${n} ${TRAITS[tr].lostLine}` : `${n} is gone.`;
+  });
   for (const name of lost) ctx.run.loseCompanion(name);
+  const beat = STORY_BEATS[ctx.run.night] ?? "";
   const lines = [
     `Kills tonight — ${ctx.stats.kills}`,
     `Wall integrity — ${Math.round(ctx.wall.integrityFrac() * 100)}%`,
     `Allies — ${ctx.run.companions.length}${lost.length ? ` (lost ${lost.join(", ")})` : ""}`,
+    ...eulogies,
+    ...(beat ? [`📻 ${beat}`] : []),
   ];
   // Let the dawn breathe for a moment before the report panel slides in.
   window.setTimeout(() => {
@@ -309,13 +339,76 @@ function onDayDone(tier: string, frac: number): void {
 
   lootContinue = () => {
     menus.clear();
-    if (ctx.run.reachedSafeZone) onVictory();
-    else {
+    if (ctx.run.reachedSafeZone) {
+      onVictory();
+      return;
+    }
+    // A dawn dilemma before pressing on — one choice, one consequence.
+    offerDilemma(() => {
       ctx.run.night += 1;
       beginNight();
-    }
+    });
   };
   menus.showDayLoot(lines, lootContinue);
+}
+
+/** A light, memorable dawn choice — touches only run resources. */
+function offerDilemma(after: () => void): void {
+  const haveSlot = ctx.run.companions.length < 4;
+  const strangerName = ["Harlan", "Pike", "Dunn", "Sora"].find((n) => !ctx.run.companions.includes(n)) ?? "a stranger";
+  // Alternate the dilemma by which leg you're on.
+  if (ctx.run.leg % 2 === 1 && haveSlot) {
+    menus.showDilemma(
+      "A figure at the fenceline",
+      `${strangerName} is begging to come in. Taking them in means another mouth — but another gun on the wall.`,
+      [
+        {
+          label: "Open the gate",
+          detail: "Recruit them as an ally (random trait).",
+          onPick: () => {
+            const tr = ctx.run.recruit(strangerName);
+            hud.banner(`${strangerName} joins you`, `${TRAITS[tr].label} — "${TRAITS[tr].recruitLine}"`);
+          },
+        },
+        {
+          label: "Send them off",
+          detail: "Keep the line lean. They leave you their kit (+1 repair kit).",
+          onPick: () => {
+            ctx.run.repairKits += 1;
+          },
+        },
+      ],
+      after
+    );
+  } else {
+    menus.showDilemma(
+      "A sealed supply cache",
+      "There's a locked cache off the road. Cracking it is loud — it might pay off, or draw the wrong attention.",
+      [
+        {
+          label: "Crack it open",
+          detail: "Gamble: likely +120 ammo… or you lose a repair kit.",
+          onPick: () => {
+            if (ctx.rng.chance(0.65)) {
+              ctx.run.addAmmo(120);
+              hud.banner("CACHE CRACKED", "+120 ammo across the armory");
+            } else {
+              ctx.run.repairKits = Math.max(0, ctx.run.repairKits - 1);
+              hud.banner("IT WAS A TRAP", "Lost a repair kit getting out");
+            }
+          },
+        },
+        {
+          label: "Leave it",
+          detail: "Play it safe. Steady your nerves (+1 repair kit).",
+          onPick: () => {
+            ctx.run.repairKits += 1;
+          },
+        },
+      ],
+      after
+    );
+  }
 }
 
 function onVictory(): void {
@@ -325,7 +418,7 @@ function onVictory(): void {
   hud.setMode("hidden");
   ctx.music.play("victory");
   ctx.events.emit("RUN_VICTORY", {});
-  menus.showVictory(ctx.stats, startRun, toTitle);
+  menus.showVictory(ctx.stats, startRun, toTitle, endingLines());
 }
 
 function defeat(reason: string): void {
@@ -338,7 +431,19 @@ function defeat(reason: string): void {
   ctx.events.emit("RUN_DEFEAT", { reason });
   ctx.music.play("defeat");
   hud.setMode("hidden");
-  menus.showDeath(reason, ctx.stats, startRun, toTitle);
+  menus.showDeath(reason, ctx.stats, startRun, toTitle, endingLines());
+}
+
+/** Extra run-summary lines for the ending screens (the richer epilogue). */
+function endingLines(): string[] {
+  const r = ctx.run;
+  const lines: string[] = [
+    `Survivors with you — ${r.companions.length}  ·  rescued ${r.alliesRecruited}  ·  lost ${r.alliesLost}`,
+  ];
+  if (r.nightsWallHeld.length) {
+    lines.push(`Wall held per night — ${r.nightsWallHeld.map((p) => `${p}%`).join(" · ")}`);
+  }
+  return lines;
 }
 
 function doLastStand(): void {

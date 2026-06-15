@@ -1,6 +1,7 @@
 import type { Ctx } from "./ctx";
 import { makeLoadout, type Loadout } from "./weapons";
 import { RUN } from "../config";
+import { TRAIT_IDS, type TraitId } from "./traits";
 
 // Tighter reserves so ammo is a real pressure; the pistol is an infinite sidearm.
 const RESERVES: Record<string, number> = { pistol: 60, smg: 120, shotgun: 30, rifle: 36, lmg: 160 };
@@ -26,10 +27,14 @@ export class RunManager {
   weaponOwner: (string | null)[] = [];
   weaponIndex = 0;
   companions: string[] = [];
+  /** Trait per companion name (drives their combat behavior + character). */
+  companionTraits: Record<string, TraitId> = {};
+  // Run-tally stats for the ending screen.
+  alliesRecruited = 0;
+  alliesLost = 0;
+  nightsWallHeld: number[] = [];
 
-  constructor(private ctx: Ctx) {
-    void this.ctx;
-  }
+  constructor(private ctx: Ctx) {}
 
   start(): void {
     this.night = 1;
@@ -45,6 +50,19 @@ export class RunManager {
     this.weaponOwner = [null, null, null]; // all yours until you assign one to an ally
     this.weaponIndex = 0;
     this.companions = ["Mara"];
+    this.companionTraits = { Mara: "gunner" };
+    this.alliesRecruited = 0;
+    this.alliesLost = 0;
+    this.nightsWallHeld = [];
+  }
+
+  /** Recruit a survivor: add them with a random trait. Returns the trait. */
+  recruit(name: string): TraitId {
+    const trait = this.ctx.rng.pick(TRAIT_IDS);
+    this.companions.push(name);
+    this.companionTraits[name] = trait;
+    this.alliesRecruited++;
+    return trait;
   }
 
   grantWeapon(id: string): void {
@@ -103,6 +121,8 @@ export class RunManager {
     const wi = this.allyWeaponIndex(name);
     if (wi >= 0) this.weaponOwner[wi] = null;
     this.companions = this.companions.filter((n) => n !== name);
+    delete this.companionTraits[name];
+    this.alliesLost++;
   }
 
   get reachedSafeZone(): boolean {

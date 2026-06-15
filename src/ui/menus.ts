@@ -362,7 +362,26 @@ export class Menus {
     this.btn(".act-cont", onContinue);
   }
 
-  showVictory(stats: Stats, onReplay: () => void, onTitle: () => void): void {
+  /** A dawn dilemma: one choice with a consequence. Each option runs its effect
+   * then proceeds. */
+  showDilemma(title: string, sub: string, options: { label: string; detail: string; onPick: () => void }[], after: () => void): void {
+    this.paint(`
+      <div class="screen screen--report">
+        <h2 class="panel-title">${title}</h2>
+        <p class="subtitle">${sub}</p>
+        <div class="menu">
+          ${options.map((o, i) => `<button class="mbtn ${i === 0 ? "mbtn--primary" : ""} act-choice act-choice-${i}"><b>${o.label}</b><br><span class="choice-detail">${o.detail}</span></button>`).join("")}
+        </div>
+      </div>`);
+    options.forEach((o, i) =>
+      this.btn(`.act-choice-${i}`, () => {
+        o.onPick();
+        after();
+      })
+    );
+  }
+
+  showVictory(stats: Stats, onReplay: () => void, onTitle: () => void, extra: string[] = []): void {
     const held = stats.wallHeld;
     const epilogue =
       held > 80
@@ -380,6 +399,7 @@ export class Menus {
           <li>Wall integrity at dawn — ${Math.round(stats.wallHeld)}%</li>
           <li>Supplies recovered — ${stats.cratesGrabbed}</li>
           <li>Last Stands — ${stats.lastStands}</li>
+          ${extra.map((l) => `<li>${l}</li>`).join("")}
         </ul>
         <div class="menu">
           <button class="mbtn mbtn--primary act-replay">PLAY AGAIN</button>
@@ -390,7 +410,7 @@ export class Menus {
     this.btn(".act-title", onTitle);
   }
 
-  showDeath(reason: string, stats: Stats, onRetry: () => void, onTitle: () => void): void {
+  showDeath(reason: string, stats: Stats, onRetry: () => void, onTitle: () => void, extra: string[] = []): void {
     this.paint(`
       <div class="screen screen--death">
         <h1 class="title title--dead">OVERRUN</h1>
@@ -398,6 +418,7 @@ export class Menus {
         <ul class="report">
           <li>Kills — ${stats.kills}</li>
           <li>Survived — ${Math.round(stats.time)}s</li>
+          ${extra.map((l) => `<li>${l}</li>`).join("")}
         </ul>
         <div class="menu">
           <button class="mbtn mbtn--primary act-retry">TRY AGAIN</button>
