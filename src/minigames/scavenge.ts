@@ -1224,4 +1224,10 @@ export class Scavenge {
   get visible(): boolean {
     return this.group.visible;
   }
+
+  /** Object count in the run scene — a coarse regression guard that the floor,
+   * walls, dressing, guards and crates all built. */
+  get objectCount(): number {
+    return this.group.children.length;
+  }
 }

@@ -80,10 +80,25 @@ app.whenReady().then(async () => {
   win.webContents.on("unresponsive", () => errors.push("UNRESPONSIVE"));
 
   const run = async () => {
+    const js = (s) => win.webContents.executeJavaScript(s);
     try {
       await win.loadURL(`http://127.0.0.1:${port}/`);
       await sleep(2500);
       await shot(win, "01-title.png");
+
+      // Settings round-trip: open from the title, set Nightmare, confirm it
+      // applies to the difficulty multipliers, then back.
+      await js(`(()=>{const b=document.querySelector('.act-settings'); if(b) b.click();})()`);
+      await sleep(300);
+      const diffOk = await js(`(()=>{const s=document.querySelector('.set-diff'); if(!s) return false; s.value='nightmare'; s.dispatchEvent(new Event('change')); return true;})()`);
+      await sleep(200);
+      const zhp = await js(`window.__wod.ctx.tuning.zHp`);
+      if (!diffOk) errors.push("SETTINGS: no difficulty selector");
+      if (!(zhp > 1)) errors.push("SETTINGS: Nightmare did not apply (zHp=" + zhp + ")");
+      // Restore Normal so the rest of the run is on baseline, then leave settings.
+      await js(`(()=>{const s=document.querySelector('.set-diff'); if(s){s.value='normal'; s.dispatchEvent(new Event('change'));}})()`);
+      await js(`(()=>{const b=document.querySelector('.act-back'); if(b) b.click();})()`);
+      await sleep(400);
 
       // Begin run → first-play tutorial → opening cutscene
       await win.webContents.executeJavaScript(`localStorage.removeItem('wod-played')`);
@@ -104,6 +119,21 @@ app.whenReady().then(async () => {
       // Save & resume: a checkpoint is written when the night begins.
       const saved = await win.webContents.executeJavaScript(`!!localStorage.getItem('wod-save')`);
       if (!saved) errors.push("SAVE: no checkpoint after the night began");
+
+      // Pause / resume round-trip.
+      await js(`window.dispatchEvent(new KeyboardEvent('keydown',{code:'Escape'}))`);
+      await sleep(350);
+      if ((await js(`window.__wod.state()`)) !== "paused") errors.push("FLOW: Esc did not pause");
+
+      // Bail to the main menu, then CONTINUE back into the run from the save.
+      await js(`(()=>{const b=document.querySelector('.act-title'); if(b) b.click();})()`);
+      await sleep(800);
+      const hasCont = await js(`!!document.querySelector('.act-continue')`);
+      if (!hasCont) errors.push("RESUME: title has no CONTINUE with a save present");
+      await js(`(()=>{const b=document.querySelector('.act-continue'); if(b) b.click();})()`);
+      await sleep(1200);
+      const rs = await js(`window.__wod.state()`);
+      if (rs !== "night") errors.push("RESUME: CONTINUE did not return to night, got " + rs);
 
       // Let a wave build, then force some action (every zombie type renders here)
       await win.webContents.executeJavaScript(`window.__wod.spawnWave('shambler', 6); window.__wod.spawnWave('runner', 3); window.__wod.spawnWave('brute', 1); window.__wod.spawnWave('spitter', 2); window.__wod.spawnWave('crawler', 3); window.__wod.spawnWave('armored', 2); window.__wod.spawnWave('screamer', 1); window.__wod.spawnWave('exploder', 2); window.__wod.spawnWave('shielded', 2); window.__wod.spawnWave('leaper', 2); window.__wod.spawnWave('tank', 1);`);
@@ -173,6 +203,9 @@ app.whenReady().then(async () => {
           })()`);
           // Let the opening banner fade so the shot shows the lot, not the title.
           await sleep(1700);
+          // Graphics regression guard: the run scene actually built its props.
+          const dayObjs = await win.webContents.executeJavaScript(`window.__wod.dayObjectCount()`);
+          if (!(dayObjs > 60)) errors.push("GRAPHICS: supply-run scene sparse (" + dayObjs + " objects)");
           await shot(win, "06-day-scavenge.png");
           await win.webContents.executeJavaScript(`(()=>{
             const fire = (code, type) => window.dispatchEvent(new KeyboardEvent(type, { code }));
@@ -202,7 +235,6 @@ app.whenReady().then(async () => {
       console.log("  final state:", finalState);
 
       // Edge case: restarting while the supply run is on screen must clear it.
-      const js = (s) => win.webContents.executeJavaScript(s);
       await js(`(()=>{const b=document.querySelector('.act-replay'); if(b) b.click();})()`);
       await sleep(900);
       await js(`window.dispatchEvent(new KeyboardEvent('keydown',{code:'Escape'}))`); // skip story

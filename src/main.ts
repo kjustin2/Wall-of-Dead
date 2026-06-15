@@ -773,6 +773,7 @@ Promise.race([ctx.music.preload(), new Promise<void>((r) => window.setTimeout(r,
   },
   completeDay: () => scavenge.debugComplete(),
   scavengeShown: () => scavenge.visible,
+  dayObjectCount: () => scavenge.objectCount,
   continueAfterLoot: () => lootContinue(),
   lastStand: doLastStand,
   spawnWave: (type: string, n: number) => {
