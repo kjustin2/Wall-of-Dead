@@ -37,8 +37,8 @@ function prettyKey(code: string): string {
   return code.replace(/^Key/, "").replace(/^Digit/, "").replace("Space", "SPACE").replace("ArrowLeft", "←").replace("ArrowRight", "→");
 }
 
-function loadSettings(): Settings {
-  const def: Settings = {
+function defaultSettings(): Settings {
+  return {
     volume: 0.7,
     music: 0.5,
     muted: false,
@@ -54,6 +54,10 @@ function loadSettings(): Settings {
     rebinds: {},
     qualityTouched: false,
   };
+}
+
+function loadSettings(): Settings {
+  const def = defaultSettings();
   try {
     const raw = localStorage.getItem(KEY);
     if (raw) return { ...def, ...JSON.parse(raw) };
@@ -322,8 +326,17 @@ export class Menus {
           return `<div class="settings-row"><label>${label}</label><button class="mbtn mbtn--sm act-rebind" data-code="${code}">${alt ? prettyKey(alt) : "＋ set"}</button></div>`;
         }).join("")}
         </div>
-        <div class="menu"><button class="mbtn mbtn--primary act-back">BACK</button></div>
+        <div class="menu menu--row">
+          <button class="mbtn act-defaults">RESTORE DEFAULTS</button>
+          <button class="mbtn mbtn--primary act-back">BACK</button>
+        </div>
       </div>`);
+    this.btn(".act-defaults", () => {
+      this.settings = { ...defaultSettings() };
+      this.applySettings();
+      saveSettings(this.settings);
+      this.showSettings(onBack);
+    });
     const vol = this.root.querySelector(".set-vol") as HTMLInputElement;
     const music = this.root.querySelector(".set-music") as HTMLInputElement;
     const mute = this.root.querySelector(".set-mute") as HTMLInputElement;

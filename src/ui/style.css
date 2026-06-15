@@ -612,6 +612,7 @@ body {
 .name-input:focus { border-color: rgba(255, 90, 60, 0.6); }
 
 .menu { display: flex; flex-direction: column; gap: 10px; margin-top: 8px; }
+.menu--row { flex-direction: row; justify-content: center; gap: 14px; }
 .mbtn {
   font-family: var(--display);
   font-weight: 600;
