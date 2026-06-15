@@ -58,7 +58,7 @@ export const DIFFICULTY: Record<DifficultyId, Tuning> = {
 
 export const PAL = {
   bg: 0x05070a,
-  fogNight: 0x0a0e14,
+  fogNight: 0x080a10,
   fogDawn: 0x4a3b46,
   ground: 0x0c1014,
   wall: 0x2b3138,

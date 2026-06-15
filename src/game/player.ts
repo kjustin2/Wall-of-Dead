@@ -212,9 +212,9 @@ export class Player {
     handL.position.set(0.1, -0.02, -0.36);
     this.aimRig.add(handL);
 
-    this.flashlight = new THREE.SpotLight(0xfff0d0, 14, 90, 0.5, 0.45, 1.2);
+    this.flashlight = new THREE.SpotLight(0xfff0d0, 9, 62, 0.42, 0.6, 1.4);
     this.flashlight.position.set(0.16, 0.1, -0.5);
-    this.flashlight.target.position.set(0.16, -0.3, -40);
+    this.flashlight.target.position.set(0.16, -0.3, -34);
     this.flashlight.castShadow = true;
     this.flashlight.shadow.mapSize.set(1024, 1024);
     this.flashlight.shadow.camera.near = 1;
@@ -236,7 +236,7 @@ export class Player {
     this.aimRig.add(this.muzzleGlow);
 
     // Impact flash for the melee bash, out in front of the swing.
-    this.shoveGlow = makeGlow(0xdfe9ff, 3.2, 0);
+    this.shoveGlow = makeGlow(0x8fb3d8, 1.7, 0);
     this.shoveGlow.position.set(0, 0, -1.7);
     this.aimRig.add(this.shoveGlow);
 
@@ -361,9 +361,10 @@ export class Player {
     const pulse = 1 + Math.sin(this.t * 8) * 0.08;
     this.aimMarker.scale.set(pulse, pulse, pulse);
 
-    // Flashlight intensity tracks the meter + muzzle flash
+    // Flashlight intensity tracks the meter + muzzle flash (kept moderate so the
+    // beam reads as a torch, not a blown-out wedge over the field).
     const lightMul = this.ctx.adrenaline.lightMult();
-    this.flashlight.intensity = (12 + this.muzzle * 30) * lightMul;
+    this.flashlight.intensity = (7 + this.muzzle * 14) * lightMul;
     this.flashlight.castShadow = this.ctx.stage.quality !== "low";
     this.lantern.intensity = 1.5 + Math.sin(this.t * 7) * 0.15;
 
@@ -423,7 +424,7 @@ export class Player {
       const s = Math.sin(clamp(1 - this.shoveT / SHOVE_TIME, 0, 1) * Math.PI);
       this.aimRig.rotation.x = -s * 1.2;
       this.aimRig.position.z = -s * 0.4;
-      this.shoveGlow.material.opacity = s * 0.9;
+      this.shoveGlow.material.opacity = s * 0.5;
       if (this.shoveT <= 0) {
         this.aimRig.rotation.x = 0;
         this.aimRig.position.z = 0;
@@ -557,12 +558,13 @@ export class Player {
     const sx = Math.sin(base);
     const sz = Math.cos(base);
 
-    // A fan of debris sweeping across the swing + a bright impact burst.
-    for (let i = -2; i <= 2; i++) {
-      const a = base + i * 0.32;
-      this.ctx.fx.cone(this.x + Math.sin(a) * 1.4, 1.4, this.z + Math.cos(a) * 1.4, Math.sin(a), Math.cos(a), 4, 0xcfe0ff, 14);
+    // A short fan of debris across the swing + a crisp impact spark (kept lean so
+    // the bash reads as a hit, not a blinding flash).
+    for (let i = -1; i <= 1; i++) {
+      const a = base + i * 0.34;
+      this.ctx.fx.cone(this.x + Math.sin(a) * 1.4, 1.4, this.z + Math.cos(a) * 1.4, Math.sin(a), Math.cos(a), 4, 0x9fb8d0, 6);
     }
-    this.ctx.fx.burst(this.x + sx * 2.2, 1.3, this.z + sz * 2.2, 16, 0xeaf2ff, { speed: 11, up: 3, life: 0.3, size: 7 });
+    this.ctx.fx.burst(this.x + sx * 2.2, 1.3, this.z + sz * 2.2, 8, 0xbcd0e6, { speed: 10, up: 3, life: 0.28, size: 5 });
 
     let hit = false;
     for (const z of this.ctx.enemies.alive) {

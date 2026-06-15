@@ -39,7 +39,7 @@ export class Stage {
 
   /** 0..1 transient screen stress — pushed by hits/crashes, decays fast. */
   private stress = 0;
-  private baseVignette = 0.5;
+  private baseVignette = 0.62;
   private baseAberration = 0.0011;
   private reduced = false;
 
@@ -54,7 +54,7 @@ export class Stage {
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     this.renderer.setSize(window.innerWidth, window.innerHeight);
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.25;
+    this.renderer.toneMappingExposure = 1.0;
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
@@ -75,7 +75,10 @@ export class Stage {
 
     // Dim cool moonlight — the world is mostly lit by the player's flashlight
     // and emissive accents; this just keeps shapes legible.
-    this.hemiLight = new THREE.HemisphereLight(0x4a5e7a, 0x0a0608, 0.8);
+    // Deliberately dim — the field is meant to be dark and revealed by the
+    // player's flashlight + emissive accents, not flooded by ambient (which
+    // washes the ground into a bright wedge over the wall).
+    this.hemiLight = new THREE.HemisphereLight(0x3a4a64, 0x0a0608, 0.26);
     this.scene.add(this.hemiLight);
 
     this.keyLight = new THREE.DirectionalLight(0xaecbe8, 0.62);
@@ -106,12 +109,15 @@ export class Stage {
     this.aberration = null;
 
     if (this.quality !== "low") {
+      // Threshold kept high so only true emissive accents (eyes, muzzle, acid,
+      // neon, dawn) bloom — NOT ordinary lit surfaces like the flashlight's cone
+      // on the ground, which at a low threshold blooms into a blinding wedge.
       this.bloom = new BloomEffect({
-        intensity: 1.15,
-        luminanceThreshold: 0.28,
-        luminanceSmoothing: 0.26,
+        intensity: 0.95,
+        luminanceThreshold: 0.62,
+        luminanceSmoothing: 0.2,
         mipmapBlur: true,
-        radius: 0.72,
+        radius: 0.6,
       });
       effects.push(this.bloom);
     }
@@ -123,7 +129,7 @@ export class Stage {
       });
       effects.push(this.aberration);
     }
-    this.vignette = new VignetteEffect({ darkness: this.baseVignette, offset: 0.3 });
+    this.vignette = new VignetteEffect({ darkness: this.baseVignette, offset: 0.22 });
     effects.push(this.vignette);
     effects.push(new HueSaturationEffect({ saturation: 0.1 }));
     effects.push(new BrightnessContrastEffect({ contrast: 0.08 }));

@@ -32,6 +32,7 @@ class Companion {
   private hpFill: THREE.Sprite;
   private hpBg: THREE.Sprite;
   private meleeLabel: THREE.Sprite;
+  private nameLabel!: THREE.Sprite;
   private t = 0;
   private barkTimer = 5;
   private reviveP = 0;
@@ -122,9 +123,10 @@ class Companion {
     const tLabel = trait ? TRAITS[trait].label.toUpperCase() : "ALLY";
     const label = makeLabel(`${name}  ·  ${tLabel}`, trait ? TRAITS[trait].color : "#9dffd0");
     label.position.y = 3.05;
+    this.nameLabel = label;
     this.meleeLabel = makeLabel("⚠ MELEE — NO AMMO", "#ff7a5a");
-    this.meleeLabel.position.y = 2.78;
-    this.meleeLabel.scale.set(3, 0.75, 1);
+    this.meleeLabel.position.y = 3.05; // same slot as the nameplate — they swap, never overlap
+    this.meleeLabel.scale.set(3.2, 0.8, 1);
     this.meleeLabel.visible = false;
     this.marker.add(glow, chevron, label, this.meleeLabel);
     this.group.add(this.marker);
@@ -138,6 +140,14 @@ class Companion {
     this.group.add(this.hpBg, this.hpFill);
 
     scene.add(this.group);
+  }
+
+  /** Toggle the floating UI markers (nameplate, chevron, glow, melee/hp) — kept
+   * off during cutscenes/reports so they don't intrude on those screens. */
+  showMarkers(b: boolean): void {
+    this.marker.visible = b;
+    this.hpBg.visible = b && this.hpBg.visible;
+    this.hpFill.visible = b && this.hpFill.visible;
   }
 
   private setBar(): void {
@@ -159,6 +169,8 @@ class Companion {
     const wiNow = ctx.run.allyWeaponIndex(this.name);
     const loNow = wiNow >= 0 ? ctx.run.weapons[wiNow] : null;
     this.meleeLabel.visible = !this.down && (!loNow || (loNow.ammo <= 0 && loNow.reserve <= 0));
+    // Name and "MELEE" share one slot — only ever one of them is shown.
+    this.nameLabel.visible = !this.meleeLabel.visible;
     if (this.down) return;
     this.cd -= dt;
 
@@ -308,6 +320,11 @@ export class CompanionManager {
 
   setVisible(b: boolean): void {
     for (const c of this.list) c.group.visible = b;
+  }
+
+  /** Hide just the floating markers (keep the bodies) — for cutscene/report. */
+  setMarkersVisible(b: boolean): void {
+    for (const c of this.list) c.showMarkers(b);
   }
 
   reviveTick(x: number, dt: number): boolean {

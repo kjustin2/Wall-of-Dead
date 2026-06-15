@@ -48,8 +48,8 @@ export class World {
   private t = 0;
   private dawn = 0;
 
-  private skyTopNight = new THREE.Color(0x05070e);
-  private skyHorizonNight = new THREE.Color(0x141426);
+  private skyTopNight = new THREE.Color(0x03040a);
+  private skyHorizonNight = new THREE.Color(0x080a12);
   private skyTopDawn = new THREE.Color(0x243049);
   private skyHorizonDawn = new THREE.Color(0xb5683a);
 
@@ -90,8 +90,9 @@ export class World {
     ground.receiveShadow = true;
     this.group.add(ground);
 
-    // A few dark, glossy puddles near the wall that catch the light.
-    const puddleMat = new THREE.MeshStandardMaterial({ color: 0x0a0f15, roughness: 0.12, metalness: 0.6 });
+    // A few damp patches near the wall — slightly slick, but not mirror-glossy
+    // (a high-spec puddle under the flashlight blooms into a blinding wedge).
+    const puddleMat = new THREE.MeshStandardMaterial({ color: 0x0a0f15, roughness: 0.5, metalness: 0.25 });
     for (const [px, pz, pr] of [
       [-14, -8, 3.4],
       [9, -16, 2.6],
@@ -102,7 +103,7 @@ export class World {
       pud.rotation.x = -Math.PI / 2;
       pud.position.set(px, 0.025, pz);
       pud.scale.y = 0.7;
-      this.group.add(pud);
+      this.field.add(pud); // night-only — hidden during the day's supply run
     }
 
     // Faint guide grid out in the field — eerie, catches the eye.
@@ -134,19 +135,19 @@ export class World {
     roadTex.repeat.set(2, 20);
     const road = new THREE.Mesh(
       new THREE.PlaneGeometry(13, 130),
-      new THREE.MeshStandardMaterial({ color: 0x121519, map: roadTex, roughness: 0.5, metalness: 0.35 })
+      new THREE.MeshStandardMaterial({ color: 0x121519, map: roadTex, roughness: 0.72, metalness: 0.12 })
     );
     road.rotation.x = -Math.PI / 2;
     road.position.set(0, 0.015, -64);
     road.receiveShadow = true;
-    this.group.add(road);
+    this.field.add(road); // night-only — the day lot lays its own floor over this
     for (let i = 0; i < 16; i++) {
       const dash = new THREE.Mesh(
         new THREE.BoxGeometry(0.4, 0.02, 2.2),
         new THREE.MeshStandardMaterial({ color: 0x6a6038, roughness: 1, emissive: new THREE.Color(0x161203) })
       );
       dash.position.set(0, 0.04, -6 - i * 8);
-      this.group.add(dash);
+      this.field.add(dash);
     }
 
     // Wrecked vehicles strewn along the road (field clutter — hidden by day)
@@ -321,7 +322,7 @@ export class World {
   private buildSkyline(): void {
     const dark = new THREE.MeshStandardMaterial({ color: 0x05080a, roughness: 1 });
     const near = new THREE.MeshStandardMaterial({ color: 0x0a1014, roughness: 1, flatShading: true });
-    const winMat = new THREE.MeshBasicMaterial({ color: 0xffcf7a, fog: false });
+    const winMat = new THREE.MeshBasicMaterial({ color: 0x6a4e24, fog: true });
     const farthest = new THREE.MeshStandardMaterial({ color: 0x03060a, roughness: 1 });
     const rows: { z: number; mat: THREE.Material; min: number; max: number; n: number; windows: boolean }[] = [
       { z: -205, mat: farthest, min: 30, max: 80, n: 16, windows: false },
@@ -481,7 +482,7 @@ export class World {
       crater.lookAt(cx * 2, cy * 2, cz + 6);
       g.add(crater);
     }
-    const glow = makeGlow(0xdfeaff, 64, 0.85);
+    const glow = makeGlow(0xdfeaff, 34, 0.5);
     glow.material.depthWrite = false;
     g.add(glow);
     g.position.set(-62, 66, -150);
@@ -589,9 +590,9 @@ export class World {
     for (let i = 0; i < 8; i++) {
       const mat = new THREE.MeshBasicMaterial({
         map: mistTex,
-        color: 0x3b4654,
+        color: 0x2a3340,
         transparent: true,
-        opacity: 0.12,
+        opacity: 0.1,
         depthWrite: false,
         fog: true,
       });
@@ -619,36 +620,9 @@ export class World {
       this.clouds.push({ sprite: s, speed: this.rng.range(1.2, 3) });
     }
 
-    // Distant sweeping searchlight beams
-    const beamMat = new THREE.MeshBasicMaterial({
-      color: 0xbcd6ff,
-      transparent: true,
-      opacity: 0.05,
-      depthWrite: false,
-      blending: THREE.AdditiveBlending,
-      side: THREE.DoubleSide,
-      fog: false,
-    });
-    const spots: [number, number, number][] = [
-      [-95, -120, 0.34],
-      [82, -135, -0.4],
-    ];
-    for (const [sx, sz, tilt] of spots) {
-      const pivot = new THREE.Group();
-      pivot.position.set(sx, 1, sz);
-      const beam = new THREE.Mesh(new THREE.ConeGeometry(4.5, 80, 18, 1, true), beamMat);
-      beam.position.y = 40;
-      beam.rotation.x = Math.PI; // wide at top, narrow at the source
-      beam.position.z = 6;
-      pivot.rotation.z = tilt;
-      pivot.add(beam);
-      // A bright source at the base
-      const src = makeGlow(0xcfe0ff, 4, 0.7);
-      src.position.set(0, 1.5, 0);
-      pivot.add(src);
-      this.group.add(pivot);
-      this.searchlights.push({ pivot, phase: this.rng.range(0, 6), speed: this.rng.range(0.25, 0.45) });
-    }
+    // (Removed the big sweeping searchlight beam cones — from the rampart camera
+    // a beam sweeping toward you filled the screen with a giant additive "wedge"
+    // of light that washed out the field. The horizon reads fine without them.)
 
     // A crashed transit bus near the wall — a focal landmark
     const bus = new THREE.Group();
@@ -707,9 +681,10 @@ export class World {
     this.rain.frustumCulled = false;
     this.group.add(this.rain);
 
-    // Distant battle: faint muzzle flashes blinking on the horizon
+    // Distant battle: faint muzzle flashes blinking on the horizon (kept dim so
+    // they read as far-off, not a glow band).
     for (let i = 0; i < 4; i++) {
-      const s = makeGlow(0xffd9a0, 6, 0);
+      const s = makeGlow(0xffd9a0, 4, 0);
       s.position.set(this.rng.range(-120, 120), this.rng.range(6, 22), -150 - this.rng.range(0, 20));
       this.group.add(s);
       this.flashes.push({ sprite: s, timer: this.rng.range(1, 6) });
@@ -757,15 +732,15 @@ export class World {
       .copy(this.skyHorizonNight)
       .lerp(this.skyHorizonDawn, d);
     this.stage.fog.color.set(PAL.fogNight).lerp(new THREE.Color(PAL.fogDawn), d);
-    this.stage.fog.density = lerp(0.017, 0.01, d);
+    this.stage.fog.density = lerp(0.025, 0.011, d);
     this.stage.scene.background = this.stage.fog.color;
-    this.stage.hemiLight.intensity = lerp(0.8, 1.4, d);
-    this.stage.keyLight.intensity = lerp(0.62, 1.5, d);
+    this.stage.hemiLight.intensity = lerp(0.26, 0.8, d);
+    this.stage.keyLight.intensity = lerp(0.3, 1.05, d);
     this.stage.keyLight.color.set(0xaecbe8).lerp(new THREE.Color(0xffd9a8), d);
-    (this.stars.material as THREE.PointsMaterial).opacity = lerp(0.9, 0, d);
+    (this.stars.material as THREE.PointsMaterial).opacity = lerp(0.5, 0, d);
     const moonGlow = this.moon.children[1] as THREE.Sprite;
     (this.moon.children[0] as THREE.Mesh).visible = d < 0.85;
-    moonGlow.material.opacity = lerp(0.8, 0, d);
+    moonGlow.material.opacity = lerp(0.45, 0, d);
     this.dawnGlow.material.opacity = d * 0.9;
   }
 
@@ -834,7 +809,7 @@ export class World {
       f.timer -= dt;
       if (f.timer <= 0) {
         f.timer = this.rng.range(1.5, 6);
-        f.sprite.material.opacity = this.rng.range(0.4, 0.9) * (1 - this.dawn);
+        f.sprite.material.opacity = this.rng.range(0.12, 0.3) * (1 - this.dawn);
       } else {
         f.sprite.material.opacity = Math.max(0, f.sprite.material.opacity - dt * 3);
       }

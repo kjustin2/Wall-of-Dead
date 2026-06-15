@@ -245,6 +245,7 @@ function toCutscene(): void {
   ctx.player.reset();
   ctx.player.group.visible = true;
   ctx.companions.spawnFromRun();
+  ctx.companions.setMarkersVisible(false); // crew on the wall, but no floating UI in the cutscene
   ctx.cam.mode = "cutscene";
   ctx.world.setDawn(0.16);
   hud.setMode("hidden");
@@ -322,6 +323,7 @@ function onDawn(): void {
   ctx.stats.wallHeld = ctx.wall.integrityFrac() * 100;
   // Cinematic dawn: the sun crests and fog burns off over a short beat.
   ctx.world.setDawn(0.92);
+  ctx.companions.setMarkersVisible(false); // no floating nameplates over the report
   ctx.events.emit("SFX", { id: "dawn_sting" });
   ctx.events.emit("SFX", { id: "birdsong" });
   ctx.cam.pulseFov(0.5);
@@ -469,6 +471,7 @@ function offerDilemma(after: () => void): void {
 function onVictory(): void {
   state = "victory";
   clearSave();
+  ctx.companions.setMarkersVisible(false);
   ctx.cam.mode = "menu";
   ctx.world.setDawn(1);
   hud.setMode("hidden");
@@ -481,6 +484,7 @@ function defeat(reason: string): void {
   if (state === "dead") return;
   state = "dead";
   clearSave();
+  ctx.companions.setMarkersVisible(false);
   ctx.input.enabled = false;
   ctx.cam.addTrauma(0.6);
   ctx.stage.punch(0.6);
@@ -681,7 +685,7 @@ ctx.stage.renderer.setAnimationLoop(() => {
     ctx.stats.time += dt;
     ctx.input.updateAim(ctx.stage.camera);
     director.update(dt);
-    ctx.world.setDawn(Math.min(0.5, director.progress * 0.5));
+    ctx.world.setDawn(Math.min(0.34, director.progress * 0.42));
     hud.setDawnProgress(director.progress, director.length * (1 - director.progress));
     if (!surgeMusic && director.progress > 0.82) {
       surgeMusic = true;

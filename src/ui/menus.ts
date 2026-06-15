@@ -280,6 +280,7 @@ export class Menus {
     this.paint(`
       <div class="screen screen--settings">
         <h2 class="panel-title">SETTINGS</h2>
+        <div class="settings-grid">
         <div class="settings-row"><label>Difficulty</label>
           <select class="set-diff">
             <option value="story" ${s.difficulty === "story" ? "selected" : ""}>Story (gentler)</option>
@@ -309,6 +310,7 @@ export class Menus {
           const alt = Object.entries(s.rebinds).find(([, c]) => c === code)?.[0];
           return `<div class="settings-row"><label>${label}</label><button class="mbtn mbtn--sm act-rebind" data-code="${code}">${alt ? prettyKey(alt) : "＋ set"}</button></div>`;
         }).join("")}
+        </div>
         <div class="menu"><button class="mbtn mbtn--primary act-back">BACK</button></div>
       </div>`);
     const vol = this.root.querySelector(".set-vol") as HTMLInputElement;

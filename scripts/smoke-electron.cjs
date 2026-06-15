@@ -95,6 +95,10 @@ app.whenReady().then(async () => {
       const zhp = await js(`window.__wod.ctx.tuning.zHp`);
       if (!diffOk) errors.push("SETTINGS: no difficulty selector");
       if (!(zhp > 1)) errors.push("SETTINGS: Nightmare did not apply (zHp=" + zhp + ")");
+      await shot(win, "01c-settings.png");
+      // The settings list must fit the viewport (BACK reachable, not cut off).
+      const fits = await js(`(()=>{const b=document.querySelector('.act-back'); if(!b) return false; const r=b.getBoundingClientRect(); return r.bottom <= window.innerHeight + 1 && r.top >= 0;})()`);
+      if (!fits) errors.push("SETTINGS: panel overflows the screen (BACK off-screen)");
       // Restore Normal so the rest of the run is on baseline, then leave settings.
       await js(`(()=>{const s=document.querySelector('.set-diff'); if(s){s.value='normal'; s.dispatchEvent(new Event('change'));}})()`);
       await js(`(()=>{const b=document.querySelector('.act-back'); if(b) b.click();})()`);

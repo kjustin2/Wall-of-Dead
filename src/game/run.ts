@@ -48,7 +48,9 @@ export class RunManager {
       makeLoadout("smg", Math.round(RESERVES.smg * am)),
       makeLoadout("shotgun", Math.round(RESERVES.shotgun * am)),
     ];
-    this.weaponOwner = [null, null, null]; // all yours until you assign one to an ally
+    // Mara starts holding the SMG (slot 1) — an armed ally from night one, and a
+    // live example of the shared armory. You keep the pistol + shotgun.
+    this.weaponOwner = [null, "Mara", null];
     this.weaponIndex = 0;
     this.companions = ["Mara"];
     this.companionTraits = { Mara: "gunner" };
