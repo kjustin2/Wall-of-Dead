@@ -358,6 +358,12 @@ function startDay(): void {
   ctx.bullets.clear();
   ctx.grenades.clear();
   ctx.deployables.clear();
+  // Clear world-space night FX too, or blood decals / particles / telegraphs /
+  // floaters from the last seconds of the fight bleed onto the supply-run floor.
+  ctx.fx.clear();
+  ctx.decals.clear();
+  ctx.tele.clear();
+  ctx.floaters.clear();
   hud.setMode("day");
   ctx.input.enabled = true;
   ctx.music.play("day");

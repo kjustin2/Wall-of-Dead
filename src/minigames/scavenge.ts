@@ -836,7 +836,10 @@ export class Scavenge {
 
     // Guards
     let anyChase = false;
-    for (const g of this.guards) this.updateGuard(g, dt);
+    for (const g of this.guards) {
+      this.updateGuard(g, dt);
+      if (this.done) return; // a catch ended the run mid-loop — stop here
+    }
     for (const g of this.guards) if (!g.dead && g.state === "chase") anyChase = true;
     if (anyChase && !this.spotted) {
       this.spotted = true;
@@ -890,7 +893,8 @@ export class Scavenge {
       }
       this.got++;
       if (c.gold) {
-        this.ctx.stats.cratesGrabbed += 1;
+        // (cratesGrabbed is tallied once from `got` in finish() — don't add here
+        // too, or gold crates get double-counted on the ending screen.)
         this.ctx.run.addAmmo(80); // ammo cache
         this.ctx.floaters.spawn(c.x, 1.6, c.z, "+AMMO CACHE", "crit");
         this.ctx.fx.burst(c.x, 1.0, c.z, 22, 0xffd84a, { speed: 8, up: 6, life: 0.6, size: 7 });
@@ -1036,6 +1040,12 @@ export class Scavenge {
     }
     const drop = Math.min(this.got, 2);
     this.got = Math.max(0, this.got - drop);
+    // Dropping below the goal re-locks the exit (no "clean extraction" on a
+    // run you no longer have the supplies for).
+    if (this.got < this.total && this.extractOpen) {
+      this.extractOpen = false;
+      this.extractMarker.visible = false;
+    }
     this.ctx.floaters.spawn(this.ax, 2.2, this.az, drop > 0 ? `GRABBED!  -${drop} SUPPLIES` : "GRABBED!", "warn");
     this.stunT = 0.6;
     this.graceT = 2.2;

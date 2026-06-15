@@ -1004,7 +1004,10 @@ export class EnemyManager {
 
   update(dt: number): void {
     if (this.screamBuffT > 0) this.screamBuffT -= dt;
-    for (const z of this.alive) z.update(dt, this.ctx);
+    // Snapshot the count: a boss can spawn adds mid-update (bossTick → spawn →
+    // alive.push); they must wait for next frame, not get an extra update now.
+    const n = this.alive.length;
+    for (let i = 0; i < n; i++) this.alive[i].update(dt, this.ctx);
     // Reap
     for (let i = this.alive.length - 1; i >= 0; i--) {
       if (this.alive[i].gone) {

@@ -180,6 +180,24 @@ app.whenReady().then(async () => {
       if (!barShown) errors.push("FINALE: boss health bar not visible");
       await shot(win, "04b-boss.png");
 
+      // Regression: exploder splash must CREDIT chain kills (kills + ZOMBIE_KILLED).
+      // Spawn a tight cluster of weak zombies + an exploder, all in blast range,
+      // then kill the exploder and confirm kills jumped by more than 1.
+      await js(`(()=>{ const e=window.__wod.ctx.enemies; e.clear();
+        for (let i=0;i<5;i++) e.spawn('crawler', -2+i, -40);
+        e.spawn('exploder', 0, -40);
+      })()`);
+      await sleep(200);
+      const killsBefore = await js(`window.__wod.ctx.stats.kills`);
+      await js(`(()=>{ const e=window.__wod.ctx.enemies; const ex=e.alive.find(z=>z.kind==='exploder');
+        if (ex) window.__wod.ctx.combat.damageZombie(ex, 99999, false, true);
+      })()`);
+      await sleep(120);
+      const killsAfter = await js(`window.__wod.ctx.stats.kills`);
+      if (!(killsAfter - killsBefore >= 2)) {
+        errors.push("EXPLODER: chain kills not credited (kills +" + (killsAfter - killsBefore) + ")");
+      }
+
       // Loop the night -> day -> continue cycle until the safe zone (multi-night).
       let finalState = "";
       for (let leg = 0; leg < 5; leg++) {

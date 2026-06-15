@@ -197,6 +197,23 @@ export class Sfx {
         this.tone(88, 0.6, "sawtooth", 0.14, 64);
         this.tone(120, 0.5, "sine", 0.1, 92);
         break;
+      // Per-type groans (lunge/spawn tells). Without these the cue is silent.
+      case "groan_low":
+        this.tone(70, 0.6, "sawtooth", 0.16, 52);
+        this.tone(96, 0.5, "sine", 0.1, 74);
+        break;
+      case "groan_high":
+        this.tone(150, 0.32, "sawtooth", 0.14, 230);
+        this.tone(210, 0.26, "square", 0.08, 300);
+        break;
+      case "groan_brute":
+        this.tone(52, 0.8, "sawtooth", 0.22, 36);
+        this.burst(0.5, 0.18, 280);
+        break;
+      case "groan_spit":
+        this.tone(120, 0.4, "sawtooth", 0.12, 90);
+        this.burst(0.2, 0.14, 1200);
+        break;
       case "acid_hit":
         this.burst(0.25, 0.3, 1600);
         this.tone(400, 0.18, "sine", 0.1, 120);
@@ -205,6 +222,12 @@ export class Sfx {
         this.tone(78, 0.7, "sawtooth", 0.45, 36);
         this.burst(0.6, 0.5, 460);
         this.burst(0.16, 0.4, 2500); // splintering wood crack
+        break;
+      case "shield_break":
+        // metallic clang + shatter as a riot shield gives way
+        this.tone(880, 0.12, "square", 0.18, 440);
+        this.tone(1320, 0.08, "triangle", 0.12, 660, 0.03);
+        this.burst(0.18, 0.3, 3200);
         break;
       case "player_hurt":
         // heavy impact + grunt, less tonal

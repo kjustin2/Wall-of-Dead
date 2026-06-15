@@ -43,8 +43,11 @@ export class Combat {
       const before = z.shield;
       dmg = z.chipShield(dmg);
       this.ctx.fx.burst(z.x, 1.1, z.z, 5, 0x9fb4c8, { speed: 6, up: 3, life: 0.3, size: 5 });
-      const pan0 = clamp(z.x / FIELD.wallHalf, -1, 1);
-      this.ctx.events.emit("SFX", { id: before > 0 && z.shield <= 0 ? "wall_breach" : "zombie_hit", pan: pan0 });
+      // Only a distinct clang on the BREAK — the normal hit sound below still
+      // plays, so don't double up on every chip.
+      if (before > 0 && z.shield <= 0) {
+        this.ctx.events.emit("SFX", { id: "shield_break", pan: clamp(z.x / FIELD.wallHalf, -1, 1) });
+      }
     }
     const killed = z.hurt(dmg);
     const big = headshot || crit;
@@ -102,13 +105,19 @@ export class Combat {
     this.ctx.events.emit("SFX", { id: "acid_hit", pan: clamp(x / FIELD.wallHalf, -1, 1) });
     // Chip the wall under the blast.
     if (!this.ctx.wall.isBrokenAt(x)) this.ctx.wall.damageAt(x, 26);
-    // Splash nearby standing zombies (not via damageZombie — avoid recursive gore spam).
+    // Splash nearby standing zombies (direct hurt to avoid recursive gore spam,
+    // but still credit chain kills so wave/kill counts stay correct).
     const R2 = 3.6 * 3.6;
     for (const o of this.ctx.enemies.alive) {
       if (o.kind === "exploder" || !o.killable) continue;
       const dx = o.x - x;
       const dz = o.z - z;
-      if (dx * dx + dz * dz < R2) o.hurt(22);
+      if (dx * dx + dz * dz < R2 && o.hurt(22)) {
+        this.ctx.stats.kills++;
+        this.ctx.fx.burst(o.x, 1.0, o.z, 14, PAL.blood, { speed: 9, up: 6, life: 0.6, size: 7 });
+        this.ctx.decals.spawn(o.x, o.z, 0x4a0708, 1.1);
+        this.ctx.events.emit("ZOMBIE_KILLED", { x: o.x, z: o.z, kind: o.kind });
+      }
     }
     // Splash the player if they're in range.
     const p = this.ctx.player;

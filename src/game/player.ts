@@ -477,7 +477,7 @@ export class Player {
       } else {
         // Fully empty — a soft throttled click, only on a fresh trigger pull
         this.fireCd = 0.35;
-        if (input.mouseJustDown) {
+        if (input.mouseJustDown || input.padFireJust) {
           this.ctx.events.emit("DRY_FIRE", {});
           this.ctx.events.emit("SFX", { id: "dry_fire" });
         }
@@ -670,6 +670,8 @@ export class Player {
 
   /** Reload completion 0..1 (for the HUD bar). */
   get reloadFrac(): number {
-    return this.reloadTimer > 0 ? 1 - this.reloadTimer / this.reloadTotal : 1;
+    // Clamped: the active-reload jam penalty can push the timer past the total,
+    // which would otherwise drive the HUD bar negative.
+    return this.reloadTimer > 0 ? clamp(1 - this.reloadTimer / this.reloadTotal, 0, 1) : 1;
   }
 }

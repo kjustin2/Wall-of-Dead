@@ -36,6 +36,7 @@ class Companion {
   private t = 0;
   private barkTimer = 5;
   private reviveP = 0;
+  private revivedThisFrame = false;
   private aimRig = new THREE.Group();
   private gun: THREE.Mesh;
 
@@ -171,7 +172,12 @@ class Companion {
     this.meleeLabel.visible = !this.down && (!loNow || (loNow.ammo <= 0 && loNow.reserve <= 0));
     // Name and "MELEE" share one slot — only ever one of them is shown.
     this.nameLabel.visible = !this.meleeLabel.visible;
-    if (this.down) return;
+    if (this.down) {
+      // Revive progress bleeds back down if you stop holding E (don't bank it).
+      if (!this.revivedThisFrame) this.reviveP = Math.max(0, this.reviveP - dt * 0.6);
+      this.revivedThisFrame = false;
+      return;
+    }
     this.cd -= dt;
 
     // Medic: steadily patches themselves and the nearby defender.
@@ -264,6 +270,7 @@ class Companion {
 
   revive(dt: number, ctx: Ctx): boolean {
     if (!this.down) return false;
+    this.revivedThisFrame = true; // tells update() not to decay progress this frame
     this.reviveP += dt / 2.5;
     if (this.reviveP >= 1) {
       this.down = false;

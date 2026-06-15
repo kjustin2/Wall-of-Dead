@@ -101,12 +101,24 @@ export class Menus {
     document.body.classList.toggle("reduced", s.reducedFx);
   }
 
+  /** An armed key-rebind capture listener, torn down on any repaint/close so it
+   * can't leak and hijack a later keypress. */
+  private rebindCapture: ((e: KeyboardEvent) => void) | null = null;
+  private cancelRebindCapture(): void {
+    if (this.rebindCapture) {
+      window.removeEventListener("keydown", this.rebindCapture, true);
+      this.rebindCapture = null;
+    }
+  }
+
   clear(): void {
+    this.cancelRebindCapture();
     this.root.innerHTML = "";
     this.root.classList.remove("overlay--on");
   }
 
   private paint(html: string): void {
+    this.cancelRebindCapture();
     this.root.innerHTML = html;
     this.root.classList.add("overlay--on");
   }
@@ -364,10 +376,11 @@ export class Menus {
       const code = el.getAttribute("data-code");
       if (!code) return;
       el.addEventListener("click", () => {
+        this.cancelRebindCapture(); // only one armed at a time
         el.textContent = "press a key…";
         const onKey = (e: KeyboardEvent) => {
           e.preventDefault();
-          window.removeEventListener("keydown", onKey, true);
+          this.cancelRebindCapture();
           if (e.code !== "Escape") {
             // Clear any prior alt for this action, then add the new one.
             for (const k of Object.keys(s.rebinds)) if (s.rebinds[k] === code) delete s.rebinds[k];
@@ -377,6 +390,7 @@ export class Menus {
           saveSettings(s);
           this.showSettings(onBack);
         };
+        this.rebindCapture = onKey;
         window.addEventListener("keydown", onKey, true);
       });
     });
