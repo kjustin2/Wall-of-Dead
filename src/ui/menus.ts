@@ -203,6 +203,7 @@ export class Menus {
     onSettings: () => void,
     onTitle: () => void,
     onControls: () => void,
+    onLoadout: () => void,
     stats?: Stats
   ): void {
     const line = stats
@@ -214,6 +215,7 @@ export class Menus {
         ${line}
         <div class="menu">
           <button class="mbtn mbtn--primary act-resume">RESUME</button>
+          <button class="mbtn act-loadout">LOADOUT</button>
           <button class="mbtn act-controls">CONTROLS</button>
           <button class="mbtn act-restart">RESTART RUN</button>
           <button class="mbtn act-settings">SETTINGS</button>
@@ -221,6 +223,7 @@ export class Menus {
         </div>
       </div>`);
     this.btn(".act-resume", onResume);
+    this.btn(".act-loadout", onLoadout);
     this.btn(".act-controls", onControls);
     this.btn(".act-restart", onRestart);
     this.btn(".act-settings", onSettings);
@@ -301,10 +304,46 @@ export class Menus {
       <div class="screen screen--report">
         <h2 class="panel-title">DAWN — YOU HELD</h2>
         <ul class="report">${lines.map((l) => `<li>${l}</li>`).join("")}</ul>
-        <p class="subtitle">Day breaks. Scavenge the field for supplies, then push for the safe zone.</p>
-        <div class="menu"><button class="mbtn mbtn--primary act-start">SUPPLY RUN ▶</button></div>
+        <p class="subtitle">Day breaks. Set your loadout, then scavenge the field for supplies.</p>
+        <div class="menu">
+          <button class="mbtn mbtn--primary act-start">SUPPLY RUN ▶</button>
+          <button class="mbtn act-loadout">LOADOUT</button>
+        </div>
       </div>`);
     this.btn(".act-start", onStart);
+    this.btn(".act-loadout", () => this.showLoadout(() => this.showDayReport(lines, onStart)));
+  }
+
+  /** Assign weapons from the shared armory to the player or an ally. */
+  showLoadout(onBack: () => void): void {
+    const run = this.ctx.run;
+    const rows = run.weapons
+      .map((w, i) => {
+        const cur = run.weaponOwner[i] ?? "You";
+        return `<div class="lo-row" data-i="${i}"><span class="lo-name">${w.def.name}</span><span class="lo-arrow">▸</span><span class="lo-owner">${cur}</span><span class="lo-ammo">${w.ammo} / ${w.reserve}</span></div>`;
+      })
+      .join("");
+    this.paint(`
+      <div class="screen screen--loadout">
+        <h2 class="panel-title">LOADOUT</h2>
+        <p class="subtitle">Click a weapon to hand it to an ally (or take it back). An ally holding a weapon uses its ammo and falls back to melee when empty — you can't use it while they hold it.</p>
+        <div class="loadout">${rows || '<div class="lo-row">No weapons</div>'}</div>
+        <div class="menu"><button class="mbtn mbtn--primary act-back">DONE</button></div>
+      </div>`);
+    this.root.querySelectorAll(".lo-row").forEach((el) => {
+      const attr = el.getAttribute("data-i");
+      if (attr == null) return;
+      el.addEventListener("click", () => {
+        const i = parseInt(attr, 10);
+        const order: (string | null)[] = [null, ...run.companions];
+        const cur = run.weaponOwner[i] ?? null;
+        const next = order[(order.indexOf(cur) + 1) % order.length];
+        run.assignWeapon(i, next);
+        this.ctx.events.emit("SFX", { id: "ui_click" });
+        this.showLoadout(onBack);
+      });
+    });
+    this.btn(".act-back", onBack);
   }
 
   showDayLoot(lines: string[], onContinue: () => void): void {

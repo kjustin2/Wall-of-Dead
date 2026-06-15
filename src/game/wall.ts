@@ -188,6 +188,13 @@ export class Wall {
     this.refreshAll();
   }
 
+  /** Fully restore the segment under x (a completed repair-kit fix). */
+  repairSegmentAt(x: number): void {
+    const i = this.segAt(x);
+    this.hp[i] = MAX_PER;
+    this.refresh(i);
+  }
+
   repair(amount: number): void {
     let pool = amount;
     while (pool > 0.01) {

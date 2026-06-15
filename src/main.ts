@@ -32,7 +32,7 @@ import { Scavenge } from "./minigames/scavenge";
 import { Hud } from "./ui/hud";
 import { Menus } from "./ui/menus";
 import { freshStats, type Ctx } from "./game/ctx";
-import { RUN, FIELD } from "./config";
+import { FIELD } from "./config";
 import { clamp } from "./core/math";
 
 type GameState = "menu" | "cutscene" | "night" | "day" | "report" | "loot" | "paused" | "dead" | "victory";
@@ -219,10 +219,13 @@ function onDawn(): void {
   ctx.events.emit("SFX", { id: "dawn_sting" });
   requestSlowmo(0.7, 0.45);
   hud.setMode("hidden");
+  // Allies still down at dawn are lost (their weapon returns to the pool).
+  const lost = ctx.companions.downedNames();
+  for (const name of lost) ctx.run.loseCompanion(name);
   const lines = [
     `Kills tonight — ${ctx.stats.kills}`,
     `Wall integrity — ${Math.round(ctx.wall.integrityFrac() * 100)}%`,
-    `Defenders standing — ${ctx.companions.aliveCount + 1}`,
+    `Allies — ${ctx.run.companions.length}${lost.length ? ` (lost ${lost.join(", ")})` : ""}`,
   ];
   menus.showDayReport(lines, startDay);
 }
@@ -251,8 +254,9 @@ function onDayDone(tier: string, frac: number): void {
   state = "loot";
   ctx.input.enabled = false;
 
-  const repair = Math.round(40 + 220 * frac);
-  ctx.run.wallHp = clamp(ctx.run.wallHp + repair, 0, RUN.wallMaxHp);
+  // Supplies become repair kits — the wall no longer auto-heals.
+  const kits = Math.round(frac * 4);
+  ctx.run.repairKits += kits;
   const finds = ["rifle", "lmg"];
   const found = finds.find((id) => !ctx.run.weapons.some((w) => w.def.id === id)) ?? null;
   if (found) ctx.run.grantWeapon(found);
@@ -262,7 +266,7 @@ function onDayDone(tier: string, frac: number): void {
 
   const lines = [
     `Run rating — ${tier}  (${Math.round(frac * 100)}% supplies)`,
-    `Wall repaired to ${Math.round((ctx.run.wallHp / RUN.wallMaxHp) * 100)}%`,
+    `Repair kits recovered — ${kits}  (you now hold ${ctx.run.repairKits})`,
     found ? `Found a ${found.toUpperCase()} in the wreckage!` : "Restocked ammo from the cache.",
   ];
 
@@ -334,6 +338,7 @@ function openPause(): void {
       toTitle();
     },
     () => menus.showHelp(openPause),
+    () => menus.showLoadout(openPause),
     ctx.stats
   );
 }
@@ -349,7 +354,13 @@ ctx.events.on("PLAYER_DIED", () => {
 });
 ctx.events.on("DAY_DONE", ({ tier, frac }) => onDayDone(tier, frac));
 ctx.events.on("WALL_BREACH", () => {
-  if (state === "night") hud.banner("BREACH!", "Plug the gap — hold E");
+  if (state === "night") hud.banner("BREACH!", "Plug the gap — hold E (needs a kit)");
+});
+ctx.events.on("COMPANION_DOWN", ({ name }) => {
+  // A downed ally drops their weapon back into the pool.
+  const wi = ctx.run.allyWeaponIndex(name);
+  if (wi >= 0) ctx.run.weaponOwner[wi] = null;
+  if (state === "night") hud.banner(`${name} is DOWN`, "Revive with E or lose them at dawn");
 });
 ctx.events.on("MINIBOSS", ({ name }) => {
   hud.banner(name, "It'll smash the wall — focus fire");

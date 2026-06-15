@@ -29,7 +29,9 @@ export class Hud {
         <div class="hud-left">
           <div class="stat"><span class="stat-tag">HEALTH</span><div class="bar bar-hp"><div class="bar-fill"></div></div></div>
           <div class="stat"><span class="stat-tag">WALL</span><div class="bar bar-wall"><div class="bar-fill"></div></div></div>
+          <div class="kits">🔧 REPAIR KITS <span class="kits-n">0</span></div>
         </div>
+        <div class="repair"><div class="repair-label">REPAIRING…</div><div class="bar bar-repair"><div class="bar-fill"></div></div></div>
         <div class="hud-center">
           <div class="adr"><div class="adr-fill"></div><div class="adr-tick"></div></div>
           <div class="adr-label">STEADY</div>
@@ -63,6 +65,9 @@ export class Hud {
       dawnLabel: q(".dawn-label"),
       hpFill: q(".bar-hp .bar-fill"),
       wallFill: q(".bar-wall .bar-fill"),
+      kitsN: q(".kits-n"),
+      repair: q(".repair"),
+      repairFill: q(".bar-repair .bar-fill"),
       reloadBar: q(".reload-bar"),
       reloadFill: q(".reload-fill"),
       adr: q(".adr"),
@@ -140,6 +145,7 @@ export class Hud {
     this.el.dayHud.style.display = day ? "" : "none";
     this.el.crosshair.style.display = night ? "" : "none";
     if (!day) this.el.compass.style.display = "none";
+    if (!night) this.el.repair.style.display = "none";
   }
 
   banner(text: string, sub = ""): void {
@@ -175,6 +181,15 @@ export class Hud {
     const c = this.ctx;
     this.el.hpFill.style.width = `${(c.player.hp / c.player.maxHp) * 100}%`;
     this.el.wallFill.style.width = `${c.wall.integrityFrac() * 100}%`;
+    this.el.kitsN.textContent = `${c.run.repairKits}`;
+
+    // Repair progress (hold E at a breach)
+    if (c.player.repairing && c.player.repairFrac > 0) {
+      this.el.repair.style.display = "";
+      this.el.repairFill.style.width = `${c.player.repairFrac * 100}%`;
+    } else {
+      this.el.repair.style.display = "none";
+    }
 
     // Reload bar
     if (c.player.reloading) {

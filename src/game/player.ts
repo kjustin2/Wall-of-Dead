@@ -9,6 +9,7 @@ const MOVE_SPEED = 9.5;
 const GUN_REACH = 1.3;
 const FLY_Y = FIELD.fireY;
 const SHOVE_TIME = 0.28; // melee swing duration
+const REPAIR_TIME = 10; // seconds to fix a breached segment (per kit)
 
 /**
  * The defender. Strafes the rampart (A/D), aims with the mouse, fires the
@@ -41,6 +42,8 @@ export class Player {
   private shoveT = 0; // melee swing animation timer
   private heat = 0; // recoil climb on sustained auto fire
   repairing = false;
+  repairFrac = 0; // 0..1 progress of the current breach repair (for the HUD)
+  private repairT = 0;
 
   constructor(private ctx: Ctx, scene: THREE.Scene) {
     const y = FIELD.rampartHeight;
@@ -241,18 +244,34 @@ export class Player {
       this.reloadTimer -= dt;
       if (this.reloadTimer <= 0) this.finishReload();
     }
-    // Hold E (context): revive a downed ally nearby, else plug a breach.
+    // Hold E (context): revive a downed ally nearby, else fix a breach with a kit.
     this.repairing = false;
-    if (this.alive && input.down("KeyE")) {
-      if (this.ctx.companions.reviveTick(this.x, dt)) {
-        this.repairing = true;
-      } else if (this.ctx.wall.isBrokenAt(this.x)) {
-        this.repairing = true;
-        this.ctx.wall.repair(18 * dt);
-        if (Math.random() < 0.3) {
-          this.ctx.fx.burst(this.x, 0.5, FIELD.wallZ, 2, 0xffcf6a, { speed: 4, up: 3, life: 0.25, size: 4 });
-        }
+    this.repairFrac = this.repairT / REPAIR_TIME;
+    if (this.alive && input.down("KeyE") && this.ctx.companions.reviveTick(this.x, dt)) {
+      this.repairing = true;
+      this.repairT = 0;
+    } else if (
+      this.alive &&
+      input.down("KeyE") &&
+      this.ctx.wall.isBrokenAt(this.x) &&
+      this.ctx.run.repairKits > 0
+    ) {
+      this.repairing = true;
+      this.repairT += dt;
+      this.repairFrac = clamp(this.repairT / REPAIR_TIME, 0, 1);
+      if (Math.random() < 0.4) {
+        this.ctx.fx.burst(this.x, 0.6, FIELD.wallZ, 2, 0xffcf6a, { speed: 4, up: 3, life: 0.25, size: 4 });
       }
+      if (this.repairT >= REPAIR_TIME) {
+        this.ctx.wall.repairSegmentAt(this.x);
+        this.ctx.run.repairKits--;
+        this.repairT = 0;
+        this.repairFrac = 0;
+        this.ctx.events.emit("SFX", { id: "pickup" });
+      }
+    } else {
+      this.repairT = 0;
+      this.repairFrac = 0;
     }
     if (this.alive && !this.repairing) this.handleInput(dt);
 
