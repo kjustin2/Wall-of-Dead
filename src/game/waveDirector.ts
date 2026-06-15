@@ -71,10 +71,11 @@ export class WaveDirector {
   update(dt: number): void {
     if (this.done) return;
 
-    // Mini-boss: one Tank crashes the surge (but not in the final moments).
-    if (!this.tankSpawned && this.progress > 0.85 && this.elapsed < this.len - 4) {
+    // Mini-boss: one Tank crashes the surge. Spawn it early enough AND closer in
+    // (z ≈ -48) so it actually reaches the wall before dawn.
+    if (!this.tankSpawned && this.progress > 0.6 && this.elapsed < this.len - 18) {
       this.tankSpawned = true;
-      this.ctx.enemies.spawn("tank", this.ctx.rng.range(-6, 6));
+      this.ctx.enemies.spawn("tank", this.ctx.rng.range(-6, 6), -48);
       this.ctx.events.emit("MINIBOSS", { name: "TANK" });
     }
 

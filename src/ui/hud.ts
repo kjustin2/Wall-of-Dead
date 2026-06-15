@@ -1,4 +1,3 @@
-import * as THREE from "three";
 import type { Ctx } from "../game/ctx";
 import type { AdrenalineZone } from "../core/events";
 import type { Scavenge } from "../minigames/scavenge";
@@ -52,7 +51,6 @@ export class Hud {
         <div class="stamina"><div class="stamina-fill"></div></div>
         <div class="day-obj">Sneak for supplies · rescue survivors · grab repair kits · stay out of sight · SHIFT sprints</div>
       </div>
-      <div class="compass-arrow">➤</div>
       <div class="kills">0</div>
       <div class="banner"></div>
       <div class="crosshair"><span class="ch-ring"></span><span class="hitmark"></span></div>
@@ -87,7 +85,6 @@ export class Hud {
       dayCrates: q(".day-crates"),
       dayFill: q(".bar-day .bar-fill"),
       stamina: q(".stamina-fill"),
-      compass: q(".compass-arrow"),
       kills: q(".kills"),
       banner: q(".banner"),
       crosshair: q(".crosshair"),
@@ -146,7 +143,6 @@ export class Hud {
     this.el.kills.style.display = night ? "" : "none";
     this.el.dayHud.style.display = day ? "" : "none";
     this.el.crosshair.style.display = night ? "" : "none";
-    if (!day) this.el.compass.style.display = "none";
     if (!night) {
       this.el.repair.style.display = "none";
       this.el.prompt.style.display = "none";
@@ -230,7 +226,7 @@ export class Hud {
     if (lo) {
       const empty = lo.ammo === 0 && lo.reserve === 0;
       this.el.wname.textContent = empty
-        ? "OUT OF AMMO — SWITCH (1–3)"
+        ? "OUT OF AMMO — 1–5 to switch · SPACE to bash"
         : c.player.reloading
           ? `${lo.def.name} — RELOADING`
           : lo.def.name;
@@ -265,7 +261,6 @@ export class Hud {
   }
   private scav: Scavenge | null = null;
 
-  private tmpV = new THREE.Vector3();
   private updateDay(): void {
     if (!this.scav) return;
     const low = this.scav.timeLeft < 12;
@@ -274,18 +269,5 @@ export class Hud {
     this.el.dayFill.style.width = `${f * 100}%`;
     this.el.dayCrates.style.color = this.scav.spotted || low ? "#ff5a3c" : "#ffce7a";
     this.el.stamina.style.width = `${this.scav.stamina * 100}%`;
-
-    // Compass: point from screen centre toward the nearest crate
-    const np = this.scav.nearestCratePos();
-    if (np) {
-      this.tmpV.copy(np).project(this.ctx.stage.camera);
-      const sx = (this.tmpV.x * 0.5 + 0.5) * window.innerWidth;
-      const sy = (-this.tmpV.y * 0.5 + 0.5) * window.innerHeight;
-      const ang = Math.atan2(sy - window.innerHeight / 2, sx - window.innerWidth / 2);
-      this.el.compass.style.display = "";
-      this.el.compass.style.transform = `translate(-50%, -50%) rotate(${ang}rad)`;
-    } else {
-      this.el.compass.style.display = "none";
-    }
   }
 }

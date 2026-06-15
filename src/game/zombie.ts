@@ -164,7 +164,7 @@ export const TYPES: Record<string, ZType> = {
   tank: {
     key: "tank",
     hp: 420,
-    speed: 1.7,
+    speed: 2.4,
     radius: 2.0,
     claw: 30,
     clawCD: 2.0,
@@ -278,7 +278,7 @@ export class Zombie {
   private bob: number;
   private hitFlash = 0;
 
-  constructor(t: ZType, x: number, ctx: Ctx) {
+  constructor(t: ZType, x: number, ctx: Ctx, z?: number) {
     this.t = t;
     this.kind = t.key;
     this.hp = t.hp;
@@ -287,7 +287,7 @@ export class Zombie {
     this.heavy = t.heavy;
     this.headshotChance = t.headshotChance;
     this.x = x;
-    this.z = FIELD.spawnZ + ctx.rng.range(-FIELD.spawnZJitter, 0);
+    this.z = z ?? FIELD.spawnZ + ctx.rng.range(-FIELD.spawnZJitter, 0);
     this.targetX = x;
     this.spitTimer = t.spitCD ?? 2.5;
     this.bob = ctx.rng.range(0, Math.PI * 2);
@@ -623,10 +623,10 @@ export class EnemyManager {
     return this.alive.length;
   }
 
-  spawn(typeKey: string, x: number): void {
+  spawn(typeKey: string, x: number, atZ?: number): void {
     const t = TYPES[typeKey];
     if (!t) return;
-    const z = new Zombie(t, x, this.ctx);
+    const z = new Zombie(t, x, this.ctx, atZ);
     this.group.add(z.group);
     this.alive.push(z);
     // Spawn tell: a distant groan from the dark.

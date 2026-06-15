@@ -30,6 +30,7 @@ class Companion {
   private marker = new THREE.Group();
   private hpFill: THREE.Sprite;
   private hpBg: THREE.Sprite;
+  private meleeLabel: THREE.Sprite;
   private t = 0;
   private barkTimer = 5;
   private reviveP = 0;
@@ -81,7 +82,11 @@ class Companion {
     chevron.position.y = 2.55;
     const label = makeLabel(`${name}  ·  ALLY`, "#9dffd0");
     label.position.y = 3.05;
-    this.marker.add(glow, chevron, label);
+    this.meleeLabel = makeLabel("⚠ MELEE — NO AMMO", "#ff7a5a");
+    this.meleeLabel.position.y = 2.78;
+    this.meleeLabel.scale.set(3, 0.75, 1);
+    this.meleeLabel.visible = false;
+    this.marker.add(glow, chevron, label, this.meleeLabel);
     this.group.add(this.marker);
 
     // Mini health bar (billboarded)
@@ -110,6 +115,10 @@ class Companion {
     this.marker.position.y = Math.sin(this.t * 3) * 0.12;
     this.marker.rotation.y = this.t * 0.8;
     this.setBar();
+    // "MELEE" indicator when this ally has no usable weapon
+    const wiNow = ctx.run.allyWeaponIndex(this.name);
+    const loNow = wiNow >= 0 ? ctx.run.weapons[wiNow] : null;
+    this.meleeLabel.visible = !this.down && (!loNow || (loNow.ammo <= 0 && loNow.reserve <= 0));
     if (this.down) return;
     this.cd -= dt;
 
