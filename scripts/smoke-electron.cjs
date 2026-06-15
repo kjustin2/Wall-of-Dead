@@ -148,8 +148,21 @@ app.whenReady().then(async () => {
           `(()=>{const b=document.querySelector('.act-start'); if(b){b.click(); return true;} return false;})()`
         );
         if (!started) errors.push("FLOW: no Supply Run button on report (leg " + leg + ")");
-        await sleep(1600);
-        if (leg === 0) await shot(win, "06-day-scavenge.png");
+        await sleep(1200);
+        if (leg === 0) {
+          // Exercise the stealth verbs: move, toggle light, lure, takedown-scan.
+          await win.webContents.executeJavaScript(`(()=>{
+            const fire = (code, type) => window.dispatchEvent(new KeyboardEvent(type, { code }));
+            fire('KeyW','keydown'); fire('KeyF','keydown'); fire('KeyQ','keydown'); fire('KeyE','keydown');
+          })()`);
+          await sleep(500);
+          await win.webContents.executeJavaScript(`(()=>{
+            const fire = (code, type) => window.dispatchEvent(new KeyboardEvent(type, { code }));
+            fire('KeyF','keydown'); fire('KeyW','keyup'); fire('KeyE','keyup');
+          })()`);
+          await sleep(300);
+          await shot(win, "06-day-scavenge.png");
+        }
         await win.webContents.executeJavaScript(`window.__wod.completeDay();`);
         await sleep(1100);
         if (leg === 0) await shot(win, "07-day-loot.png");

@@ -339,6 +339,26 @@ body {
   color: var(--good);
   text-shadow: 0 1px 4px rgba(0, 0, 0, 0.8);
 }
+.day-status {
+  margin-top: 4px;
+  font-family: var(--display);
+  letter-spacing: 3px;
+  font-size: 13px;
+  color: #9dd0ff;
+}
+.day-prompt {
+  display: none;
+  position: absolute;
+  bottom: 16%;
+  left: 50%;
+  transform: translateX(-50%);
+  font-family: var(--display);
+  letter-spacing: 4px;
+  font-size: 20px;
+  color: #ffe08a;
+  text-shadow: 0 0 14px rgba(0, 0, 0, 0.9);
+  white-space: nowrap;
+}
 .stamina {
   width: 200px;
   height: 6px;

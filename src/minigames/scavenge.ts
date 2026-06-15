@@ -14,6 +14,13 @@ const KIT_CRATES = 2; // bonus wall-repair-kit pickups
 const AV_R = 0.6;
 const VISION_RANGE = 15;
 const CONE_HALF = 0.52; // radians, half-angle of a guard's sight cone
+const TD_RANGE = 2.4; // takedown reach
+const TD_TIME = 0.7; // hold time for a silent takedown
+const NOISE_SPRINT = 12; // a sprinting avatar is heard within this radius
+const LURE_RANGE = 20; // guards within this of a lure go investigate it
+const LURE_CD = 8;
+const HIDE_R = 2.6; // radius of a hiding alcove
+const MAX_CATCHES = 3; // caught this many times → dragged off (run ends)
 
 export type Tier = "S" | "A" | "B" | "C" | "D";
 
@@ -56,12 +63,25 @@ interface Guard {
   facing: number;
   patrol: { x: number; z: number }[];
   pIdx: number;
-  state: "patrol" | "chase";
+  state: "patrol" | "chase" | "investigate";
   alertT: number;
   speed: number;
   stuckT: number;
   px: number;
   pz: number;
+  invX: number;
+  invZ: number;
+  dead: boolean;
+}
+interface Lure {
+  x: number;
+  z: number;
+  life: number;
+  glow: THREE.Sprite;
+}
+interface HideZone {
+  x: number;
+  z: number;
 }
 
 const AMBER = 0xffb24a;
@@ -187,8 +207,25 @@ export class Scavenge {
   readonly maxTime = DURATION;
   stamina = 1;
   spotted = false;
+  // HUD-facing state (read by the day HUD)
+  promptText = "";
+  takedownFrac = 0;
+  lightOn = true;
+  catches = 0;
+  extractOpen = false;
 
   private group = new THREE.Group();
+  private stunT = 0; // post-catch stun (can't move)
+  private graceT = 0; // post-catch detection grace
+  private lures: Lure[] = [];
+  private lureCd = 0;
+  private hideZones: HideZone[] = [];
+  private extractZone = { x: 0, z: -5 };
+  private extractMarker = new THREE.Group();
+  private tdGuard: Guard | null = null;
+  private tdProgress = 0;
+  private hidden = false;
+  private lightDefault = 19;
   private avatar = new THREE.Group();
   private light: THREE.SpotLight;
   private ax = 0;
@@ -217,6 +254,7 @@ export class Scavenge {
     this.buildWalls();
     this.buildBoundary();
     this.buildSetDressing();
+    this.buildHideAndExtract();
 
     // Sight-cone sector geometry (points +Z; rotated to each guard's facing).
     const shape = new THREE.Shape();
@@ -352,6 +390,49 @@ export class Scavenge {
       this.group.add(light, glow);
       this.redLights.push({ light, glow, phase: rng.range(0, 6) });
     }
+  }
+
+  /** Hiding alcoves (dumpsters you can tuck behind to break a chase) + the
+   * extraction point that opens once the supplies are secured. */
+  private buildHideAndExtract(): void {
+    const metal = new THREE.MeshStandardMaterial({ color: 0x2a3a2e, roughness: 0.9, flatShading: true });
+    const spots: [number, number][] = [
+      [-32, -12],
+      [30, -30],
+      [-4, -38],
+      [22, -56],
+      [-26, -60],
+    ];
+    for (const [x, z] of spots) {
+      this.hideZones.push({ x, z });
+      const bin = new THREE.Mesh(new THREE.BoxGeometry(2.0, 1.5, 1.4), metal);
+      bin.position.set(x, 0.75, z);
+      bin.castShadow = true;
+      const lid = new THREE.Mesh(new THREE.BoxGeometry(2.1, 0.18, 1.5), metal);
+      lid.position.set(x, 1.6, z);
+      lid.rotation.z = 0.12;
+      // a soft shadow-glow so the dark alcove reads as a safe pocket
+      const g = makeGlow(0x2a6a4a, 3.0, 0.18);
+      g.position.set(x, 0.4, z);
+      this.group.add(bin, lid, g);
+    }
+
+    // Extraction beacon — hidden until the run goal is met.
+    const ring = new THREE.Mesh(
+      new THREE.RingGeometry(2.0, 2.4, 28),
+      new THREE.MeshBasicMaterial({ color: 0x6fffa8, transparent: true, opacity: 0.7, side: THREE.DoubleSide, depthWrite: false, fog: false })
+    );
+    ring.rotation.x = -Math.PI / 2;
+    ring.position.y = 0.05;
+    const pillar = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.4, 0.4, 9, 12, 1, true),
+      new THREE.MeshBasicMaterial({ color: 0x6fffa8, transparent: true, opacity: 0.25, side: THREE.DoubleSide, depthWrite: false, blending: THREE.AdditiveBlending, fog: false })
+    );
+    pillar.position.y = 4.5;
+    this.extractMarker.add(ring, pillar, makeGlow(0x6fffa8, 4, 0.6));
+    this.extractMarker.position.set(this.extractZone.x, 0, this.extractZone.z);
+    this.extractMarker.visible = false;
+    this.group.add(this.extractMarker);
   }
 
   private buildBoundary(): void {
@@ -507,7 +588,7 @@ export class Scavenge {
         patrol.push(this.freeSpot(AREA.minZ + 2, AREA.maxZ - 8));
       }
     }
-    return { group: g, cone, coneMat, eyeMat, x: patrol[0].x, z: patrol[0].z, facing: 0, patrol, pIdx: 1, state: "patrol", alertT: 0, speed: 3, stuckT: 0, px: patrol[0].x, pz: patrol[0].z };
+    return { group: g, cone, coneMat, eyeMat, x: patrol[0].x, z: patrol[0].z, facing: 0, patrol, pIdx: 1, state: "patrol", alertT: 0, speed: 3, stuckT: 0, px: patrol[0].x, pz: patrol[0].z, invX: 0, invZ: 0, dead: false };
   }
 
   start(): void {
@@ -521,12 +602,25 @@ export class Scavenge {
     this.az = -7;
     this.group.visible = true;
     this.groanT = 4;
+    this.stunT = 0;
+    this.graceT = 0;
+    this.lureCd = 0;
+    this.catches = 0;
+    this.extractOpen = false;
+    this.extractMarker.visible = false;
+    this.lightOn = true;
+    this.tdGuard = null;
+    this.tdProgress = 0;
+    this.takedownFrac = 0;
+    this.promptText = "";
+    for (const l of this.lures) this.group.remove(l.glow);
+    this.lures = [];
     this.ctx.world.setDawn(0.08); // dark + moody, but still navigable
     // Thicker fog + a dimmer, tighter flashlight = scarier.
     this.fogPrev = this.ctx.stage.fog.density;
     this.ctx.stage.fog.density = 0.038;
     this.light.distance = 23;
-    this.light.intensity = 19;
+    this.light.intensity = this.lightDefault;
 
     for (const c of this.crates) this.group.remove(c.group);
     this.crates = [];
@@ -559,9 +653,20 @@ export class Scavenge {
     if (!this.active || this.done) return;
     this.t += dt;
     this.timeLeft -= dt;
+    if (this.stunT > 0) this.stunT -= dt;
+    if (this.graceT > 0) this.graceT -= dt;
+    if (this.lureCd > 0) this.lureCd -= dt;
+    this.promptText = "";
 
-    // Move (sneak, or sprint while stamina holds)
-    const a = this.ctx.input.axis(this.tmp);
+    // Flashlight toggle (F) — off = harder to be seen, but you see far less.
+    if (this.ctx.input.pressed("KeyF")) {
+      this.lightOn = !this.lightOn;
+      this.light.intensity = this.lightOn ? this.lightDefault : 3.5;
+      this.ctx.events.emit("SFX", { id: "ui_click" });
+    }
+
+    // Move (sneak, or sprint while stamina holds) — frozen briefly when grabbed.
+    const a = this.stunT > 0 ? this.tmp.set(0, 0) : this.ctx.input.axis(this.tmp);
     const moving = a.x !== 0 || a.y !== 0;
     const sprint = this.ctx.input.down("ShiftLeft") && this.stamina > 0.05 && moving;
     this.stamina = sprint ? Math.max(0, this.stamina - dt * 0.55) : Math.min(1, this.stamina + dt * 0.3);
@@ -578,10 +683,40 @@ export class Scavenge {
       this.avatar.rotation.y = Math.atan2(a.x, a.y);
     }
 
+    // Hidden when tucked into an alcove — guards can't see you there.
+    this.hidden = false;
+    for (const h of this.hideZones) {
+      if ((h.x - this.ax) ** 2 + (h.z - this.az) ** 2 < HIDE_R * HIDE_R) {
+        this.hidden = true;
+        break;
+      }
+    }
+    if (this.hidden) this.promptText = "HIDDEN";
+
+    // Throw a distraction lure (Q) — pulls patrolling guards toward the noise.
+    if (this.ctx.input.pressed("KeyQ") && this.lureCd <= 0) this.throwLure();
+    this.updateLures(dt);
+
+    // Sprinting is loud: nearby patrolling guards investigate the sound.
+    if (sprint && moving) {
+      for (const g of this.guards) {
+        if (g.dead || g.state === "chase") continue;
+        if ((g.x - this.ax) ** 2 + (g.z - this.az) ** 2 < NOISE_SPRINT * NOISE_SPRINT) {
+          g.state = "investigate";
+          g.invX = this.ax;
+          g.invZ = this.az;
+          g.alertT = 3;
+        }
+      }
+    }
+
+    // Stealth takedown (hold E behind an unaware guard).
+    this.updateTakedown(dt);
+
     // Guards
     let anyChase = false;
     for (const g of this.guards) this.updateGuard(g, dt);
-    for (const g of this.guards) if (g.state === "chase") anyChase = true;
+    for (const g of this.guards) if (!g.dead && g.state === "chase") anyChase = true;
     if (anyChase && !this.spotted) {
       this.spotted = true;
       this.ctx.events.emit("SFX", { id: "scream" });
@@ -654,8 +789,140 @@ export class Scavenge {
       }
     }
 
+    // Extraction beat: once the supplies are secured an exit opens near the road
+    // — reach it before the clock for a clean-getaway bonus.
+    if (!this.extractOpen && this.got >= this.total) {
+      this.extractOpen = true;
+      this.extractMarker.visible = true;
+      this.ctx.floaters.spawn(this.extractZone.x, 2.6, this.extractZone.z, "SUPPLIES SECURED — REACH THE EXIT", "crit");
+      this.ctx.events.emit("SFX", { id: "meter_full" });
+    }
+    if (this.extractOpen) {
+      this.extractMarker.rotation.y += dt * 1.5;
+      this.promptText = "↑ REACH THE EXIT";
+      const edx = this.extractZone.x - this.ax;
+      const edz = this.extractZone.z - this.az;
+      if (edx * edx + edz * edz < 6.25) {
+        this.ctx.run.addAmmo(60);
+        this.ctx.floaters.spawn(this.ax, 2.4, this.az, "CLEAN EXTRACTION  +AMMO", "crit");
+        this.finish();
+        return;
+      }
+    }
+
     this.ctx.cam.target.set(this.ax, 0, this.az);
-    if (this.timeLeft <= 0 || this.got >= this.total) this.finish();
+    if (this.timeLeft <= 0) this.finish();
+  }
+
+  /** Throw a clattering lure ahead — patrolling guards go investigate the noise. */
+  private throwLure(): void {
+    this.lureCd = LURE_CD;
+    let lx = clamp(this.ax + Math.sin(this.avatar.rotation.y) * 10, AREA.minX + 2, AREA.maxX - 2);
+    let lz = clamp(this.az + Math.cos(this.avatar.rotation.y) * 10, AREA.minZ + 2, AREA.maxZ - 2);
+    for (const w of WALLS) [lx, lz] = pushOutAABB(lx, lz, 0.6, w);
+    const glow = makeGlow(0x9dd0ff, 2.4, 0.7);
+    glow.position.set(lx, 0.6, lz);
+    this.group.add(glow);
+    this.lures.push({ x: lx, z: lz, life: 4, glow });
+    this.ctx.fx.burst(lx, 0.5, lz, 8, 0x9dd0ff, { speed: 5, up: 3, life: 0.4, size: 5 });
+    this.ctx.events.emit("SFX", { id: "crate" });
+    for (const g of this.guards) {
+      if (g.dead || g.state === "chase") continue;
+      if ((g.x - lx) ** 2 + (g.z - lz) ** 2 < LURE_RANGE * LURE_RANGE) {
+        g.state = "investigate";
+        g.invX = lx;
+        g.invZ = lz;
+        g.alertT = 4;
+      }
+    }
+  }
+
+  private updateLures(dt: number): void {
+    for (let i = this.lures.length - 1; i >= 0; i--) {
+      const l = this.lures[i];
+      l.life -= dt;
+      const p = 0.5 + 0.5 * Math.sin(this.t * 12);
+      (l.glow.material as THREE.SpriteMaterial).opacity = Math.max(0, (l.life / 4) * (0.35 + p * 0.45));
+      if (l.life <= 0) {
+        this.group.remove(l.glow);
+        this.lures.splice(i, 1);
+      }
+    }
+  }
+
+  /** Hold E behind an unaware guard to take it down silently. */
+  private updateTakedown(dt: number): void {
+    let target: Guard | null = null;
+    let bestD = TD_RANGE * TD_RANGE;
+    for (const g of this.guards) {
+      if (g.dead || g.state === "chase") continue;
+      const dx = this.ax - g.x;
+      const dz = this.az - g.z;
+      const d2 = dx * dx + dz * dz;
+      if (d2 > bestD) continue;
+      const dot = dx * Math.sin(g.facing) + dz * Math.cos(g.facing); // <0 ⇒ behind
+      if (dot >= 0) continue;
+      bestD = d2;
+      target = g;
+    }
+    if (!target) {
+      this.tdGuard = null;
+      this.tdProgress = 0;
+      this.takedownFrac = 0;
+      return;
+    }
+    this.promptText = "HOLD  E  — TAKEDOWN";
+    if (this.ctx.input.down("KeyE")) {
+      if (this.tdGuard !== target) {
+        this.tdGuard = target;
+        this.tdProgress = 0;
+      }
+      this.tdProgress += dt;
+      this.takedownFrac = clamp(this.tdProgress / TD_TIME, 0, 1);
+      if (this.tdProgress >= TD_TIME) this.doTakedown(target);
+    } else {
+      this.tdGuard = null;
+      this.tdProgress = 0;
+      this.takedownFrac = 0;
+    }
+  }
+
+  /** Grabbed by a chaser: a setback (drop supplies, shoved free, brief grace),
+   * unless it's the final grab — then you're dragged off and the run ends. */
+  private onCaught(g: Guard): void {
+    this.catches++;
+    this.ctx.cam.addTrauma(0.5);
+    this.ctx.stage.punch(0.45);
+    this.ctx.events.emit("SFX", { id: "player_hurt" });
+    if (this.catches >= MAX_CATCHES) {
+      this.ctx.floaters.spawn(this.ax, 2.2, this.az, "DRAGGED OFF!", "warn");
+      this.finish();
+      return;
+    }
+    const drop = Math.min(this.got, 2);
+    this.got = Math.max(0, this.got - drop);
+    this.ctx.floaters.spawn(this.ax, 2.2, this.az, drop > 0 ? `GRABBED!  -${drop} SUPPLIES` : "GRABBED!", "warn");
+    this.stunT = 0.6;
+    this.graceT = 2.2;
+    // Shove the guard back and reset it so you get a moment to break away.
+    const bdx = g.x - this.ax;
+    const bdz = g.z - this.az;
+    const bd = Math.hypot(bdx, bdz) || 1;
+    g.x = clamp(g.x + (bdx / bd) * 6, AREA.minX, AREA.maxX);
+    g.z = clamp(g.z + (bdz / bd) * 6, AREA.minZ, AREA.maxZ);
+    g.state = "patrol";
+    g.alertT = 0;
+  }
+
+  private doTakedown(g: Guard): void {
+    g.dead = true;
+    g.group.visible = false;
+    this.tdGuard = null;
+    this.tdProgress = 0;
+    this.takedownFrac = 0;
+    this.ctx.floaters.spawn(g.x, 2, g.z, "TAKEDOWN", "crit");
+    this.ctx.fx.burst(g.x, 1.0, g.z, 14, 0x7a0d10, { speed: 6, up: 5, life: 0.5, size: 6 });
+    this.ctx.events.emit("SFX", { id: "shove" });
   }
 
   private losBlocked(ax: number, az: number, bx: number, bz: number): boolean {
@@ -676,12 +943,19 @@ export class Scavenge {
   }
 
   private updateGuard(g: Guard, dt: number): void {
-    // Detection: in range, within the cone, and not behind a wall
+    if (g.dead) {
+      g.cone.visible = false;
+      return;
+    }
+    // Detection: in range, within the cone, not behind a wall — and not while
+    // you're hidden in an alcove or in the brief grace window after a grab. The
+    // flashlight gives you away: with it off, guards spot you only up close.
     const dx = this.ax - g.x;
     const dz = this.az - g.z;
     const dist = Math.hypot(dx, dz);
+    const range = this.lightOn ? VISION_RANGE : VISION_RANGE * 0.5;
     let sees = false;
-    if (dist < VISION_RANGE) {
+    if (dist < range && !this.hidden && this.graceT <= 0) {
       const toAvatar = Math.atan2(dx, dz);
       let diff = toAvatar - g.facing;
       while (diff > Math.PI) diff -= Math.PI * 2;
@@ -693,8 +967,12 @@ export class Scavenge {
       g.state = "chase";
       g.alertT = 2.5;
     } else if (g.state === "chase") {
-      g.alertT -= dt;
+      // Lose the chase faster while you're tucked out of sight.
+      g.alertT -= dt * (this.hidden ? 4 : 1);
       if (g.alertT <= 0) g.state = "patrol";
+    } else if (g.state === "investigate") {
+      g.alertT -= dt;
+      if (g.alertT <= 0 || Math.hypot(g.invX - g.x, g.invZ - g.z) < 1.6) g.state = "patrol";
     }
 
     let tx: number;
@@ -704,15 +982,17 @@ export class Scavenge {
       tx = this.ax;
       tz = this.az;
       speed = 8.2;
-      // Caught — the run ends right here.
-      if (dist < 1.4) {
-        this.ctx.floaters.spawn(this.ax, 2, this.az, "CAUGHT!", "warn");
-        this.ctx.events.emit("SFX", { id: "player_hurt" });
-        this.ctx.cam.addTrauma(0.5);
-        this.ctx.stage.punch(0.45);
-        this.finish();
+      // Caught — a setback, not an instant loss: you're grabbed, drop some
+      // supplies, get shoved free with a brief grace. Too many grabs and you're
+      // dragged off (run ends).
+      if (dist < 1.4 && this.graceT <= 0) {
+        this.onCaught(g);
         return;
       }
+    } else if (g.state === "investigate") {
+      tx = g.invX;
+      tz = g.invZ;
+      speed = g.speed * 1.3;
     } else {
       const p = g.patrol[g.pIdx];
       tx = p.x;

@@ -183,11 +183,13 @@ export class Menus {
             <h3>DAY — SUPPLY RUN</h3>
             <ul>
               <li><b>WASD</b> — move (you sneak; the map is dark)</li>
-              <li><b>Shift</b> — sprint (short — to escape)</li>
-              <li>Stay out of the <b>amber sight cones</b></li>
-              <li>Grab <b>supply crates</b> (amber) &amp; <b>repair kits</b> (blue)</li>
-              <li>Rescue <b>survivors</b> (green) to recruit allies</li>
-              <li>Get spotted &amp; caught and the run <b>ends</b></li>
+              <li><b>Shift</b> — sprint (short — and <b>loud</b>)</li>
+              <li><b>E</b> — silent takedown from behind a guard</li>
+              <li><b>Q</b> — throw a lure to distract guards</li>
+              <li><b>F</b> — toggle flashlight (off = stealthier, blind)</li>
+              <li>Tuck into a <b>dumpster</b> to break a chase</li>
+              <li>Grab <b>supplies</b> &amp; <b>repair kits</b>, then hit the <b>exit</b></li>
+              <li>Caught is a setback — three grabs and you're dragged off</li>
             </ul>
             <h3>TIPS</h3>
             <ul>

@@ -51,8 +51,10 @@ export class Hud {
         <div class="day-crates">SUPPLIES 0/0</div>
         <div class="bar bar-day"><div class="bar-fill"></div></div>
         <div class="stamina"><div class="stamina-fill"></div></div>
-        <div class="day-obj">Sneak for supplies · rescue survivors · grab repair kits · stay out of sight · SHIFT sprints</div>
+        <div class="day-obj">Grab supplies · rescue survivors · then reach the exit · SHIFT sprint (loud!) · E takedown · Q lure · F light</div>
+        <div class="day-status"></div>
       </div>
+      <div class="day-prompt"></div>
       <div class="kills">0</div>
       <div class="banner"></div>
       <div class="crosshair"><span class="ch-ring"></span><span class="hitmark"></span></div>
@@ -93,6 +95,8 @@ export class Hud {
       dayCrates: q(".day-crates"),
       dayFill: q(".bar-day .bar-fill"),
       stamina: q(".stamina-fill"),
+      dayStatus: q(".day-status"),
+      dayPrompt: q(".day-prompt"),
       kills: q(".kills"),
       banner: q(".banner"),
       crosshair: q(".crosshair"),
@@ -150,6 +154,7 @@ export class Hud {
     this.el.companions.style.display = night ? "" : "none";
     this.el.kills.style.display = night ? "" : "none";
     this.el.dayHud.style.display = day ? "" : "none";
+    this.el.dayPrompt.style.display = "none";
     this.el.crosshair.style.display = night ? "" : "none";
     if (!night) {
       this.el.repair.style.display = "none";
@@ -295,11 +300,31 @@ export class Hud {
 
   private updateDay(): void {
     if (!this.scav) return;
-    const low = this.scav.timeLeft < 12;
-    this.el.dayCrates.textContent = `AMMO ${this.scav.got}/${this.scav.total}   ·   ${Math.max(0, Math.ceil(this.scav.timeLeft))}s`;
-    const f = Math.max(0, this.scav.timeLeft) / this.scav.maxTime;
+    const s = this.scav;
+    const low = s.timeLeft < 12;
+    this.el.dayCrates.textContent = `SUPPLIES ${s.got}/${s.total}   ·   ${Math.max(0, Math.ceil(s.timeLeft))}s`;
+    const f = Math.max(0, s.timeLeft) / s.maxTime;
     this.el.dayFill.style.width = `${f * 100}%`;
-    this.el.dayCrates.style.color = this.scav.spotted || low ? "#ff5a3c" : "#ffce7a";
-    this.el.stamina.style.width = `${this.scav.stamina * 100}%`;
+    this.el.dayCrates.style.color = s.spotted || low ? "#ff5a3c" : "#ffce7a";
+    this.el.stamina.style.width = `${s.stamina * 100}%`;
+
+    // Light state + grab counter
+    const caughtBit = s.catches > 0 ? `  ·  GRABS ${s.catches}/3` : "";
+    this.el.dayStatus.textContent = `${s.lightOn ? "🔦 LIGHT ON" : "🌑 LIGHT OFF"}${caughtBit}`;
+    this.el.dayStatus.style.color = s.lightOn ? "#9dd0ff" : "#6a7a8a";
+
+    // Contextual prompt (takedown / hidden / extraction), with a takedown bar.
+    if (s.promptText) {
+      this.el.dayPrompt.style.display = "";
+      const fr = s.takedownFrac;
+      if (fr > 0) {
+        const n = Math.round(fr * 10);
+        this.el.dayPrompt.textContent = `${s.promptText}  [${"▮".repeat(n)}${"▯".repeat(10 - n)}]`;
+      } else {
+        this.el.dayPrompt.textContent = s.promptText;
+      }
+    } else {
+      this.el.dayPrompt.style.display = "none";
+    }
   }
 }
