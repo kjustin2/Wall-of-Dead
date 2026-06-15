@@ -22,13 +22,39 @@ export class Input {
   private plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -FIELD.aimPlaneY);
   private ndc = new THREE.Vector2();
 
+  // --- Gamepad (twin-stick) ---
+  /** True for the current frame if a gamepad is actively driving input. */
+  padActive = false;
+  padFire = false;
+  private padMoveX = 0;
+  private padMoveY = 0;
+  private padPrev: boolean[] = [];
+  // Standard-mapping button → game key code.
+  private static PAD_KEYS: Record<number, string> = {
+    0: "Space", // A — shove
+    1: "KeyE", // B — interact (repair/revive/takedown)
+    2: "KeyR", // X — reload
+    3: "KeyF", // Y — flashlight / last-stand
+    6: "KeyG", // LT — flare
+    9: "Escape", // Start — pause
+    12: "KeyT", // dpad up — trap
+    13: "KeyC", // dpad down — command allies
+  };
+
+  /** Optional accessibility re-binds: physical code → canonical code (additive). */
+  private remap: Record<string, string> = {};
+  setRebinds(m: Record<string, string>): void {
+    this.remap = m || {};
+  }
+
   constructor(private canvas: HTMLCanvasElement) {
     window.addEventListener("keydown", (e) => {
       if (e.repeat) return;
-      this.keys.add(e.code);
-      this.justPressed.add(e.code);
+      const code = this.remap[e.code] ?? e.code;
+      this.keys.add(code);
+      this.justPressed.add(code);
     });
-    window.addEventListener("keyup", (e) => this.keys.delete(e.code));
+    window.addEventListener("keyup", (e) => this.keys.delete(this.remap[e.code] ?? e.code));
     window.addEventListener("blur", () => {
       this.keys.clear();
       this.mouseDown = false;
@@ -65,6 +91,76 @@ export class Input {
     return this.enabled ? Math.sign(this.wheel) : 0;
   }
 
+  /** Poll a connected gamepad: left stick → move, right stick → aim cursor,
+   * buttons → mapped keys, RT → fire. Mouse/keyboard keep working alongside. */
+  poll(dt: number): void {
+    this.padFire = false;
+    this.padFireJust = false;
+    this.padMoveX = 0;
+    this.padMoveY = 0;
+    const nav = typeof navigator !== "undefined" ? navigator : null;
+    if (!nav || !nav.getGamepads) return;
+    const pads = nav.getGamepads();
+    let pad: Gamepad | null = null;
+    for (const p of pads) {
+      if (p && p.connected) {
+        pad = p;
+        break;
+      }
+    }
+    if (!pad) {
+      this.padActive = false;
+      return;
+    }
+    const dead = (v: number) => (Math.abs(v) < 0.18 ? 0 : v);
+    const lx = dead(pad.axes[0] ?? 0);
+    const ly = dead(pad.axes[1] ?? 0);
+    const rx = dead(pad.axes[2] ?? 0);
+    const ry = dead(pad.axes[3] ?? 0);
+    this.padMoveX = lx;
+    this.padMoveY = ly;
+
+    // Right stick steers a virtual cursor (drives the same aim raycast).
+    if (rx || ry) {
+      this.padActive = true;
+      const rect = this.canvas.getBoundingClientRect();
+      const speed = 900 * dt;
+      this.px = Math.min(rect.right, Math.max(rect.left, this.px + rx * speed));
+      this.py = Math.min(rect.bottom, Math.max(rect.top, this.py + ry * speed));
+    } else if (lx || ly) {
+      this.padActive = true;
+    }
+
+    // Buttons → mapped key edges; RT (7) + RB-less fire trigger → fire.
+    const btns = pad.buttons;
+    for (let i = 0; i < btns.length; i++) {
+      const pressed = btns[i]?.pressed ?? false;
+      const was = this.padPrev[i] ?? false;
+      const code = Input.PAD_KEYS[i];
+      if (code) {
+        if (pressed) this.keys.add(code);
+        else this.keys.delete(code);
+        if (pressed && !was) this.justPressed.add(code);
+      }
+      this.padPrev[i] = pressed;
+    }
+    // Weapon cycle on the bumpers (edge-triggered).
+    if ((btns[5]?.pressed ?? false) && !(this.padPrev5 ?? false)) this.wheel += 1;
+    if ((btns[4]?.pressed ?? false) && !(this.padPrev4 ?? false)) this.wheel -= 1;
+    this.padPrev5 = btns[5]?.pressed ?? false;
+    this.padPrev4 = btns[4]?.pressed ?? false;
+    // Fire on the right trigger (button 7).
+    const fireNow = (btns[7]?.pressed ?? false) || (btns[7]?.value ?? 0) > 0.4;
+    this.padFireJust = fireNow && !this.padFirePrev;
+    this.padFire = fireNow;
+    this.padFirePrev = fireNow;
+  }
+
+  padFireJust = false;
+  private padFirePrev = false;
+  private padPrev4 = false;
+  private padPrev5 = false;
+
   down(code: string): boolean {
     return this.enabled && this.keys.has(code);
   }
@@ -75,22 +171,30 @@ export class Input {
 
   /** Movement axis from A/D (and arrows). -1 = toward -X, +1 = toward +X. */
   moveX(): number {
+    if (!this.enabled) return 0;
     let x = 0;
-    if (this.down("KeyA") || this.down("ArrowLeft")) x -= 1;
-    if (this.down("KeyD") || this.down("ArrowRight")) x += 1;
+    if (this.keys.has("KeyA") || this.keys.has("ArrowLeft")) x -= 1;
+    if (this.keys.has("KeyD") || this.keys.has("ArrowRight")) x += 1;
+    if (x === 0 && this.padMoveX) x = this.padMoveX;
     return x;
   }
 
-  /** Free 2D axes for the top-down day minigame (WASD). */
+  /** Free 2D axes for the top-down day minigame (WASD or left stick). */
   axis(out: THREE.Vector2): THREE.Vector2 {
     let x = 0;
     let y = 0;
-    if (this.down("KeyA") || this.down("ArrowLeft")) x -= 1;
-    if (this.down("KeyD") || this.down("ArrowRight")) x += 1;
-    if (this.down("KeyW") || this.down("ArrowUp")) y -= 1;
-    if (this.down("KeyS") || this.down("ArrowDown")) y += 1;
+    if (this.enabled) {
+      if (this.keys.has("KeyA") || this.keys.has("ArrowLeft")) x -= 1;
+      if (this.keys.has("KeyD") || this.keys.has("ArrowRight")) x += 1;
+      if (this.keys.has("KeyW") || this.keys.has("ArrowUp")) y -= 1;
+      if (this.keys.has("KeyS") || this.keys.has("ArrowDown")) y += 1;
+      if (x === 0 && y === 0 && (this.padMoveX || this.padMoveY)) {
+        x = this.padMoveX;
+        y = this.padMoveY;
+      }
+    }
     out.set(x, y);
-    if (x || y) out.normalize();
+    if (Math.abs(x) > 1 || Math.abs(y) > 1 || (out.lengthSq() > 1.0001)) out.normalize();
     return out;
   }
 

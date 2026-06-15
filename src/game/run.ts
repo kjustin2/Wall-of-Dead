@@ -129,4 +129,60 @@ export class RunManager {
   get reachedSafeZone(): boolean {
     return this.leg >= this.legsTotal;
   }
+
+  /** A plain snapshot of run state for the mid-run save. */
+  serialize(): RunSave {
+    return {
+      night: this.night,
+      leg: this.leg,
+      wallHp: this.wallHp,
+      repairKits: this.repairKits,
+      traps: this.traps,
+      weapons: this.weapons.map((w) => ({ id: w.def.id, ammo: w.ammo, reserve: w.reserve })),
+      weaponOwner: this.weaponOwner.slice(),
+      weaponIndex: this.weaponIndex,
+      companions: this.companions.slice(),
+      companionTraits: { ...this.companionTraits },
+      alliesRecruited: this.alliesRecruited,
+      alliesLost: this.alliesLost,
+      nightsWallHeld: this.nightsWallHeld.slice(),
+    };
+  }
+
+  /** Restore run state from a save snapshot. */
+  load(d: RunSave): void {
+    this.night = d.night;
+    this.leg = d.leg;
+    this.wallHp = d.wallHp;
+    this.repairKits = d.repairKits;
+    this.traps = d.traps;
+    this.weapons = d.weapons.map((w) => {
+      const lo = makeLoadout(w.id, w.reserve);
+      lo.ammo = w.ammo;
+      return lo;
+    });
+    this.weaponOwner = d.weaponOwner.slice();
+    this.weaponIndex = d.weaponIndex;
+    this.companions = d.companions.slice();
+    this.companionTraits = { ...d.companionTraits };
+    this.alliesRecruited = d.alliesRecruited;
+    this.alliesLost = d.alliesLost;
+    this.nightsWallHeld = d.nightsWallHeld.slice();
+  }
+}
+
+export interface RunSave {
+  night: number;
+  leg: number;
+  wallHp: number;
+  repairKits: number;
+  traps: number;
+  weapons: { id: string; ammo: number; reserve: number }[];
+  weaponOwner: (string | null)[];
+  weaponIndex: number;
+  companions: string[];
+  companionTraits: Record<string, TraitId>;
+  alliesRecruited: number;
+  alliesLost: number;
+  nightsWallHeld: number[];
 }

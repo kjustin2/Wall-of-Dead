@@ -16,9 +16,24 @@ export interface Settings {
   fov: number;
   difficulty: DifficultyId;
   aimAssist: boolean;
+  /** Accessibility re-binds: physical KeyboardEvent.code → canonical code. */
+  rebinds: Record<string, string>;
 }
 
 const KEY = "wod-settings";
+
+// Actions you can add an alternate key for (canonical code → label).
+const REBIND_ACTIONS: [string, string][] = [
+  ["KeyA", "Move left"],
+  ["KeyD", "Move right"],
+  ["KeyR", "Reload"],
+  ["Space", "Shove / bash"],
+  ["KeyE", "Interact"],
+];
+
+function prettyKey(code: string): string {
+  return code.replace(/^Key/, "").replace(/^Digit/, "").replace("Space", "SPACE").replace("ArrowLeft", "←").replace("ArrowRight", "→");
+}
 
 function loadSettings(): Settings {
   const def: Settings = {
@@ -34,6 +49,7 @@ function loadSettings(): Settings {
     fov: 52,
     difficulty: "normal",
     aimAssist: false,
+    rebinds: {},
   };
   try {
     const raw = localStorage.getItem(KEY);
@@ -76,6 +92,7 @@ export class Menus {
     this.ctx.cam.setBaseFov(s.fov);
     this.ctx.tuning = DIFFICULTY[s.difficulty] ?? DIFFICULTY.normal;
     this.ctx.player.aimAssist = s.aimAssist;
+    this.ctx.input.setRebinds(s.rebinds ?? {});
     document.body.classList.toggle("cb", s.colorblind);
     document.body.classList.toggle("bigtext", s.bigText);
     document.body.classList.toggle("reduced", s.reducedFx);
@@ -147,20 +164,23 @@ export class Menus {
     show();
   }
 
-  showTitle(onStart: () => void, onSettings: () => void): void {
+  showTitle(onStart: () => void, onSettings: () => void, onContinue?: () => void): void {
+    const cont = onContinue ? `<button class="mbtn mbtn--primary act-continue">CONTINUE RUN</button>` : "";
     this.paint(`
       <div class="screen screen--title">
         <h1 class="title">WALL <span>OF</span> DEAD</h1>
         <p class="subtitle">Hold the barrier until dawn.</p>
         <div class="menu">
-          <button class="mbtn mbtn--primary act-start">BEGIN</button>
+          ${cont}
+          <button class="mbtn ${onContinue ? "" : "mbtn--primary"} act-start">${onContinue ? "NEW RUN" : "BEGIN"}</button>
           <button class="mbtn act-help">TUTORIAL</button>
           <button class="mbtn act-settings">SETTINGS</button>
         </div>
-        <p class="controls">A / D move &nbsp;·&nbsp; MOUSE aim &nbsp;·&nbsp; CLICK fire &nbsp;·&nbsp; R reload &nbsp;·&nbsp; E repair/revive &nbsp;·&nbsp; SPACE shove &nbsp;·&nbsp; F frag</p>
+        <p class="controls">A / D move &nbsp;·&nbsp; MOUSE aim &nbsp;·&nbsp; CLICK fire &nbsp;·&nbsp; R reload &nbsp;·&nbsp; E repair/revive &nbsp;·&nbsp; SPACE shove &nbsp;·&nbsp; F frag &nbsp;·&nbsp; 🎮 gamepad ready</p>
       </div>`);
     this.btn(".act-start", onStart);
-    this.btn(".act-help", () => this.showHelp(() => this.showTitle(onStart, onSettings)));
+    if (onContinue) this.btn(".act-continue", onContinue);
+    this.btn(".act-help", () => this.showHelp(() => this.showTitle(onStart, onSettings, onContinue)));
     this.btn(".act-settings", onSettings);
   }
 
@@ -272,6 +292,11 @@ export class Menus {
         <div class="settings-row"><label>Reduced flashing</label><input type="checkbox" class="set-reduced" ${s.reducedFx ? "checked" : ""}></div>
         <div class="settings-row"><label>Colorblind palette</label><input type="checkbox" class="set-cb" ${s.colorblind ? "checked" : ""}></div>
         <div class="settings-row"><label>Large text</label><input type="checkbox" class="set-big" ${s.bigText ? "checked" : ""}></div>
+        <div class="rebind-head">EXTRA KEY BINDS (accessibility — adds an alternate key)</div>
+        ${REBIND_ACTIONS.map(([code, label]) => {
+          const alt = Object.entries(s.rebinds).find(([, c]) => c === code)?.[0];
+          return `<div class="settings-row"><label>${label}</label><button class="mbtn mbtn--sm act-rebind" data-code="${code}">${alt ? prettyKey(alt) : "＋ set"}</button></div>`;
+        }).join("")}
         <div class="menu"><button class="mbtn mbtn--primary act-back">BACK</button></div>
       </div>`);
     const vol = this.root.querySelector(".set-vol") as HTMLInputElement;
@@ -319,6 +344,27 @@ export class Menus {
       saveSettings(s);
     });
     bind(".set-aim", (el) => (s.aimAssist = el.checked));
+    // Re-bind: click → capture the next key as an alternate for that action.
+    this.root.querySelectorAll(".act-rebind").forEach((el) => {
+      const code = el.getAttribute("data-code");
+      if (!code) return;
+      el.addEventListener("click", () => {
+        el.textContent = "press a key…";
+        const onKey = (e: KeyboardEvent) => {
+          e.preventDefault();
+          window.removeEventListener("keydown", onKey, true);
+          if (e.code !== "Escape") {
+            // Clear any prior alt for this action, then add the new one.
+            for (const k of Object.keys(s.rebinds)) if (s.rebinds[k] === code) delete s.rebinds[k];
+            s.rebinds[e.code] = code;
+          }
+          this.applySettings();
+          saveSettings(s);
+          this.showSettings(onBack);
+        };
+        window.addEventListener("keydown", onKey, true);
+      });
+    });
     bind(".set-fov", (el) => (s.fov = parseFloat(el.value)));
     bind(".set-floaters", (el) => (s.floaters = el.checked));
     bind(".set-reduced", (el) => (s.reducedFx = el.checked));

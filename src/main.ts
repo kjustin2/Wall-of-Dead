@@ -123,6 +123,48 @@ const unlock = () => {
 window.addEventListener("pointerdown", unlock);
 window.addEventListener("keydown", unlock);
 
+// ------------------------------------------------------------- save / resume
+const SAVE_KEY = "wod-save";
+function saveRun(): void {
+  try {
+    localStorage.setItem(SAVE_KEY, JSON.stringify({ run: ctx.run.serialize(), stats: ctx.stats }));
+  } catch {
+    /* localStorage may be unavailable */
+  }
+}
+function clearSave(): void {
+  try {
+    localStorage.removeItem(SAVE_KEY);
+  } catch {
+    /* ignore */
+  }
+}
+function hasSave(): boolean {
+  try {
+    return !!localStorage.getItem(SAVE_KEY);
+  } catch {
+    return false;
+  }
+}
+function resumeRun(): void {
+  try {
+    const raw = localStorage.getItem(SAVE_KEY);
+    if (!raw) {
+      startRun();
+      return;
+    }
+    const d = JSON.parse(raw) as { run: ReturnType<RunManager["serialize"]>; stats: typeof ctx.stats };
+    ctx.run.load(d.run);
+    ctx.stats = { ...freshStats(), ...d.stats };
+  } catch {
+    startRun();
+    return;
+  }
+  menus.clear();
+  ctx.player.group.visible = true;
+  beginNight();
+}
+
 // ---------------------------------------------------------------- state flow
 function toTitle(): void {
   state = "menu";
@@ -144,10 +186,14 @@ function toTitle(): void {
   hud.setMode("hidden");
   ctx.sfx.startAmbient();
   ctx.music.play("menu");
-  menus.showTitle(beginRun, () => {
-    settingsReturn = () => toTitle();
-    menus.showSettings(() => toTitle());
-  });
+  menus.showTitle(
+    beginRun,
+    () => {
+      settingsReturn = () => toTitle();
+      menus.showSettings(() => toTitle());
+    },
+    hasSave() ? resumeRun : undefined
+  );
 }
 
 /** First-ever BEGIN shows the tutorial; afterwards it starts straight away
@@ -175,6 +221,7 @@ function beginRun(): void {
 
 function startRun(): void {
   menus.clear();
+  clearSave();
   ctx.run.start();
   ctx.stats = freshStats();
   ctx.player.group.visible = true;
@@ -207,6 +254,8 @@ function toCutscene(): void {
 
 function beginNight(): void {
   menus.clear();
+  // Checkpoint: the run is saved at the start of every night.
+  saveRun();
   scavenge.hide();
   ctx.run.refillMags();
   ctx.wall.setTotal(ctx.run.wallHp);
@@ -415,6 +464,7 @@ function offerDilemma(after: () => void): void {
 
 function onVictory(): void {
   state = "victory";
+  clearSave();
   ctx.cam.mode = "menu";
   ctx.world.setDawn(1);
   hud.setMode("hidden");
@@ -426,6 +476,7 @@ function onVictory(): void {
 function defeat(reason: string): void {
   if (state === "dead") return;
   state = "dead";
+  clearSave();
   ctx.input.enabled = false;
   ctx.cam.addTrauma(0.6);
   ctx.stage.punch(0.6);
@@ -574,6 +625,7 @@ ctx.stage.renderer.setAnimationLoop(() => {
   const realDt = Math.min(0.05, (now - last) / 1000);
   last = now;
   ctx.playing = state === "night" || state === "day";
+  ctx.input.poll(realDt);
 
   // Resolve time scale: hit-stop freezes, then slow-mo, else normal.
   let scale = 1;

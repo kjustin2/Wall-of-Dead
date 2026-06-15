@@ -101,6 +101,9 @@ app.whenReady().then(async () => {
       await sleep(1400);
       const ns = await win.webContents.executeJavaScript(`window.__wod.state()`);
       if (ns !== "night") errors.push("FLOW: expected night after cutscene, got " + ns);
+      // Save & resume: a checkpoint is written when the night begins.
+      const saved = await win.webContents.executeJavaScript(`!!localStorage.getItem('wod-save')`);
+      if (!saved) errors.push("SAVE: no checkpoint after the night began");
 
       // Let a wave build, then force some action (every zombie type renders here)
       await win.webContents.executeJavaScript(`window.__wod.spawnWave('shambler', 6); window.__wod.spawnWave('runner', 3); window.__wod.spawnWave('brute', 1); window.__wod.spawnWave('spitter', 2); window.__wod.spawnWave('crawler', 3); window.__wod.spawnWave('armored', 2); window.__wod.spawnWave('screamer', 1); window.__wod.spawnWave('exploder', 2); window.__wod.spawnWave('shielded', 2); window.__wod.spawnWave('leaper', 2); window.__wod.spawnWave('tank', 1);`);
@@ -181,6 +184,8 @@ app.whenReady().then(async () => {
       }
       await shot(win, "08-victory.png");
       if (finalState !== "victory") errors.push("FLOW: expected victory, got " + finalState);
+      const clearedOnWin = await win.webContents.executeJavaScript(`!localStorage.getItem('wod-save')`);
+      if (!clearedOnWin) errors.push("SAVE: checkpoint not cleared on victory");
       console.log("  final state:", finalState);
 
       // Edge case: restarting while the supply run is on screen must clear it.

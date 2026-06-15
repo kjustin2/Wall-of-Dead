@@ -425,7 +425,7 @@ export class Player {
     }
 
     if (this.overheatT > 0) return; // weapon jammed/overheated — can't fire
-    const wantFire = def.auto ? input.mouseDown : input.mouseJustDown;
+    const wantFire = def.auto ? input.mouseDown || input.padFire : input.mouseJustDown || input.padFireJust;
     if (wantFire && this.fireCd <= 0 && this.reloadTimer <= 0) {
       if (lo.ammo > 0) {
         this.fire(lo);
@@ -442,6 +442,24 @@ export class Player {
     }
   }
 
+  /** Aim assist: snap the shot to the nearest target inside a small window. */
+  private assistAngle(base: number): number {
+    let best = base;
+    let bestDiff = 0.16; // ~9° capture window
+    for (const z of this.ctx.enemies.alive) {
+      if (!z.killable || z.z > this.z) continue;
+      const za = Math.atan2(z.x - this.x, z.z - this.z);
+      let diff = za - base;
+      while (diff > Math.PI) diff -= Math.PI * 2;
+      while (diff < -Math.PI) diff += Math.PI * 2;
+      if (Math.abs(diff) < bestDiff) {
+        bestDiff = Math.abs(diff);
+        best = za;
+      }
+    }
+    return best;
+  }
+
   private fire(lo: Loadout): void {
     const def = lo.def;
     this.fireCd = def.fireRate / this.ctx.adrenaline.fireRateMult();
@@ -449,7 +467,8 @@ export class Player {
 
     const dx = this.ctx.input.aimWorld.x - this.x;
     const dz = this.ctx.input.aimWorld.z - this.z;
-    const base = Math.atan2(dx, dz);
+    let base = Math.atan2(dx, dz);
+    if (this.aimAssist) base = this.assistAngle(base);
     const sx = Math.sin(base);
     const sz = Math.cos(base);
     const mx = this.x + sx * GUN_REACH;
