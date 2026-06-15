@@ -1,13 +1,16 @@
 import * as THREE from "three";
 import type { Ctx } from "../game/ctx";
-import { makeGlow } from "../render/textures";
+import { makeGlow, makeLabel } from "../render/textures";
 import { clamp } from "../core/math";
 
-const DURATION = 55;
-const AREA = { minX: -28, maxX: 28, minZ: -46, maxZ: -3 };
-const SNEAK = 6.2;
-const SPRINT = 11.5;
-const CRATES = 7;
+const SURVIVOR_NAMES = ["Cole", "Reyes", "Tess", "Vance", "Okafor", "Lin", "Brenner"];
+
+const DURATION = 62;
+const AREA = { minX: -40, maxX: 40, minZ: -66, maxZ: -3 };
+const SNEAK = 6.4;
+const SPRINT = 12;
+const CRATES = 8; // supply crates that count toward the run rating
+const KIT_CRATES = 2; // bonus wall-repair-kit pickups
 const AV_R = 0.6;
 const VISION_RANGE = 15;
 const CONE_HALF = 0.52; // radians, half-angle of a guard's sight cone
@@ -35,6 +38,13 @@ interface Crate {
   z: number;
   got: boolean;
   gold: boolean;
+  kit: boolean;
+}
+interface Survivor {
+  group: THREE.Group;
+  x: number;
+  z: number;
+  taken: boolean;
 }
 interface Guard {
   group: THREE.Group;
@@ -57,15 +67,21 @@ const THREAT = 0xff4030;
 // Static maze-ish layout (corners to break line of sight). Concrete barriers
 // plus a couple of wrecked cars — all solid cover.
 const WALLS: Wall[] = [
-  { x: -10, z: -15, w: 16, d: 1.4 },
-  { x: 9, z: -13, w: 1.4, d: 12 },
-  { x: -2, z: -28, w: 18, d: 1.4 },
-  { x: 16, z: -30, w: 1.4, d: 20 },
-  { x: -17, z: -27, w: 1.4, d: 18 },
-  { x: 3, z: -41, w: 14, d: 1.4 },
-  { x: -22, z: -40, w: 10, d: 1.4 },
-  { x: -6, z: -21, w: 2.4, d: 4.6, car: true },
-  { x: 12, z: -38, w: 4.6, d: 2.4, car: true },
+  { x: -14, z: -14, w: 20, d: 1.4 },
+  { x: 12, z: -13, w: 1.4, d: 14 },
+  { x: 26, z: -20, w: 1.4, d: 18 },
+  { x: -2, z: -27, w: 22, d: 1.4 },
+  { x: -26, z: -26, w: 1.4, d: 22 },
+  { x: 18, z: -34, w: 1.4, d: 22 },
+  { x: 4, z: -42, w: 18, d: 1.4 },
+  { x: -16, z: -44, w: 14, d: 1.4 },
+  { x: -30, z: -52, w: 1.4, d: 16 },
+  { x: 28, z: -50, w: 1.4, d: 18 },
+  { x: 8, z: -58, w: 22, d: 1.4 },
+  { x: -10, z: -58, w: 1.4, d: 12 },
+  { x: -8, z: -22, w: 2.4, d: 4.6, car: true },
+  { x: 16, z: -40, w: 4.6, d: 2.4, car: true },
+  { x: -22, z: -50, w: 2.4, d: 4.6, car: true },
 ];
 
 function pushOutAABB(px: number, pz: number, r: number, w: Wall): [number, number] {
@@ -176,6 +192,9 @@ export class Scavenge {
   private az = -7;
   private crates: Crate[] = [];
   private guards: Guard[] = [];
+  private survivor: Survivor | null = null;
+  private fogPrev = 0.017;
+  private groanT = 4;
   private t = 0;
   private tmp = new THREE.Vector2();
   private coneGeo: THREE.BufferGeometry;
@@ -309,23 +328,46 @@ export class Scavenge {
     return { x: this.ctx.rng.range(AREA.minX + 3, AREA.maxX - 3), z: this.ctx.rng.range(minZ, maxZ) };
   }
 
-  private makeCrate(x: number, z: number, gold: boolean): Crate {
+  private makeCrate(x: number, z: number, gold: boolean, kit: boolean): Crate {
     const g = new THREE.Group();
-    const tint = gold ? 0xc8961e : 0x8a5a1a;
-    const beacon = gold ? 0xffd84a : AMBER;
+    const tint = kit ? 0x2a5a6a : gold ? 0xc8961e : 0x8a5a1a;
+    const beacon = kit ? 0x5fd8ff : gold ? 0xffd84a : AMBER;
     const box = new THREE.Mesh(
       new THREE.BoxGeometry(0.9, 0.9, 0.9),
-      new THREE.MeshStandardMaterial({ color: tint, roughness: 0.85, emissive: new THREE.Color(gold ? 0x4a3000 : 0x2a1c00), flatShading: true })
+      new THREE.MeshStandardMaterial({ color: tint, roughness: 0.85, emissive: new THREE.Color(kit ? 0x06303a : gold ? 0x4a3000 : 0x2a1c00), flatShading: true })
     );
     box.position.y = 0.45;
     box.castShadow = true;
-    g.add(box, makeGlow(beacon, gold ? 2.2 : 1.7, 0.6));
+    g.add(box, makeGlow(beacon, gold || kit ? 2.2 : 1.7, 0.6));
     g.position.set(x, 0, z);
     this.group.add(g);
-    return { group: g, x, z, got: false, gold };
+    return { group: g, x, z, got: false, gold, kit };
   }
 
-  private makeGuard(): Guard {
+  private makeSurvivor(x: number, z: number): Survivor {
+    const g = new THREE.Group();
+    const skin = new THREE.MeshStandardMaterial({ color: 0xa98a63, roughness: 1, flatShading: true });
+    const rags = new THREE.MeshStandardMaterial({ color: 0x6a5436, roughness: 1, flatShading: true });
+    const torso = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.9, 0.4), rags);
+    torso.position.y = 0.9;
+    torso.castShadow = true;
+    const head = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.38, 0.36), skin);
+    head.position.y = 1.55;
+    g.add(torso, head, makeGlow(0x9dffd0, 2.6, 0.55));
+    const beam = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.85, 0.22, 7, 10, 1, true),
+      new THREE.MeshBasicMaterial({ color: 0x7dffb0, transparent: true, opacity: 0.22, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide, fog: false })
+    );
+    beam.position.y = 3.6;
+    const label = makeLabel("SURVIVOR", "#9dffd0");
+    label.position.y = 2.5;
+    g.add(beam, label);
+    g.position.set(x, 0, z);
+    this.group.add(g);
+    return { group: g, x, z, taken: false };
+  }
+
+  private makeGuard(center?: { x: number; z: number }): Guard {
     const g = new THREE.Group();
     const body = new THREE.Mesh(
       new THREE.BoxGeometry(0.8, 1.25, 0.5),
@@ -360,7 +402,16 @@ export class Scavenge {
     g.add(cone);
     this.group.add(g);
     const patrol: { x: number; z: number }[] = [];
-    for (let i = 0; i < 3; i++) patrol.push(this.freeSpot(AREA.minZ + 2, AREA.maxZ - 8));
+    for (let i = 0; i < 3; i++) {
+      if (center) {
+        patrol.push({
+          x: clamp(center.x + this.ctx.rng.range(-7, 7), AREA.minX + 2, AREA.maxX - 2),
+          z: clamp(center.z + this.ctx.rng.range(-7, 7), AREA.minZ + 2, AREA.maxZ - 2),
+        });
+      } else {
+        patrol.push(this.freeSpot(AREA.minZ + 2, AREA.maxZ - 8));
+      }
+    }
     return { group: g, cone, coneMat, eyeMat, x: patrol[0].x, z: patrol[0].z, facing: 0, patrol, pIdx: 1, state: "patrol", alertT: 0, speed: 3 };
   }
 
@@ -374,22 +425,35 @@ export class Scavenge {
     this.ax = 0;
     this.az = -7;
     this.group.visible = true;
-    this.ctx.world.setDawn(0.12); // dark, moody — not the bright dawn
+    this.groanT = 4;
+    this.ctx.world.setDawn(0.08); // dark + moody, but still navigable
+    // Thicker fog + a dimmer, tighter flashlight = scarier.
+    this.fogPrev = this.ctx.stage.fog.density;
+    this.ctx.stage.fog.density = 0.038;
+    this.light.distance = 23;
+    this.light.intensity = 19;
 
     for (const c of this.crates) this.group.remove(c.group);
     this.crates = [];
     for (let i = 0; i < CRATES; i++) {
       const s = this.freeSpot(AREA.minZ + 3, AREA.maxZ - 10);
-      this.crates.push(this.makeCrate(s.x, s.z, i < 2));
+      this.crates.push(this.makeCrate(s.x, s.z, i < 2, false));
     }
+    for (let i = 0; i < KIT_CRATES; i++) {
+      const s = this.freeSpot(AREA.minZ + 3, AREA.maxZ - 14);
+      this.crates.push(this.makeCrate(s.x, s.z, false, true));
+    }
+
+    // A survivor deep in the map, heavily guarded.
+    if (this.survivor) this.group.remove(this.survivor.group);
+    const sv = this.freeSpot(AREA.minZ + 4, AREA.minZ + 20);
+    this.survivor = this.makeSurvivor(sv.x, sv.z);
 
     for (const g of this.guards) this.group.remove(g.group);
     this.guards = [];
-    for (let i = 0; i < 4; i++) {
-      const g = this.makeGuard();
-      g.group.position.set(g.x, 0, g.z);
-      this.guards.push(g);
-    }
+    for (let i = 0; i < 5; i++) this.guards.push(this.makeGuard());
+    for (let i = 0; i < 3; i++) this.guards.push(this.makeGuard(sv)); // defending the survivor
+    for (const g of this.guards) g.group.position.set(g.x, 0, g.z);
 
     this.ctx.cam.mode = "topdown";
     this.ctx.cam.target.set(this.ax, 0, this.az);
@@ -432,26 +496,58 @@ export class Scavenge {
       this.spotted = false;
     }
 
-    // Grab crates
+    // Ambient dread — distant groans
+    this.groanT -= dt;
+    if (this.groanT <= 0) {
+      this.groanT = 3 + this.ctx.rng.next() * 5;
+      this.ctx.events.emit("SFX", { id: "groan", pan: this.ctx.rng.range(-1, 1) });
+    }
+    // Time pressure — heartbeat in the final stretch
+    if (this.timeLeft < 12 && Math.floor(this.timeLeft) !== Math.floor(this.timeLeft + dt)) {
+      this.ctx.events.emit("SFX", { id: "heartbeat" });
+    }
+
+    // Grab crates (supply, gold, or repair-kit)
     for (const c of this.crates) {
       if (c.got) continue;
       c.group.rotation.y += dt * 0.5;
       const dx = c.x - this.ax;
       const dz = c.z - this.az;
-      if (dx * dx + dz * dz < 2.4) {
-        c.got = true;
-        c.group.visible = false;
-        this.got++;
-        if (c.gold) {
-          this.ctx.stats.cratesGrabbed += 1;
-          this.ctx.floaters.spawn(c.x, 1.6, c.z, "+2 SUPPLY", "crit");
-          this.ctx.fx.burst(c.x, 1.0, c.z, 22, 0xffd84a, { speed: 8, up: 6, life: 0.6, size: 7 });
-        } else {
-          this.ctx.floaters.spawn(c.x, 1.5, c.z, "+SUPPLY", "heal");
-          this.ctx.fx.burst(c.x, 0.9, c.z, 12, AMBER, { speed: 6, up: 5, life: 0.5 });
-        }
-        this.ctx.events.emit("CRATE_GRABBED", { got: this.got, total: this.total });
+      if (dx * dx + dz * dz >= 2.4) continue;
+      c.got = true;
+      c.group.visible = false;
+      if (c.kit) {
+        this.ctx.run.repairKits++;
+        this.ctx.floaters.spawn(c.x, 1.6, c.z, "+REPAIR KIT", "crit");
+        this.ctx.fx.burst(c.x, 1.0, c.z, 18, 0x5fd8ff, { speed: 8, up: 6, life: 0.6, size: 7 });
         this.ctx.events.emit("SFX", { id: "pickup" });
+        continue;
+      }
+      this.got++;
+      if (c.gold) {
+        this.ctx.stats.cratesGrabbed += 1;
+        this.ctx.floaters.spawn(c.x, 1.6, c.z, "+2 SUPPLY", "crit");
+        this.ctx.fx.burst(c.x, 1.0, c.z, 22, 0xffd84a, { speed: 8, up: 6, life: 0.6, size: 7 });
+      } else {
+        this.ctx.floaters.spawn(c.x, 1.5, c.z, "+SUPPLY", "heal");
+        this.ctx.fx.burst(c.x, 0.9, c.z, 12, AMBER, { speed: 6, up: 5, life: 0.5 });
+      }
+      this.ctx.events.emit("CRATE_GRABBED", { got: this.got, total: this.total });
+      this.ctx.events.emit("SFX", { id: "pickup" });
+    }
+
+    // Rescue the survivor (recruit a new ally)
+    if (this.survivor && !this.survivor.taken) {
+      const dx = this.survivor.x - this.ax;
+      const dz = this.survivor.z - this.az;
+      if (dx * dx + dz * dz < 3.0) {
+        this.survivor.taken = true;
+        this.survivor.group.visible = false;
+        const name = SURVIVOR_NAMES.find((n) => !this.ctx.run.companions.includes(n));
+        if (name && this.ctx.run.companions.length < 4) this.ctx.run.companions.push(name);
+        this.ctx.floaters.spawn(this.survivor.x, 2, this.survivor.z, name ? `RESCUED ${name}!` : "RESCUED!", "heal");
+        this.ctx.fx.burst(this.survivor.x, 1.2, this.survivor.z, 24, 0x7dffb0, { speed: 9, up: 7, life: 0.7, size: 8 });
+        this.ctx.events.emit("SFX", { id: "meter_full" });
       }
     }
 
@@ -545,7 +641,7 @@ export class Scavenge {
     let best: Crate | null = null;
     let bestD = Infinity;
     for (const c of this.crates) {
-      if (c.got) continue;
+      if (c.got || c.kit) continue; // lead to supplies, not bonus kits
       const d = (c.x - this.ax) ** 2 + (c.z - this.az) ** 2;
       if (d < bestD) {
         bestD = d;
@@ -584,6 +680,7 @@ export class Scavenge {
   hide(): void {
     this.group.visible = false;
     this.active = false;
+    this.ctx.stage.fog.density = this.fogPrev;
   }
 
   get visible(): boolean {

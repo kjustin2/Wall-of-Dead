@@ -210,20 +210,25 @@ function buildZombieGeo(t: ZType): { body: THREE.BufferGeometry; eyes: THREE.Buf
   const s = t.scale;
   const lean = t.key === "runner" ? 0.32 : t.key === "brute" ? 0.1 : 0.2;
   const p: THREE.BufferGeometry[] = [
-    box(0.78 * s, 1.15 * s, 0.5 * s, 0, 0.95 * s, 0, lean),
-    box(0.92 * s, 0.34 * s, 0.5 * s, 0, 1.42 * s, 0.12 * s, lean),
-    box(0.46 * s, 0.46 * s, 0.48 * s, 0, 1.62 * s, 0.18 * s),
-    box(0.34 * s, 0.16 * s, 0.3 * s, 0, 1.45 * s, 0.34 * s),
-    box(0.72 * s, 0.5 * s, 0.06 * s, 0, 0.5 * s, 0.28 * s, 0.3),
+    box(0.74 * s, 1.12 * s, 0.46 * s, 0, 0.95 * s, 0, lean), // gaunt torso
+    box(0.9 * s, 0.32 * s, 0.48 * s, 0, 1.42 * s, 0.12 * s, lean), // shoulders
+    box(0.34 * s, 0.5 * s, 0.36 * s, 0, 1.2 * s, -0.12 * s, lean + 0.25), // hunched spine hump
+    box(0.42 * s, 0.42 * s, 0.44 * s, 0, 1.62 * s, 0.2 * s), // head
+    box(0.3 * s, 0.12 * s, 0.28 * s, 0, 1.5 * s, 0.36 * s), // upper jaw
+    box(0.28 * s, 0.12 * s, 0.26 * s, 0, 1.36 * s, 0.42 * s, 0.5), // hanging open lower jaw
+    box(0.7 * s, 0.5 * s, 0.06 * s, 0, 0.5 * s, 0.28 * s, 0.3), // torn cloth
   ];
-  for (const ax of [-0.52, 0.52]) {
-    p.push(box(0.2 * s, 0.92 * s, 0.2 * s, ax * s, 1.0 * s, 0.42 * s, -1.1));
-    p.push(box(0.2 * s, 0.2 * s, 0.24 * s, ax * s, 0.58 * s, 0.92 * s));
-    for (const fx of [-0.06, 0, 0.06]) p.push(box(0.04 * s, 0.04 * s, 0.18 * s, (ax + fx) * s, 0.56 * s, 1.08 * s, 0.5));
+  // Exposed ribs
+  for (const ry of [0.78, 0.62, 0.46]) p.push(box(0.5 * s, 0.05 * s, 0.48 * s, 0, ry * s, 0.04 * s, lean));
+  // Gaunt reaching arms + long gnarled claws
+  for (const ax of [-0.5, 0.5]) {
+    p.push(box(0.16 * s, 0.98 * s, 0.16 * s, ax * s, 1.0 * s, 0.44 * s, -1.15));
+    p.push(box(0.18 * s, 0.18 * s, 0.22 * s, ax * s, 0.5 * s, 0.95 * s));
+    for (const fx of [-0.07, 0, 0.07]) p.push(box(0.035 * s, 0.035 * s, 0.28 * s, (ax + fx) * s, 0.48 * s, 1.2 * s, 0.55));
   }
-  for (const lx of [-0.22, 0.22]) {
-    p.push(box(0.24 * s, 0.85 * s, 0.24 * s, lx * s, 0.42 * s, 0));
-    p.push(box(0.26 * s, 0.14 * s, 0.42 * s, lx * s, 0.07 * s, 0.12 * s));
+  for (const lx of [-0.2, 0.2]) {
+    p.push(box(0.22 * s, 0.85 * s, 0.22 * s, lx * s, 0.42 * s, 0));
+    p.push(box(0.24 * s, 0.14 * s, 0.42 * s, lx * s, 0.07 * s, 0.12 * s));
   }
   if (t.key === "brute") {
     for (const sx of [-0.6, 0.6]) p.push(box(0.42 * s, 0.42 * s, 0.6 * s, sx * s, 1.5 * s, 0.1 * s));

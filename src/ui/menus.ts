@@ -182,7 +182,8 @@ export class Menus {
               <li><b>WASD</b> — move (you sneak; the map is dark)</li>
               <li><b>Shift</b> — sprint (short — to escape)</li>
               <li>Stay out of the <b>amber sight cones</b></li>
-              <li>Grab the glowing <b>supply crates</b></li>
+              <li>Grab <b>supply crates</b> (amber) &amp; <b>repair kits</b> (blue)</li>
+              <li>Rescue <b>survivors</b> (green) to recruit allies</li>
               <li>Get spotted &amp; caught and the run <b>ends</b></li>
             </ul>
             <h3>TIPS</h3>

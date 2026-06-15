@@ -49,7 +49,7 @@ export class Hud {
         <div class="day-crates">SUPPLIES 0/0</div>
         <div class="bar bar-day"><div class="bar-fill"></div></div>
         <div class="stamina"><div class="stamina-fill"></div></div>
-        <div class="day-obj">Sneak the dark for supplies · stay out of sight cones · SHIFT to sprint away</div>
+        <div class="day-obj">Sneak for supplies · rescue survivors · grab repair kits · stay out of sight · SHIFT sprints</div>
       </div>
       <div class="compass-arrow">➤</div>
       <div class="kills">0</div>
@@ -253,10 +253,11 @@ export class Hud {
   private tmpV = new THREE.Vector3();
   private updateDay(): void {
     if (!this.scav) return;
-    this.el.dayCrates.textContent = `SUPPLIES ${this.scav.got}/${this.scav.total}`;
+    const low = this.scav.timeLeft < 12;
+    this.el.dayCrates.textContent = `SUPPLIES ${this.scav.got}/${this.scav.total}   ·   ${Math.max(0, Math.ceil(this.scav.timeLeft))}s`;
     const f = Math.max(0, this.scav.timeLeft) / this.scav.maxTime;
     this.el.dayFill.style.width = `${f * 100}%`;
-    this.el.dayCrates.style.color = this.scav.spotted ? "#ff5a3c" : "#ffce7a";
+    this.el.dayCrates.style.color = this.scav.spotted || low ? "#ff5a3c" : "#ffce7a";
     this.el.stamina.style.width = `${this.scav.stamina * 100}%`;
 
     // Compass: point from screen centre toward the nearest crate

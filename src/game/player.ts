@@ -31,6 +31,8 @@ export class Player {
   private muzzleLight: THREE.PointLight;
   private muzzleGlow: THREE.Sprite;
   private shoveGlow!: THREE.Sprite;
+  private gunGroup = new THREE.Group();
+  private gunId = "";
   private aimMarker = new THREE.Group();
   private muzzle = 0; // 0..1 flash
   private fireCd = 0;
@@ -115,13 +117,8 @@ export class Player {
     this.aimRig.position.y = 1.4;
     this.group.add(this.aimRig);
 
-    const gunMat = new THREE.MeshStandardMaterial({ color: 0x141619, roughness: 0.6, metalness: 0.5 });
-    const gun = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.18, 1.05), gunMat);
-    gun.position.set(0.12, 0, -0.62);
-    this.aimRig.add(gun);
-    const stock = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.16, 0.34), gunMat);
-    stock.position.set(0.12, -0.04, 0.0);
-    this.aimRig.add(stock);
+    this.aimRig.add(this.gunGroup);
+    this.buildGunModel("pistol");
     // Arms reaching to the rifle
     const armMat = coat;
     const armR = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.16, 0.62), armMat);
@@ -186,6 +183,55 @@ export class Player {
     this.aimMarker.visible = b;
   }
 
+  /** Build a distinct silhouette for the held weapon (rebuilt on swap). */
+  private buildGunModel(id: string): void {
+    if (id === this.gunId) return;
+    this.gunId = id;
+    for (let i = this.gunGroup.children.length - 1; i >= 0; i--) {
+      this.gunGroup.remove(this.gunGroup.children[i]);
+    }
+    const metal = new THREE.MeshStandardMaterial({ color: 0x141619, roughness: 0.55, metalness: 0.55, flatShading: true });
+    const wood = new THREE.MeshStandardMaterial({ color: 0x3a2a1a, roughness: 1, flatShading: true });
+    const add = (geo: THREE.BufferGeometry, mat: THREE.Material, x: number, y: number, z: number) => {
+      const m = new THREE.Mesh(geo, mat);
+      m.position.set(x, y, z);
+      this.gunGroup.add(m);
+      return m;
+    };
+    const box = (w: number, h: number, d: number) => new THREE.BoxGeometry(w, h, d);
+    const X = 0.12;
+    switch (id) {
+      case "pistol":
+        add(box(0.12, 0.18, 0.42), metal, X, 0.02, -0.42);
+        add(box(0.1, 0.22, 0.12), metal, X, -0.16, -0.22); // grip
+        break;
+      case "smg":
+        add(box(0.14, 0.18, 0.7), metal, X, 0.02, -0.5);
+        add(box(0.1, 0.28, 0.12), metal, X, -0.18, -0.3); // mag
+        add(box(0.1, 0.2, 0.14), metal, X, -0.14, -0.06); // grip
+        break;
+      case "shotgun":
+        add(box(0.16, 0.18, 1.0), metal, X, 0.02, -0.62);
+        add(box(0.14, 0.12, 0.5), wood, X, -0.12, -0.4); // pump
+        add(box(0.13, 0.16, 0.34), wood, X, -0.02, 0.02); // stock
+        break;
+      case "rifle":
+        add(box(0.14, 0.16, 1.2), metal, X, 0.02, -0.72);
+        add(box(0.1, 0.1, 0.3), metal, X, 0.14, -0.55); // scope
+        add(box(0.12, 0.16, 0.36), wood, X, -0.02, 0.04); // stock
+        break;
+      case "lmg":
+        add(box(0.2, 0.22, 1.25), metal, X, 0.02, -0.7);
+        add(box(0.24, 0.3, 0.34), metal, X, -0.14, -0.4); // box mag
+        add(box(0.06, 0.06, 0.5), metal, X, -0.16, -1.0); // bipod-ish barrel
+        add(box(0.14, 0.18, 0.36), metal, X, -0.02, 0.06); // stock
+        break;
+      default:
+        add(box(0.14, 0.16, 0.8), metal, X, 0.02, -0.55);
+        break;
+    }
+  }
+
   private get loadout(): Loadout | undefined {
     return this.ctx.run.weapons[this.ctx.run.weaponIndex];
   }
@@ -211,6 +257,8 @@ export class Player {
   update(dt: number): void {
     this.t += dt;
     const input = this.ctx.input;
+    const lo0 = this.loadout;
+    if (lo0) this.buildGunModel(lo0.def.id);
 
     // Move along the wall
     if (this.alive) {
