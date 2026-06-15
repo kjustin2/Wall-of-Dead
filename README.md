@@ -4,10 +4,13 @@ A moody, behind-the-wall zombie **survival defense**, in 3D. Stand on the
 rampart, strafe the barrier, and aim into the dark. Hold the wall through the
 night until dawn, scavenge the field by day, and push for the safe zone.
 
-Built with **Three.js + Vite + TypeScript** — procedural everything (no art or
-audio asset files): low-poly geometry under ACES tone mapping + bloom, a trauma
-camera, and synthesized Web Audio. This is a polished **vertical slice**:
-Title → 1 Night → 1 Day → Victory.
+Built with **Three.js + Vite + TypeScript** — procedural everything (no art
+files; music is the one bundled exception): low-poly geometry under ACES tone
+mapping + bloom, a trauma camera, and synthesized Web Audio. A polished
+**vertical slice**: Title → **3 Nights / Days** → Safe Zone, with night tactics
+(traps, flares, ally orders, a night-3 boss + dawn surge), a real stealth day
+(takedowns, lures, hiding, extraction), survivor traits + a dawn dilemma,
+difficulty presets, controller + mid-run save/resume.
 
 ## Play / develop
 
@@ -16,12 +19,16 @@ npm install
 npm run dev          # http://localhost:5180
 ```
 
-- **A / D** — move along the wall
-- **Mouse** — aim · **Click** — fire (hold for autos)
-- **R** — reload · **1–3 / Q** — switch weapons
-- **F** — Last Stand (when the Adrenaline meter is full)
-- **Esc** — pause
-- Day: **WASD** to dash for supply crates, avoid the prowlers.
+Night (defend):
+- **A / D** — move along the wall · **Mouse** aim · **Click** fire (hold autos)
+- **R** — reload (nail the green zone) · **1–5 / wheel** — switch weapons
+- **Space** — shove/bash · **E** — repair a breach / revive an ally
+- **T** — spike trap · **G** — flare · **C** — order allies to focus your mark
+- **F (hold)** — lob a frag when Adrenaline is full · **Esc** — pause
+
+Day (supply run): **WASD** sneak · **Shift** sprint (loud) · **E** takedown ·
+**Q** lure · **F** flashlight · hide in dumpsters · grab supplies then reach the
+exit. A **gamepad** works throughout (twin-stick).
 
 ### Adrenaline
 

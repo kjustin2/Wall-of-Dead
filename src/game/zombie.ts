@@ -883,6 +883,13 @@ export class EnemyManager {
   /** Recycled actors per type — reused instead of rebuilt to cut GC. */
   private pool: Record<string, Zombie[]> = {};
 
+  /** Total recycled actors across all type pools (smoke/perf introspection). */
+  poolSize(): number {
+    let n = 0;
+    for (const k in this.pool) n += this.pool[k].length;
+    return n;
+  }
+
   /** 0..1 boss health, or 0 if no boss is alive. */
   bossFrac(): number {
     return this.boss ? Math.max(0, this.boss.hp / this.boss.maxHp) : 0;

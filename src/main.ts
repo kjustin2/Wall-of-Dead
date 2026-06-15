@@ -374,6 +374,7 @@ function onDayDone(tier: string, frac: number): void {
   scavenge.hide();
   state = "loot";
   ctx.input.enabled = false;
+  hud.setMode("hidden");
 
   // Ammo + repair kits were gathered live in the run; top mags and find a weapon.
   ctx.run.refillMags();

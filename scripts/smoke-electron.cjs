@@ -146,6 +146,14 @@ app.whenReady().then(async () => {
       for (let leg = 0; leg < 5; leg++) {
         await win.webContents.executeJavaScript(`window.__wod.forceDawn();`);
         await sleep(1700);
+        if (leg === 0) {
+          // Perf/leak: clearing the field should recycle actors into the pool,
+          // and leave none alive (no orphaned enemy meshes across nights).
+          const alive = await win.webContents.executeJavaScript(`window.__wod.ctx.enemies.alive.length`);
+          if (alive !== 0) errors.push("LEAK: " + alive + " enemies still alive after dawn");
+          const pooled = await win.webContents.executeJavaScript(`window.__wod.ctx.enemies.poolSize()`);
+          if (pooled <= 0) errors.push("PERF: zombie pool not reused after clear");
+        }
         if (leg === 0) await shot(win, "05-day-report.png");
         const started = await win.webContents.executeJavaScript(
           `(()=>{const b=document.querySelector('.act-start'); if(b){b.click(); return true;} return false;})()`

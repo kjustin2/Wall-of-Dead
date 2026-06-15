@@ -12,6 +12,12 @@ today. Tick what you want (or list the numbers) and I'll build it.
 
 > `POLISH-IDEAS.md` is the older list (mostly shipped). This doc supersedes it.
 
+> **Status (June 2026): §2–§5 are all implemented and shipped** (everything
+> ticked below — night tactics, hazard zombies + telegraphs, the night-3 boss +
+> dawn surge, the stealth day verbs, survivor traits + dawn dilemma + richer
+> endings, and the full UX/accessibility/audio-visual/perf pass). The smoke
+> (`npm run test:play`) drives the whole slice green. **§6 remains parked.**
+
 ---
 
 ## 1. Honest read on the slice
@@ -42,112 +48,112 @@ than adding new modes/content layers.
 
 ### Lever A — The day becomes a real game (stealth verbs)
 The supply run looks great but plays as one verb. Give the *existing* run depth.
-- [ ] **A1. Stealth takedowns** (M, ★★★) — sneak behind a guard (outside its
+- [x] **A1. Stealth takedowns** (M, ★★★) — sneak behind a guard (outside its
       cone, in range, hold a key) for a silent kill. Turns avoidance into
       cat-and-mouse with agency; alerts nearby guards if seen mid-takedown.
-- [ ] **A2. Distractions / lures** (M, ★★) — throw a bottle/flare to pull guards
+- [x] **A2. Distractions / lures** (M, ★★) — throw a bottle/flare to pull guards
       toward a noise, opening a path. A second verb that rewards planning.
-- [ ] **A3. Hiding spots / break line-of-sight** (M, ★★) — duck behind cover or
+- [x] **A3. Hiding spots / break line-of-sight** (M, ★★) — duck behind cover or
       into a locker to drop a chase (guards enter a "search" state and lose you).
-- [ ] **A4. Soften "caught = instant end"** (S, ★★★) — one touch ending the run
+- [x] **A4. Soften "caught = instant end"** (S, ★★★) — one touch ending the run
       is harsh. Options: a short escape window (sprint free for ~2s after a
       touch), or drop some supplies + brief stun instead of game over. You
       flagged this — worth deciding; it changes the day's feel most.
-- [ ] **A5. Light & noise as mechanics** (M, ★★) — your flashlight can give you
+- [x] **A5. Light & noise as mechanics** (M, ★★) — your flashlight can give you
       away (toggle off to hide but see less); sprinting is loud and widens guard
       detection. Makes your toolkit a real stealth kit.
-- [ ] **A6. Extraction beat** (S, ★) — after the goal, sprint to an exit before
+- [x] **A6. Extraction beat** (S, ★) — after the goal, sprint to an exit before
       the clock ends for a tier bonus — a small climax to each run.
 
 ### Lever B — A night with tactics (choices beyond aim)
 Deepen the *existing* night without adding new modes.
-- [ ] **B1. Deployables / traps** (M, ★★★) — spend repair kits / supplies to place
+- [x] **B1. Deployables / traps** (M, ★★★) — spend repair kits / supplies to place
       bear traps, barbed wire (slows a lane), or a sandbag reinforce (raises a
       segment's max HP). Adds a setup phase + positional strategy.
-- [ ] **B2. A second active ability** (M, ★★) — beyond the frag: a flare (lights
+- [x] **B2. A second active ability** (M, ★★) — beyond the frag: a flare (lights
       the field + slows), a med-stim (self-heal), or "overdrive" (spend Adrenaline
       for a few seconds of infinite ammo). A tiny loadout of abilities = expression.
-- [ ] **B3. Ammo scarcity with teeth + guaranteed sidearm** (S, ★★) — tune
+- [x] **B3. Ammo scarcity with teeth + guaranteed sidearm** (S, ★★) — tune
       reserves so you genuinely ration and lean on the shared armory + day ammo
       runs; add an always-available pistol so "out of all ammo" is rare but
       rationing is real. Gives the whole economy stakes.
-- [ ] **B4. Command your allies** (M, ★★) — point an ally to hold a segment or
+- [x] **B4. Command your allies** (M, ★★) — point an ally to hold a segment or
       focus-fire; makes the ally system tactical, not just auto-fire.
-- [ ] **B5. Choke-point geometry** (M, ★) — a wrecked-bus gap / rubble that funnels
+- [x] **B5. Choke-point geometry** (M, ★) — a wrecked-bus gap / rubble that funnels
       zombies so *where* you stand and aim matters.
 
 ### Lever C — A finale for the slice (a peak on night 3)
-- [ ] **C1. A night-3 boss** (L, ★★★) — a multi-phase horror on the final night
+- [x] **C1. A night-3 boss** (L, ★★★) — a multi-phase horror on the final night
       (a "Behemoth" that rips whole segments; or a "Brood" that spawns adds) with
       telegraphed attacks (the telegraph system already exists). Gives the slice a
       summit instead of just ending. (Scoped to ONE boss for the slice.)
-- [ ] **C2. Escalating signature threats** (M, ★★) — the Tank is great; give
+- [x] **C2. Escalating signature threats** (M, ★★) — the Tank is great; give
       nights 1/2/3 each a distinct headline threat (e.g. night-2 Spitter-queen
       that shells from range) so the three nights feel different.
-- [ ] **C3. Dawn's-edge surge** (S, ★★) — the last ~15s of each night become a
+- [x] **C3. Dawn's-edge surge** (S, ★★) — the last ~15s of each night become a
       desperate wall of bodies with music + lighting peaking, so the finish feels
       earned.
 
 ### Lever D — Stakes & character (within the 3 nights)
-- [ ] **D1. Survivors with names + a trait** (M, ★★★) — rescued allies get a
+- [x] **D1. Survivors with names + a trait** (M, ★★★) — rescued allies get a
       trait (Marksman: +accuracy · Medic: revives/heals faster · Gunner: faster
       fire) and a one-liner. Ties recruit/loadout/revive to real stakes — losing
       one *matters*. Pure slice content, no meta needed.
-- [ ] **D2. Inter-night story beats** (S, ★★) — short radio/log lines between the
+- [x] **D2. Inter-night story beats** (S, ★★) — short radio/log lines between the
       nights that advance the convoy's plight and foreshadow the next.
-- [ ] **D3. A dawn dilemma** (M, ★★) — at dawn, one choice with a consequence this
+- [x] **D3. A dawn dilemma** (M, ★★) — at dawn, one choice with a consequence this
       run (share ammo with a stranger to recruit them vs keep it; risk a deep
       supply run vs play safe). Light but memorable.
-- [ ] **D4. Richer ending screen** (S, ★) — expand the victory/defeat epilogue by
+- [x] **D4. Richer ending screen** (S, ★) — expand the victory/defeat epilogue by
       allies saved, wall integrity per night, supplies, deaths; a proper summary.
 
 ---
 
 ## 3. Game feel & juice (cheap wins)
-- [ ] **3.1 Active reload** (S, ★★) — tap-at-the-mark reload for a faster reload +
+- [x] **3.1 Active reload** (S, ★★) — tap-at-the-mark reload for a faster reload +
       small buff; gives a dead beat skill.
-- [ ] **3.2 Limb damage** (M, ★★) — legs slow them, arms stop clawing; rewards
+- [x] **3.2 Limb damage** (M, ★★) — legs slow them, arms stop clawing; rewards
       target priority.
-- [ ] **3.3 Gore & dismemberment pass** (M, ★) — more visceral, lingering kills.
-- [ ] **3.4 Kill-cam / slow-mo on the final dawn kill** (S, ★★) — a payoff beat.
-- [ ] **3.5 Cinematic dawn** (S, ★★) — sun crests, fog burns off, birdsong — a
+- [x] **3.3 Gore & dismemberment pass** (M, ★) — more visceral, lingering kills.
+- [x] **3.4 Kill-cam / slow-mo on the final dawn kill** (S, ★★) — a payoff beat.
+- [x] **3.5 Cinematic dawn** (S, ★★) — sun crests, fog burns off, birdsong — a
       bigger exhale when you survive a night.
-- [ ] **3.6 Execution on a stunned brute/tank** (S, ★) — a finisher.
-- [ ] **3.7 LMG overheat** (S, ★) — punish never letting go of the trigger.
-- [ ] **3.8 Per-segment 3D damage states** (S, ★) — cracks → leaning → rubble, so
+- [x] **3.6 Execution on a stunned brute/tank** (S, ★) — a finisher.
+- [x] **3.7 LMG overheat** (S, ★) — punish never letting go of the trigger.
+- [x] **3.8 Per-segment 3D damage states** (S, ★) — cracks → leaning → rubble, so
       you read the wall's health at a glance in the world (not just the bar).
 
 ## 4. Enemies & telegraphs (within the current roster)
-- [ ] **4.1 Telegraphed specials for every type** (M, ★★) — spitter barrage,
+- [x] **4.1 Telegraphed specials for every type** (M, ★★) — spitter barrage,
       runner lunge line, screamer AoE pulse — fairness + readability.
-- [ ] **4.2 Hazard zombies** (M, ★★) — exploder (gas on death), shielded (flank
+- [x] **4.2 Hazard zombies** (M, ★★) — exploder (gas on death), shielded (flank
       it), leaper (instant vault) — variety inside the existing fight.
-- [ ] **4.3 Deepen breach-seeking** (S, ★) — horde visibly piles on the weakest
+- [x] **4.3 Deepen breach-seeking** (S, ★) — horde visibly piles on the weakest
       segment / an open breach.
 
 ## 5. UX, onboarding, audio/visual, accessibility, perf (slice polish)
-- [ ] **5.1 Loadout onboarding nudge** (S, ★★) — first time at LOADOUT, a one-time
+- [x] **5.1 Loadout onboarding nudge** (S, ★★) — first time at LOADOUT, a one-time
       callout on shared-armory + melee fallback (you hit this confusion).
-- [ ] **5.2 Wall threat strip / mini-map** (M, ★★) — a clear top strip showing
+- [x] **5.2 Wall threat strip / mini-map** (M, ★★) — a clear top strip showing
       where pressure is along the wall (a better version of the removed pips).
-- [ ] **5.3 Off-screen threat markers** (S, ★) — arrows for crossers flanking you.
-- [ ] **5.4 Controller support** (M, ★★) — twin-stick fits a gamepad perfectly.
-- [ ] **5.5 Save & resume mid-run** (M, ★★) — checkpoint at each dawn so a slice
+- [x] **5.3 Off-screen threat markers** (S, ★) — arrows for crossers flanking you.
+- [x] **5.4 Controller support** (M, ★★) — twin-stick fits a gamepad perfectly.
+- [x] **5.5 Save & resume mid-run** (M, ★★) — checkpoint at each dawn so a slice
       run survives a refresh/close (single-run, not meta).
-- [ ] **5.6 Key rebinding + aim-assist option** (M, ★) — accessibility depth.
-- [ ] **5.7 Difficulty presets** (S, ★★) — Story/Normal/Nightmare scaling HP /
+- [x] **5.6 Key rebinding + aim-assist option** (M, ★) — accessibility depth.
+- [x] **5.7 Difficulty presets** (S, ★★) — Story/Normal/Nightmare scaling HP /
       spawn rate / wall strength / ammo — refines balance + accessibility of the
       one slice.
-- [ ] **5.8 Layered/adaptive music** (M, ★★) — intensity stems on top of the cue
+- [x] **5.8 Layered/adaptive music** (M, ★★) — intensity stems on top of the cue
       tracks; more layers as the wave thickens, drop at lulls.
-- [ ] **5.9 Positional SFX attenuation** (S, ★) — distance falloff on enemy sounds.
-- [ ] **5.10 Weather variety** (M, ★) — a storm night vs a clear moonlit night for
+- [x] **5.9 Positional SFX attenuation** (S, ★) — distance falloff on enemy sounds.
+- [x] **5.10 Weather variety** (M, ★) — a storm night vs a clear moonlit night for
       mood across the three nights.
-- [ ] **5.11 Zombie pooling** (M, ★) — reuse actors instead of build/dispose per
+- [x] **5.11 Zombie pooling** (M, ★) — reuse actors instead of build/dispose per
       spawn (less GC) — quiet perf refinement.
-- [ ] **5.12 Quality auto-detect on boot** (S, ★) — a quick FPS probe to pick the
+- [x] **5.12 Quality auto-detect on boot** (S, ★) — a quick FPS probe to pick the
       starting preset (adaptive downscale already exists).
-- [ ] **5.13 Preload/loading screen** (S, ★) — avoid a first-play hitch while music
+- [x] **5.13 Preload/loading screen** (S, ★) — avoid a first-play hitch while music
       streams in.
 
 ---

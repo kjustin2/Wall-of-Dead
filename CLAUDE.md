@@ -22,9 +22,14 @@ low-poly geometry under **ACES tone mapping + bloom/vignette/grain**, a trauma
 camera, a typed event bus, and a single damage funnel. The old Canvas2D code is
 preserved in git history (commit `8570e94` and earlier).
 
-**Current scope: a polished vertical slice** — Title → 1 Night → 1 Day →
-Victory. The framework for more (multiple legs/nights) is in place but capped
-(`run.legsTotal = 1`).
+**Current scope: a polished vertical slice** — Title → **3 Nights / Days** →
+Safe Zone (`run.legsTotal = 3`). Deepened in place (no new modes/acts): night
+tactics (traps `T` / flare `G` / ally focus-fire `C` / choke geometry), hazard
+zombies + telegraphs, a night-3 **Behemoth boss** + dawn surge, a real stealth
+day (takedowns/lures/hiding/extraction, soft-caught), survivor **traits** + a
+dawn **dilemma** + richer endings, difficulty presets, controller, mid-run
+save/resume, adaptive music + weather. The parked full-game expansion (extra
+acts, meta-progression, endless) stays out of scope — see `IMPROVEMENTS.md §6`.
 
 ### Stack
 
@@ -114,9 +119,17 @@ src/game/
   wall.ts              12 segments + pillars; localized damage; breach = sink to
                        rubble; setTotal() redistributes a persisted run.wallHp.
   zombie.ts            EnemyManager + Zombie + TYPES (shambler/runner/brute/
-                       spitter/crawler/armored/screamer/tank); merged per-type
-                       geometry (one draw call); FSM + breach-seeking, vaulting,
-                       screamer speed-buff; telegraphs; Tank mini-boss at surge.
+                       spitter/crawler/armored/screamer/exploder/shielded/leaper/
+                       tank + the night-3 behemoth BOSS); merged per-type geometry
+                       (one draw call) + per-type actor POOL (reinit on reuse);
+                       FSM + breach-seeking (weakest segment), runner lunge,
+                       vaulting/leaping, screamer buff, shield/exploder/boss-phase
+                       logic; telegraphs; distance-attenuated enemy SFX.
+  deployables.ts       Player tactics placed in the field: spike traps (limited,
+                       persistent) + flares (cooldown light + slow). Cleared on
+                       every scene transition like the other pools.
+  traits.ts            Survivor TRAITS (marksman/medic/gunner): combat effects +
+                       recruit/lost voice lines. run.companionTraits maps name→id.
   player.ts            Defender: strafe, aim, fire/reload/swap, shove (Space),
                        hold-E repair/revive, HP, flashlight SpotLight (+ shadows
                        & volumetric cone) + lantern + muzzle flash.
@@ -124,22 +137,29 @@ src/game/
                        blast + knockback + shockwave). Pooled.
   companion.ts         Rescued-survivor allies: auto-target + auto-fire, banter,
                        hold-E revive when downed.
-  waveDirector.ts      One night: dusk→dawn clock + escalating spawn stream.
-  run.ts               RunManager + persisted run state (weapons, companions,
-                       wallHp, leg/night, stats helpers).
+  waveDirector.ts      One night: dusk→dawn clock + escalating spawn stream +
+                       per-night signature threats (brute charge / spitter battery
+                       / night-3 behemoth) + dawn surge. Scales by ctx.tuning.
+  run.ts               RunManager + persisted run state (weapons, companions +
+                       traits, wallHp, leg/night, traps, kits, stats helpers) +
+                       serialize()/load() for the mid-run save.
 
 src/minigames/
   scavenge.ts          The day "Supply Run": a moody top-down STEALTH crawl —
-                       dark map + walls, avatar flashlight, guard sight cones
-                       (detect→chase), sneak/sprint. Returns { tier, frac }.
+                       dark map + walls, avatar flashlight, guard sight cones +
+                       investigate state; verbs: takedown (hold E), lure (Q),
+                       hide in dumpsters, flashlight toggle (F), sprint=loud;
+                       caught is a setback (3 grabs = out); extraction beat.
+                       Returns { tier, frac }.
 
 src/ui/
   hud.ts               DOM night/day HUD (dawn timeline, HP, wall, adrenaline,
                        weapon/ammo, companions, kills) + banners.
   menus.ts             DOM overlays (title/pause/settings/report/loot/victory/
-                       death) + opening story cutscene + persisted Settings
-                       (SFX/music vol, mute, quality, shake, FOV, damage numbers,
-                       reduced-flashing, colorblind, large text).
+                       death + dawn dilemma + loadout) + opening story cutscene +
+                       persisted Settings (difficulty, aim-assist, SFX/music vol,
+                       mute, quality, shake, FOV, damage numbers, reduced-flashing,
+                       colorblind, large text, accessibility key re-binds).
   style.css            The look (fonts, panels, crosshair, accessibility toggles).
 
 src/audio/sfx.ts       Web Audio synth SFX table (+ stereo pan) + ambient bed;
@@ -193,7 +213,14 @@ check-imports.mjs            Stop-hook shim → tsc --noEmit.
    `wall.setTotal()` at night start.
 
 8. **State flow is explicit in `main.ts`** (`toTitle/startRun/beginNight/onDawn/
-   startDay/onDayDone/onVictory/defeat`). Keep transitions there.
+   startDay/onDayDone/onVictory/defeat`). Keep transitions there. The run is
+   checkpointed to `localStorage` (`wod-save`) at each `beginNight` and cleared on
+   win/lose; the title offers **CONTINUE** via `run.serialize()/load()`.
+
+9. **Difficulty is `ctx.tuning`** (`DIFFICULTY[story|normal|nightmare]` in
+   `config.ts`): scales zombie HP, spawn rate, damage to you + the wall
+   (`wall.dmgMul` / `combat.damagePlayer`), and starting ammo. Read it where you
+   scale combat numbers; it's set from Settings in `menus.applySettings`.
 
 ## Adding content — quick recipes
 
@@ -201,8 +228,14 @@ check-imports.mjs            Stop-hook shim → tsc --noEmit.
   `sfx.ts`); grant via `run.grantWeapon(id)`. Reference HP: shambler 30, runner
   14, spitter 22, brute 135.
 - **Zombie type:** add to `TYPES` in `zombie.ts` (`hp/speed/radius/claw/…`,
-  optional `targetsPlayer/slam/standoff/spit*`); add to a night's `mix` in
-  `waveDirector.ts`. New behavior → extend the `Zombie.update` state switch.
+  optional `targetsPlayer/slam/standoff/spit*/lunges/explodes/shield/leaper/
+  vaults/boss`); add to a night's `mix` in `waveDirector.ts`. New behavior →
+  extend the `Zombie.update` state switch. If it adds per-instance meshes that
+  get removed (like the riot shield), exclude it from the actor pool in
+  `poolable()` so reuse doesn't resurrect a half-built actor.
+- **Survivor trait:** add to `TRAITS` in `traits.ts` + apply its effect in
+  `companion.ts`. **Deployable/ability:** extend `deployables.ts` + a key in
+  `player.handleInput`. Tune difficulty in `DIFFICULTY` (`config.ts`).
 - **SFX/cue:** add a case to the `play()` switch in `audio/sfx.ts` (build from
   `tone`/`burst`), then `events.emit("SFX", { id })`.
 - **Minigame:** new file in `src/minigames/`; expose `start/update/done` and emit
