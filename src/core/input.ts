@@ -17,6 +17,7 @@ export class Input {
 
   private keys = new Set<string>();
   private justPressed = new Set<string>();
+  private wheel = 0;
   private raycaster = new THREE.Raycaster();
   private plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -FIELD.aimPlaneY);
   private ndc = new THREE.Vector2();
@@ -48,6 +49,20 @@ export class Input {
       if (e.button === 0) this.mouseDown = false;
     });
     canvas.addEventListener("contextmenu", (e) => e.preventDefault());
+    canvas.addEventListener(
+      "wheel",
+      (e) => {
+        if (!this.enabled) return;
+        this.wheel += Math.sign(e.deltaY);
+        e.preventDefault();
+      },
+      { passive: false }
+    );
+  }
+
+  /** -1 / 0 / +1 scroll step this frame (for weapon cycling). */
+  wheelStep(): number {
+    return this.enabled ? Math.sign(this.wheel) : 0;
   }
 
   down(code: string): boolean {
@@ -94,5 +109,6 @@ export class Input {
   endFrame(): void {
     this.justPressed.clear();
     this.mouseJustDown = false;
+    this.wheel = 0;
   }
 }

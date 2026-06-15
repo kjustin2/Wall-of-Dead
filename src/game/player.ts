@@ -289,11 +289,13 @@ export class Player {
     if (!lo) return;
     const def = lo.def;
 
-    // Weapon swap (number keys + Q to cycle)
-    for (let i = 0; i < this.ctx.run.weapons.length && i < 4; i++) {
+    // Weapon swap: number keys 1–9, Q, or the scroll wheel
+    for (let i = 0; i < this.ctx.run.weapons.length && i < 9; i++) {
       if (input.pressed(`Digit${i + 1}`)) this.swapTo(i);
     }
-    if (input.pressed("KeyQ")) this.swapTo((this.ctx.run.weaponIndex + 1) % this.ctx.run.weapons.length);
+    if (input.pressed("KeyQ")) this.cycleWeapon(1);
+    const wheel = input.wheelStep();
+    if (wheel !== 0) this.cycleWeapon(wheel);
 
     if (input.pressed("KeyR")) this.startReload();
     if (input.pressed("Space") && this.shoveCd <= 0) this.shove();
@@ -404,8 +406,24 @@ export class Player {
     lo.reserve -= take;
   }
 
+  /** Cycle to the next/prev weapon the player can actually use (skips any an
+   * ally is holding). */
+  private cycleWeapon(dir: number): void {
+    const n = this.ctx.run.weapons.length;
+    if (n <= 1) return;
+    let i = this.ctx.run.weaponIndex;
+    for (let k = 0; k < n; k++) {
+      i = (i + (dir > 0 ? 1 : n - 1) + n) % n;
+      if (this.ctx.run.canPlayerUse(i)) {
+        this.swapTo(i);
+        return;
+      }
+    }
+  }
+
   private swapTo(i: number): void {
     if (i === this.ctx.run.weaponIndex || i >= this.ctx.run.weapons.length) return;
+    if (!this.ctx.run.canPlayerUse(i)) return; // an ally is holding it
     this.ctx.run.weaponIndex = i;
     this.reloadTimer = 0;
     this.ctx.events.emit("WEAPON_SWAP", { weapon: this.ctx.run.weapons[i].def.id, index: i });

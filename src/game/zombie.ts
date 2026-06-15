@@ -544,8 +544,10 @@ export class Zombie {
     this.group.scale.setScalar(0.6 + f * 0.4);
   }
 
-  dispose(scene: THREE.Scene): void {
-    scene.remove(this.group);
+  dispose(): void {
+    // The group is a child of the EnemyManager group — remove from its actual
+    // parent (scene.remove would be a no-op and leak the meshes).
+    this.group.removeFromParent();
     // Geometry + eye material are shared/cached; only free per-instance bits.
     this.bodyMat.dispose();
     this.glow.material.dispose();
@@ -588,7 +590,7 @@ export class EnemyManager {
     this.ctx.fx.burst(x, 1.6, z, 18, 0xff3cf0, { speed: 11, up: 4, life: 0.5, size: 7 });
   }
 
-  constructor(private ctx: Ctx, private scene: THREE.Scene) {
+  constructor(private ctx: Ctx, scene: THREE.Scene) {
     scene.add(this.group);
     const geo = new THREE.SphereGeometry(0.32, 8, 8);
     for (let i = 0; i < ACID_CAP; i++) {
@@ -656,7 +658,7 @@ export class EnemyManager {
     // Reap
     for (let i = this.alive.length - 1; i >= 0; i--) {
       if (this.alive[i].gone) {
-        this.alive[i].dispose(this.scene);
+        this.alive[i].dispose();
         this.alive.splice(i, 1);
       }
     }
@@ -690,7 +692,7 @@ export class EnemyManager {
   }
 
   clear(): void {
-    for (const z of this.alive) z.dispose(this.scene);
+    for (const z of this.alive) z.dispose();
     this.alive.length = 0;
     for (const a of this.acids) {
       a.active = false;
