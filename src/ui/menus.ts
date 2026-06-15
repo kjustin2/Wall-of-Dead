@@ -147,7 +147,7 @@ export class Menus {
         <p class="subtitle">Hold the barrier until dawn.</p>
         <div class="menu">
           <button class="mbtn mbtn--primary act-start">BEGIN</button>
-          <button class="mbtn act-help">HOW TO PLAY</button>
+          <button class="mbtn act-help">TUTORIAL</button>
           <button class="mbtn act-settings">SETTINGS</button>
         </div>
         <p class="controls">A / D move &nbsp;·&nbsp; MOUSE aim &nbsp;·&nbsp; CLICK fire &nbsp;·&nbsp; R reload &nbsp;·&nbsp; E repair/revive &nbsp;·&nbsp; SPACE shove &nbsp;·&nbsp; F frag</p>
@@ -158,11 +158,11 @@ export class Menus {
   }
 
   /** How-to-play + controls reference, reachable from the title and pause. */
-  showHelp(onBack: () => void): void {
+  showHelp(onBack: () => void, backLabel = "BACK"): void {
     this.paint(`
       <div class="screen screen--help">
         <h2 class="panel-title">HOW TO PLAY</h2>
-        <p class="subtitle">Hold the wall each night until dawn. By day, sneak the dark for supplies. Survive three nights of road to reach the safe zone.</p>
+        <p class="subtitle">Hold the wall each night until dawn. By day, sneak the dark for supplies. Survive three nights of road to reach the safe zone. Hand spare weapons to allies on the LOADOUT screen — a weapon they carry, you can't (and vice-versa). Fix breaches at night with repair kits found by day.</p>
         <div class="help-cols">
           <div class="help-col">
             <h3>NIGHT — DEFEND</h3>
@@ -193,7 +193,7 @@ export class Menus {
             </ul>
           </div>
         </div>
-        <div class="menu"><button class="mbtn mbtn--primary act-back">BACK</button></div>
+        <div class="menu"><button class="mbtn mbtn--primary act-back">${backLabel}</button></div>
       </div>`);
     this.btn(".act-back", onBack);
   }

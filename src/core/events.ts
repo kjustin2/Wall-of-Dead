@@ -54,6 +54,9 @@ export interface EventMap {
 
   UI_CLICK: Record<string, never>;
   UI_HOVER: Record<string, never>;
+
+  /** A brief on-screen notice (shown as a HUD banner). */
+  NOTICE: { text: string; sub?: string };
 }
 
 type Handler<K extends keyof EventMap> = (payload: EventMap[K]) => void;

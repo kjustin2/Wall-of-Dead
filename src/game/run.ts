@@ -39,7 +39,7 @@ export class RunManager {
       makeLoadout("smg", RESERVES.smg),
       makeLoadout("shotgun", RESERVES.shotgun),
     ];
-    this.weaponOwner = [null, "Mara", null]; // Mara holds the SMG by default
+    this.weaponOwner = [null, null, null]; // all yours until you assign one to an ally
     this.weaponIndex = 0;
     this.companions = ["Mara"];
   }

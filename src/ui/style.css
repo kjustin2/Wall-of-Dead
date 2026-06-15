@@ -164,6 +164,19 @@ body {
 .repair-label { font-family: var(--display); letter-spacing: 3px; font-size: 13px; color: #ffce7a; margin-bottom: 4px; }
 .bar-repair { width: 100%; }
 .bar-repair .bar-fill { background: linear-gradient(90deg, #ff9a4c, #ffe08a); width: 0%; }
+.prompt {
+  position: absolute;
+  bottom: 165px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-family: var(--display);
+  font-weight: 600;
+  letter-spacing: 3px;
+  font-size: 16px;
+  color: #ffce7a;
+  text-shadow: 0 0 10px rgba(0, 0, 0, 0.9);
+  animation: ammoPulse 1.1s ease-in-out infinite;
+}
 .bar-hp .bar-fill { background: linear-gradient(90deg, #b53030, #ff6b5a); }
 .bar-wall .bar-fill { background: linear-gradient(90deg, #3a6b8a, #69d0c0); }
 .bar-fill {

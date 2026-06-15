@@ -59,6 +59,9 @@ interface Guard {
   state: "patrol" | "chase";
   alertT: number;
   speed: number;
+  stuckT: number;
+  px: number;
+  pz: number;
 }
 
 const AMBER = 0xffb24a;
@@ -404,15 +407,20 @@ export class Scavenge {
     const patrol: { x: number; z: number }[] = [];
     for (let i = 0; i < 3; i++) {
       if (center) {
-        patrol.push({
-          x: clamp(center.x + this.ctx.rng.range(-7, 7), AREA.minX + 2, AREA.maxX - 2),
-          z: clamp(center.z + this.ctx.rng.range(-7, 7), AREA.minZ + 2, AREA.maxZ - 2),
-        });
+        let pt = { x: 0, z: 0 };
+        for (let tries = 0; tries < 12; tries++) {
+          pt = {
+            x: clamp(center.x + this.ctx.rng.range(-7, 7), AREA.minX + 2, AREA.maxX - 2),
+            z: clamp(center.z + this.ctx.rng.range(-7, 7), AREA.minZ + 2, AREA.maxZ - 2),
+          };
+          if (!this.inWall(pt.x, pt.z, 1.2)) break;
+        }
+        patrol.push(pt);
       } else {
         patrol.push(this.freeSpot(AREA.minZ + 2, AREA.maxZ - 8));
       }
     }
-    return { group: g, cone, coneMat, eyeMat, x: patrol[0].x, z: patrol[0].z, facing: 0, patrol, pIdx: 1, state: "patrol", alertT: 0, speed: 3 };
+    return { group: g, cone, coneMat, eyeMat, x: patrol[0].x, z: patrol[0].z, facing: 0, patrol, pIdx: 1, state: "patrol", alertT: 0, speed: 3, stuckT: 0, px: patrol[0].x, pz: patrol[0].z };
   }
 
   start(): void {
@@ -623,6 +631,26 @@ export class Scavenge {
     const md = Math.hypot(mdx, mdz) || 1;
     g.x += (mdx / md) * speed * dt;
     g.z += (mdz / md) * speed * dt;
+    g.x = clamp(g.x, AREA.minX, AREA.maxX);
+    g.z = clamp(g.z, AREA.minZ, AREA.maxZ);
+    // Guards collide with walls too (no walking through cover).
+    for (const w of WALLS) [g.x, g.z] = pushOutAABB(g.x, g.z, 0.55, w);
+
+    // Stuck recovery: if a patrolling guard hasn't progressed (wedged on a wall),
+    // pick a fresh patrol target so it never jams (e.g. around the survivor).
+    if (g.state === "patrol") {
+      const moved = Math.hypot(g.x - g.px, g.z - g.pz);
+      g.stuckT = moved < 0.04 ? g.stuckT + dt : 0;
+      if (g.stuckT > 1.3) {
+        g.patrol[g.pIdx] = this.freeSpot(AREA.minZ + 2, AREA.maxZ - 6);
+        g.stuckT = 0;
+      }
+    } else {
+      g.stuckT = 0;
+    }
+    g.px = g.x;
+    g.pz = g.z;
+
     g.facing = Math.atan2(mdx, mdz);
     g.group.position.set(g.x, 0, g.z);
     g.group.rotation.y = g.facing;

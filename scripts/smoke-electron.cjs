@@ -85,9 +85,15 @@ app.whenReady().then(async () => {
       await sleep(2500);
       await shot(win, "01-title.png");
 
-      // Begin run → opening cutscene
+      // Begin run → first-play tutorial → opening cutscene
+      await win.webContents.executeJavaScript(`localStorage.removeItem('wod-played')`);
       await win.webContents.executeJavaScript(`document.querySelector('.act-start').click()`);
-      await sleep(1800);
+      await sleep(700);
+      const tut = await win.webContents.executeJavaScript(`!!document.querySelector('.screen--help')`);
+      if (!tut) errors.push("FLOW: first-play tutorial did not appear");
+      await shot(win, "01b-tutorial.png");
+      await win.webContents.executeJavaScript(`document.querySelector('.act-back').click()`); // START
+      await sleep(1500);
       await shot(win, "02-cutscene.png");
 
       // Skip the story → night

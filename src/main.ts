@@ -122,15 +122,38 @@ function toTitle(): void {
   ctx.wall.group.visible = true; // the wall is the title backdrop
   ctx.world.setFieldClutter(true);
   ctx.cam.mode = "menu";
+  scavenge.hide(); // restore fog BEFORE we set the menu lighting
   ctx.world.setDawn(0.12);
   hud.setMode("hidden");
-  scavenge.hide();
   ctx.sfx.startAmbient();
   ctx.music.play("menu");
-  menus.showTitle(startRun, () => {
-    settingsReturn = () => menus.showTitle(startRun, settingsReturn);
+  menus.showTitle(beginRun, () => {
+    settingsReturn = () => toTitle();
     menus.showSettings(() => toTitle());
   });
+}
+
+/** First-ever BEGIN shows the tutorial; afterwards it starts straight away
+ * (the Tutorial button on the title is always available). */
+function beginRun(): void {
+  let played = false;
+  try {
+    played = !!localStorage.getItem("wod-played");
+  } catch {
+    /* ignore */
+  }
+  if (played) {
+    startRun();
+    return;
+  }
+  menus.showHelp(() => {
+    try {
+      localStorage.setItem("wod-played", "1");
+    } catch {
+      /* ignore */
+    }
+    startRun();
+  }, "START ▶");
 }
 
 function startRun(): void {
@@ -356,6 +379,7 @@ ctx.events.on("DAY_DONE", ({ tier, frac }) => onDayDone(tier, frac));
 ctx.events.on("WALL_BREACH", () => {
   if (state === "night") hud.banner("BREACH!", "Plug the gap — hold E (needs a kit)");
 });
+ctx.events.on("NOTICE", ({ text, sub }) => hud.banner(text, sub ?? ""));
 ctx.events.on("COMPANION_DOWN", ({ name }) => {
   // A downed ally drops their weapon back into the pool.
   const wi = ctx.run.allyWeaponIndex(name);

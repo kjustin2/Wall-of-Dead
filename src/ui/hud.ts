@@ -32,6 +32,7 @@ export class Hud {
           <div class="kits">🔧 REPAIR KITS <span class="kits-n">0</span></div>
         </div>
         <div class="repair"><div class="repair-label">REPAIRING…</div><div class="bar bar-repair"><div class="bar-fill"></div></div></div>
+        <div class="prompt"></div>
         <div class="hud-center">
           <div class="adr"><div class="adr-fill"></div><div class="adr-tick"></div></div>
           <div class="adr-label">STEADY</div>
@@ -68,6 +69,7 @@ export class Hud {
       kitsN: q(".kits-n"),
       repair: q(".repair"),
       repairFill: q(".bar-repair .bar-fill"),
+      prompt: q(".prompt"),
       reloadBar: q(".reload-bar"),
       reloadFill: q(".reload-fill"),
       adr: q(".adr"),
@@ -145,7 +147,10 @@ export class Hud {
     this.el.dayHud.style.display = day ? "" : "none";
     this.el.crosshair.style.display = night ? "" : "none";
     if (!day) this.el.compass.style.display = "none";
-    if (!night) this.el.repair.style.display = "none";
+    if (!night) {
+      this.el.repair.style.display = "none";
+      this.el.prompt.style.display = "none";
+    }
   }
 
   banner(text: string, sub = ""): void {
@@ -189,6 +194,16 @@ export class Hud {
       this.el.repairFill.style.width = `${c.player.repairFrac * 100}%`;
     } else {
       this.el.repair.style.display = "none";
+    }
+
+    // Contextual repair prompt at a breach
+    if (c.player.atBreach && !c.player.repairing) {
+      this.el.prompt.style.display = "";
+      const hasKit = c.run.repairKits > 0;
+      this.el.prompt.textContent = hasKit ? "HOLD  E  TO REPAIR  (10s)" : "NEED A REPAIR KIT";
+      this.el.prompt.style.color = hasKit ? "#ffce7a" : "#ff5a3c";
+    } else {
+      this.el.prompt.style.display = "none";
     }
 
     // Reload bar

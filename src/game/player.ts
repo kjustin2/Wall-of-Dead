@@ -45,6 +45,7 @@ export class Player {
   private heat = 0; // recoil climb on sustained auto fire
   repairing = false;
   repairFrac = 0; // 0..1 progress of the current breach repair (for the HUD)
+  atBreach = false; // standing at a broken segment (for the HUD prompt)
   private repairT = 0;
 
   constructor(private ctx: Ctx, scene: THREE.Scene) {
@@ -293,6 +294,7 @@ export class Player {
       if (this.reloadTimer <= 0) this.finishReload();
     }
     // Hold E (context): revive a downed ally nearby, else fix a breach with a kit.
+    this.atBreach = this.alive && this.ctx.wall.isBrokenAt(this.x);
     this.repairing = false;
     this.repairFrac = this.repairT / REPAIR_TIME;
     if (this.alive && input.down("KeyE") && this.ctx.companions.reviveTick(this.x, dt)) {
@@ -490,7 +492,15 @@ export class Player {
 
   private swapTo(i: number): void {
     if (i === this.ctx.run.weaponIndex || i >= this.ctx.run.weapons.length) return;
-    if (!this.ctx.run.canPlayerUse(i)) return; // an ally is holding it
+    if (!this.ctx.run.canPlayerUse(i)) {
+      const owner = this.ctx.run.weaponOwner[i];
+      this.ctx.events.emit("NOTICE", {
+        text: `${owner} is carrying the ${this.ctx.run.weapons[i].def.name}`,
+        sub: "Reassign it on the LOADOUT screen (pause / dawn)",
+      });
+      this.ctx.events.emit("SFX", { id: "dry_fire" });
+      return;
+    }
     this.ctx.run.weaponIndex = i;
     this.reloadTimer = 0;
     this.ctx.events.emit("WEAPON_SWAP", { weapon: this.ctx.run.weapons[i].def.id, index: i });
