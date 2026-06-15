@@ -37,7 +37,15 @@ export class Combat {
     // the big targets (brute head, spitter sac).
     const crit = !headshot && fromPlayer && this.ctx.rng.chance(0.07 + this.ctx.adrenaline.value * 0.0011);
     const weak = headshot && (z.kind === "brute" || z.kind === "spitter") ? 1.35 : 1;
-    const dmg = baseDmg * mult * (headshot ? 1.9 : 1) * (crit ? 1.6 : 1) * weak;
+    let dmg = baseDmg * mult * (headshot ? 1.9 : 1) * (crit ? 1.6 : 1) * weak;
+    // Riot shield soaks frontal body shots — headshots bypass it (aim high).
+    if (z.shielded && !headshot) {
+      const before = z.shield;
+      dmg = z.chipShield(dmg);
+      this.ctx.fx.burst(z.x, 1.1, z.z, 5, 0x9fb4c8, { speed: 6, up: 3, life: 0.3, size: 5 });
+      const pan0 = clamp(z.x / FIELD.wallHalf, -1, 1);
+      this.ctx.events.emit("SFX", { id: before > 0 && z.shield <= 0 ? "wall_breach" : "zombie_hit", pan: pan0 });
+    }
     const killed = z.hurt(dmg);
     const big = headshot || crit;
     const hy = headshot ? z.headY : 1.0;
@@ -75,10 +83,40 @@ export class Combat {
       // A brief crunch only on the meaty kills, so it reads as punch not lag.
       if (z.heavy || headshot) this.ctx.events.emit("TIME_HITSTOP", { s: 0.04 });
       if (fromPlayer) this.ctx.adrenaline.gain(headshot ? 15 : 10);
+      if (z.kind === "exploder") this.explode(z.x, z.z);
     } else if (fromPlayer) {
       this.ctx.adrenaline.gain(2);
       // Limb damage: a body hit can cripple (slow) a still-standing zombie.
       if (!headshot && this.ctx.rng.chance(0.12)) z.cripple();
+    }
+  }
+
+  /** Exploder death: a gas burst that chips the wall, hurts the player if close,
+   * and chain-damages nearby zombies. */
+  private explode(x: number, z: number): void {
+    const GAS = 0x9bd83a;
+    this.ctx.fx.burst(x, 1.0, z, 28, GAS, { speed: 12, up: 7, life: 0.7, size: 10 });
+    this.ctx.fx.burst(x, 0.6, z, 16, 0x4a5a1a, { speed: 8, up: 4, life: 1.1, size: 13 });
+    this.ctx.cam.addTrauma(0.22);
+    this.ctx.stage.punch(0.3);
+    this.ctx.events.emit("SFX", { id: "acid_hit", pan: clamp(x / FIELD.wallHalf, -1, 1) });
+    // Chip the wall under the blast.
+    if (!this.ctx.wall.isBrokenAt(x)) this.ctx.wall.damageAt(x, 26);
+    // Splash nearby standing zombies (not via damageZombie — avoid recursive gore spam).
+    const R2 = 3.6 * 3.6;
+    for (const o of this.ctx.enemies.alive) {
+      if (o.kind === "exploder" || !o.killable) continue;
+      const dx = o.x - x;
+      const dz = o.z - z;
+      if (dx * dx + dz * dz < R2) o.hurt(22);
+    }
+    // Splash the player if they're in range.
+    const p = this.ctx.player;
+    const pdx = p.x - x;
+    const pdz = p.z - z;
+    if (p.alive && pdx * pdx + pdz * pdz < 5 * 5) {
+      const d = Math.hypot(pdx, pdz) || 1;
+      this.damagePlayer(14, pdx / d, pdz / d);
     }
   }
 

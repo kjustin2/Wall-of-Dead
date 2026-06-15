@@ -28,7 +28,11 @@ export interface ZType {
   spitDmg?: number;
   spitCD?: number;
   vaults?: boolean; // can climb/vault the barricade instead of waiting for a breach
+  leaper?: boolean; // vaults almost instantly on reaching the wall
   screamer?: boolean; // periodically buffs the horde's speed
+  lunges?: boolean; // telegraphs then bursts forward (runner)
+  explodes?: boolean; // bursts a damaging gas cloud on death
+  shield?: number; // frontal riot shield: absorbs body shots until broken
   miniboss?: boolean;
 }
 
@@ -67,6 +71,7 @@ export const TYPES: Record<string, ZType> = {
     headshotChance: 0.3,
     groan: "groan_high",
     targetsPlayer: true,
+    lunges: true,
   },
   brute: {
     key: "brute",
@@ -161,6 +166,62 @@ export const TYPES: Record<string, ZType> = {
     groan: "groan_high",
     screamer: true,
   },
+  exploder: {
+    key: "exploder",
+    hp: 24,
+    speed: 3.4,
+    radius: 0.82,
+    claw: 4,
+    clawCD: 1.2,
+    touch: 8,
+    touchCD: 1.0,
+    body: 0x6a6a1e,
+    head: 0x7a7a2a,
+    eye: 0xc6ff3a,
+    scale: 1.04,
+    heavy: false,
+    headshotChance: 0.2,
+    groan: "groan_spit",
+    explodes: true,
+  },
+  shielded: {
+    key: "shielded",
+    hp: 55,
+    speed: 2.3,
+    radius: 0.95,
+    claw: 10,
+    clawCD: 1.2,
+    touch: 12,
+    touchCD: 1.1,
+    body: 0x3c4248,
+    head: 0x4a5056,
+    eye: 0xff7a3a,
+    scale: 1.14,
+    heavy: true,
+    headshotChance: 0.12,
+    groan: "groan_brute",
+    shield: 60,
+  },
+  leaper: {
+    key: "leaper",
+    hp: 16,
+    speed: 6.0,
+    radius: 0.6,
+    claw: 7,
+    clawCD: 0.9,
+    touch: 9,
+    touchCD: 0.85,
+    body: 0x4a2a1a,
+    head: 0x5a3624,
+    eye: 0xffd23a,
+    scale: 0.86,
+    heavy: false,
+    headshotChance: 0.22,
+    groan: "groan_high",
+    targetsPlayer: true,
+    vaults: true,
+    leaper: true,
+  },
   tank: {
     key: "tank",
     hp: 420,
@@ -237,6 +298,8 @@ function buildZombieGeo(t: ZType): { body: THREE.BufferGeometry; eyes: THREE.Buf
     p.push(box(0.7 * s, 0.7 * s, 0.25 * s, 0, 1.2 * s, -0.3 * s));
   } else if (t.key === "spitter") {
     p.push(ball(0.42 * s, 0, 1.1 * s, -0.34 * s));
+  } else if (t.key === "exploder") {
+    p.push(ball(0.56 * s, 0, 0.82 * s, 0.22 * s)); // bloated, gas-filled belly
   }
   const body = mergeGeometries(p, false) as THREE.BufferGeometry;
   for (const g of p) g.dispose();
@@ -287,6 +350,13 @@ export class Zombie {
   private vault = 0;
   private crippled = false;
   private slowT = 0;
+  shield = 0;
+  private maxShield = 0;
+  private shieldMesh?: THREE.Mesh;
+  private seeksWeak: boolean;
+  private lungeCd: number;
+  private lungeWind = 0;
+  private lungeBoost = 0;
   private dieTimer = 0;
   private dieRoll = 0;
   private diePitch = 1.3;
@@ -308,6 +378,10 @@ export class Zombie {
     this.spitTimer = t.spitCD ?? 2.5;
     this.bob = ctx.rng.range(0, Math.PI * 2);
     this.headY = 1.7 * t.scale;
+    this.shield = t.shield ?? 0;
+    this.maxShield = this.shield;
+    this.seeksWeak = ctx.rng.chance(0.55);
+    this.lungeCd = ctx.rng.range(1.5, 3.5);
 
     const s = t.scale;
     const geo = buildZombieGeo(t);
@@ -327,6 +401,18 @@ export class Zombie {
     this.glow = makeGlow(t.eye, 1.7 * s, 0.6);
     this.glow.position.set(0, 1.66 * s, 0.4 * s);
     this.group.add(this.glow);
+
+    // Riot shield: a battered steel plate held out front (toward the wall, +Z).
+    if (t.shield) {
+      const plate = new THREE.Mesh(
+        new THREE.BoxGeometry(1.0 * s, 1.4 * s, 0.12 * s),
+        new THREE.MeshStandardMaterial({ color: 0x6a7480, roughness: 0.5, metalness: 0.6, flatShading: true })
+      );
+      plate.position.set(0, 1.0 * s, 0.62 * s);
+      plate.castShadow = true;
+      this.shieldMesh = plate;
+      this.group.add(plate);
+    }
 
     this.group.position.set(this.x, 0, this.z);
   }
@@ -374,6 +460,29 @@ export class Zombie {
   /** Temporary slow (flares, traps). */
   slow(dur: number): void {
     this.slowT = Math.max(this.slowT, dur);
+  }
+
+  get shielded(): boolean {
+    return this.shield > 0;
+  }
+
+  /** Chip the frontal shield with a body hit; returns the damage that leaks
+   * through to HP. While the shield holds, only a little bleeds through; once it
+   * shatters, the rest lands and the plate drops. */
+  chipShield(dmg: number): number {
+    if (this.shield <= 0) return dmg;
+    const absorbed = Math.min(this.shield, dmg);
+    this.shield -= absorbed;
+    const leak = (dmg - absorbed) + absorbed * 0.12;
+    if (this.shield <= 0 && this.shieldMesh) {
+      this.shieldMesh.removeFromParent();
+      this.shieldMesh = undefined;
+    } else if (this.shieldMesh) {
+      // dim the plate as it takes a beating
+      const f = this.shield / this.maxShield;
+      (this.shieldMesh.material as THREE.MeshStandardMaterial).color.setRGB(0.42 * (0.5 + f * 0.5), 0.45 * (0.5 + f * 0.5), 0.5 * (0.5 + f * 0.5));
+    }
+    return leak;
   }
 
   private speedFactor(): number {
@@ -442,13 +551,41 @@ export class Zombie {
       }
     }
     // Steer toward the nearest breach if one is open, else the player (for the
-    // hunters), else hold the spawn lane.
+    // hunters), else pile onto the weakest segment, else hold the spawn lane.
     if (!this.t.standoff) {
       const breach = ctx.wall.anyBreached() ? ctx.wall.nearestBreachX(this.x) : null;
       if (breach !== null) this.targetX = breach;
       else if (this.t.targetsPlayer && ctx.player.alive)
         this.targetX = clamp(ctx.player.x, -FIELD.wallHalf + 1, FIELD.wallHalf - 1);
+      else if (this.seeksWeak) {
+        const weak = ctx.wall.weakestX(0.5);
+        if (weak !== null) this.targetX = weak;
+      }
     }
+
+    // Runner lunge: brief brace (telegraphed) then a forward burst.
+    let fwd = 1;
+    if (this.t.lunges) {
+      if (this.lungeBoost > 0) {
+        this.lungeBoost -= dt;
+        fwd = 2.6;
+      } else if (this.lungeWind > 0) {
+        this.lungeWind -= dt;
+        fwd = 0.15; // braced, almost still — the tell
+        if (this.lungeWind <= 0) {
+          this.lungeBoost = 0.55;
+          this.lungeCd = ctx.rng.range(2.8, 4.2);
+          ctx.events.emit("SFX", { id: this.t.groan, pan: clamp(this.x / FIELD.wallHalf, -1, 1) });
+        }
+      } else {
+        this.lungeCd -= dt;
+        if (this.lungeCd <= 0 && this.z > -32 && this.z < FIELD.attackZ - 3) {
+          this.lungeWind = 0.4;
+          ctx.tele.warn(this.x, this.z + 7, 1.3, 0xffb13c, 0.4);
+        }
+      }
+    }
+
     const goalZ = this.t.standoff ? this.t.standoffZ! : FIELD.attackZ;
     // Funnel around static field wrecks: if a wreck blocks the lane ahead, slide
     // toward the nearer gap before reaching it.
@@ -464,7 +601,7 @@ export class Zombie {
     aimX = clamp(aimX, -FIELD.fieldHalf + 1, FIELD.fieldHalf - 1);
     const dx = clamp(aimX - this.x, -1, 1);
     this.x += dx * spd * 0.5 * dt;
-    this.z += spd * dt;
+    this.z += spd * fwd * dt;
     this.faceTravel(dx, 1);
 
     if (this.t.standoff) {
@@ -487,9 +624,10 @@ export class Zombie {
     }
     this.faceTravel(0, 1);
 
-    // Vaulters claw a couple of times then climb over the barricade.
+    // Vaulters claw a couple of times then climb over the barricade. Leapers
+    // barely pause — they vault almost on contact.
     if (this.t.vaults) {
-      if (this.vaultT < 0) this.vaultT = 1.2;
+      if (this.vaultT < 0) this.vaultT = this.t.leaper ? 0.2 : 1.2;
       this.vaultT -= dt;
       if (this.vaultT <= 0) {
         this.state = "crossing";

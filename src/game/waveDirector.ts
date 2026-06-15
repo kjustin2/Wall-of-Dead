@@ -31,7 +31,36 @@ const PLAN: NightPlan = {
     { type: "spitter", w: 4 },
     { type: "armored", w: 3 },
     { type: "screamer", w: 2 },
+    { type: "leaper", w: 3 },
+    { type: "shielded", w: 2 },
+    { type: "exploder", w: 2 },
   ],
+};
+
+// Each night gets a distinct headline threat so the three nights feel different.
+interface Signature {
+  at: number; // progress to fire
+  name: string;
+  sub: string;
+  run: (ctx: Ctx) => void;
+}
+const SIGNATURES: Record<number, Signature> = {
+  1: {
+    at: 0.5,
+    name: "BRUTE CHARGE",
+    sub: "Heavies are coming — make room",
+    run: (ctx) => {
+      for (let k = 0; k < 2; k++) ctx.enemies.spawn("brute", ctx.rng.range(-10, 10));
+    },
+  },
+  2: {
+    at: 0.42,
+    name: "SPITTER BATTERY",
+    sub: "Acid from range — watch the wall",
+    run: (ctx) => {
+      for (const sx of [-16, 0, 16]) ctx.enemies.spawn("spitter", sx + ctx.rng.range(-3, 3));
+    },
+  },
 };
 
 /**
@@ -46,6 +75,7 @@ export class WaveDirector {
   private clockDone = false;
   private fleeing = false;
   private tankSpawned = false;
+  private signatureFired = false;
   // Per-night escalation (night 1 = base; later nights are longer + thicker).
   private maxAlive: number;
   private len: number;
@@ -71,9 +101,18 @@ export class WaveDirector {
   update(dt: number): void {
     if (this.done) return;
 
-    // Mini-boss: one Tank crashes the surge. Spawn it early enough AND closer in
-    // (z ≈ -48) so it actually reaches the wall before dawn.
-    if (!this.tankSpawned && this.progress > 0.6 && this.elapsed < this.len - 18) {
+    // Per-night signature threat (brute charge / spitter battery / etc.).
+    // Only while the clock is still running — never as the night is ending.
+    const sig = SIGNATURES[this.ctx.run.night];
+    if (sig && !this.signatureFired && !this.clockDone && this.elapsed < this.len && this.progress > sig.at) {
+      this.signatureFired = true;
+      sig.run(this.ctx);
+      this.ctx.events.emit("NOTICE", { text: sig.name, sub: sig.sub });
+    }
+
+    // Night 3's headline is the Tank mini-boss. Spawn it early enough AND closer
+    // in (z ≈ -48) so it actually reaches the wall before dawn.
+    if (this.ctx.run.night >= 3 && !this.tankSpawned && this.progress > 0.6 && this.elapsed < this.len - 18) {
       this.tankSpawned = true;
       this.ctx.enemies.spawn("tank", this.ctx.rng.range(-6, 6), -48);
       this.ctx.events.emit("MINIBOSS", { name: "TANK" });

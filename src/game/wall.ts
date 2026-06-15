@@ -148,6 +148,21 @@ export class Wall {
     return best;
   }
 
+  /** Centre-X of the most-damaged still-standing segment, but only if it's below
+   * `frac` integrity — so the horde piles onto a visibly weakening point. */
+  weakestX(frac: number): number | null {
+    let worst = -1;
+    let worstHp = MAX_PER * frac;
+    for (let i = 0; i < SEG; i++) {
+      if (this.hp[i] <= 0) continue;
+      if (this.hp[i] < worstHp) {
+        worstHp = this.hp[i];
+        worst = i;
+      }
+    }
+    return worst >= 0 ? this.centerX(worst) : null;
+  }
+
   fullyOverrun(): boolean {
     for (let i = 0; i < SEG; i++) if (this.hp[i] > 0) return false;
     return true;
