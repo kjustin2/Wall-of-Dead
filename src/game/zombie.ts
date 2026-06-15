@@ -265,6 +265,12 @@ export const TYPES: Record<string, ZType> = {
 
 type State = "advancing" | "attacking" | "standoff" | "crossing" | "dying" | "fleeing";
 
+/** Distance attenuation for enemy sounds: full at the wall (z≈0), fainter deep
+ * in the field (z≈-82). */
+function distGain(z: number): number {
+  return clamp(1 + z / 110, 0.32, 1);
+}
+
 let NEXT_ID = 1;
 
 // Per-type geometry is built once and shared across all zombies of that type:
@@ -444,6 +450,46 @@ export class Zombie {
     }
 
     this.group.position.set(this.x, 0, this.z);
+  }
+
+  /** Reset a pooled actor for reuse (same type → same cached geometry/meshes).
+   * Mirrors the dynamic state set in the constructor. */
+  reinit(ctx: Ctx, x: number, z?: number): void {
+    this.id = NEXT_ID++;
+    this.hp = this.t.hp * ctx.tuning.zHp;
+    this.maxHp = this.hp;
+    this.state = "advancing";
+    this.x = x;
+    this.z = z ?? FIELD.spawnZ + ctx.rng.range(-FIELD.spawnZJitter, 0);
+    this.targetX = x;
+    this.clawTimer = 0;
+    this.touchTimer = 0;
+    this.spitTimer = this.t.spitCD ?? 2.5;
+    this.winding = 0;
+    this.screamTimer = 4;
+    this.vaultT = -1;
+    this.vault = 0;
+    this.crippled = false;
+    this.slowT = 0;
+    this.dieTimer = 0;
+    this.fleeFade = 1;
+    this.hitFlash = 0;
+    this.bossPhase = 0;
+    this.enrageMul = 1;
+    this.seeksWeak = ctx.rng.chance(0.55);
+    this.lungeCd = ctx.rng.range(1.5, 3.5);
+    this.lungeWind = 0;
+    this.lungeBoost = 0;
+    this.bob = ctx.rng.range(0, Math.PI * 2);
+    // Reset visuals the death/flee/cripple states mutate.
+    this.group.rotation.set(0, 0, 0);
+    this.group.scale.setScalar(1);
+    this.group.position.set(this.x, 0, this.z);
+    this.body.position.y = 0;
+    this.bodyMat.transparent = false;
+    this.bodyMat.opacity = 1;
+    this.bodyMat.emissive.setRGB(0, 0, 0);
+    this.group.visible = true;
   }
 
   get killable(): boolean {
@@ -734,7 +780,7 @@ export class Zombie {
       if (this.winding <= 0) {
         const tx = clamp(this.x, -FIELD.wallHalf + 1, FIELD.wallHalf - 1);
         ctx.enemies.spawnAcid(this.x, 1.5 * this.t.scale, this.z, tx, FIELD.wallZ, this.t.spitDmg ?? 9);
-        ctx.events.emit("SFX", { id: "spit", pan: clamp(this.x / FIELD.wallHalf, -1, 1) });
+        ctx.events.emit("SFX", { id: "spit", pan: clamp(this.x / FIELD.wallHalf, -1, 1), gain: distGain(this.z) });
         this.spitTimer = this.t.spitCD ?? 2.7;
       }
       return;
@@ -822,12 +868,20 @@ const ACID_CAP = 24;
 const ACID_G = 22;
 
 /** Spawns, ticks and reaps zombies; also owns spitter acid projectiles. */
+// Per-instance meshes/state make these awkward to recycle — never pool them.
+function poolable(kind: string): boolean {
+  return kind !== "shielded" && kind !== "behemoth";
+}
+const POOL_CAP = 40;
+
 export class EnemyManager {
   alive: Zombie[] = [];
   boss: Zombie | null = null;
   private acids: Acid[] = [];
   private group = new THREE.Group();
   private screamBuffT = 0;
+  /** Recycled actors per type — reused instead of rebuilt to cut GC. */
+  private pool: Record<string, Zombie[]> = {};
 
   /** 0..1 boss health, or 0 if no boss is alive. */
   bossFrac(): number {
@@ -844,7 +898,7 @@ export class EnemyManager {
 
   triggerScream(x: number, z: number): void {
     this.screamBuffT = 2.5;
-    this.ctx.events.emit("SFX", { id: "scream", pan: clamp(x / FIELD.wallHalf, -1, 1) });
+    this.ctx.events.emit("SFX", { id: "scream", pan: clamp(x / FIELD.wallHalf, -1, 1), gain: distGain(z) });
     this.ctx.tele.warn(x, z, 4, 0xff3cf0, 0.5);
     this.ctx.fx.burst(x, 1.6, z, 18, 0xff3cf0, { speed: 11, up: 4, life: 0.5, size: 7 });
   }
@@ -880,13 +934,20 @@ export class EnemyManager {
   spawn(typeKey: string, x: number, atZ?: number): void {
     const t = TYPES[typeKey];
     if (!t) return;
-    const z = new Zombie(t, x, this.ctx, atZ);
+    let z: Zombie;
+    const free = this.pool[typeKey];
+    if (free && free.length) {
+      z = free.pop() as Zombie;
+      z.reinit(this.ctx, x, atZ);
+    } else {
+      z = new Zombie(t, x, this.ctx, atZ);
+    }
     this.group.add(z.group);
     this.alive.push(z);
     if (t.boss) this.boss = z;
-    // Spawn tell: a distant groan from the dark.
+    // Spawn tell: a distant groan from the dark — quieter the further out it is.
     if (this.ctx.rng.chance(0.35)) {
-      this.ctx.events.emit("SFX", { id: "groan", pan: clamp(x / FIELD.wallHalf, -1, 1) });
+      this.ctx.events.emit("SFX", { id: "groan", pan: clamp(x / FIELD.wallHalf, -1, 1), gain: distGain(z.z) });
     }
   }
 
@@ -919,7 +980,7 @@ export class EnemyManager {
     for (let i = this.alive.length - 1; i >= 0; i--) {
       if (this.alive[i].gone) {
         if (this.alive[i] === this.boss) this.boss = null;
-        this.alive[i].dispose();
+        this.release(this.alive[i]);
         this.alive.splice(i, 1);
       }
     }
@@ -952,8 +1013,21 @@ export class EnemyManager {
     }
   }
 
+  /** Recycle a dead/gone actor into its type pool, or dispose if the pool is
+   * full or the type isn't poolable. */
+  private release(z: Zombie): void {
+    z.group.removeFromParent();
+    const list = (this.pool[z.kind] ??= []);
+    if (poolable(z.kind) && list.length < POOL_CAP) {
+      z.group.visible = false;
+      list.push(z);
+    } else {
+      z.dispose();
+    }
+  }
+
   clear(): void {
-    for (const z of this.alive) z.dispose();
+    for (const z of this.alive) this.release(z);
     this.alive.length = 0;
     this.boss = null;
     for (const a of this.acids) {

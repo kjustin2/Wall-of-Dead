@@ -6,7 +6,7 @@ import "@fontsource/rajdhani/600.css";
 import "@fontsource/rajdhani/700.css";
 import "./ui/style.css";
 
-import { Stage } from "./render/stage";
+import { Stage, type Quality } from "./render/stage";
 import { CameraRig } from "./render/cameraRig";
 import { Particles } from "./render/particles";
 import { Telegraphs } from "./render/telegraphs";
@@ -182,6 +182,7 @@ function toTitle(): void {
   ctx.world.setFieldClutter(true);
   ctx.cam.mode = "menu";
   scavenge.hide(); // restore fog BEFORE we set the menu lighting
+  ctx.world.setWeather(true); // rainy, moody title backdrop
   ctx.world.setDawn(0.12);
   hud.setMode("hidden");
   ctx.sfx.startAmbient();
@@ -262,6 +263,8 @@ function beginNight(): void {
   ctx.wall.dmgMul = ctx.tuning.enemyDmg;
   ctx.wall.group.visible = true;
   ctx.world.setFieldClutter(true);
+  // Each night gets its own weather: clear → storm → ominous-clear.
+  ctx.world.setWeather(ctx.run.night === 2);
   ctx.player.reset();
   ctx.player.group.visible = true;
   ctx.companions.spawnFromRun();
@@ -620,6 +623,19 @@ let last = performance.now();
 let fpsAccum = 0;
 let fpsFrames = 0;
 let qualityNudged = false;
+// Boot FPS probe → pick the starting quality preset (unless the user set one).
+let bootProbe = false;
+let probeAccum = 0;
+let probeFrames = 0;
+function applyBootQuality(): void {
+  if (menus.settings.qualityTouched) return; // respect an explicit choice
+  const fps = probeFrames > 8 ? probeFrames / probeAccum : 60;
+  const q: Quality = fps < 35 ? "low" : fps < 50 ? "medium" : "high";
+  if (q !== menus.settings.quality) {
+    menus.settings.quality = q;
+    ctx.stage.applyQuality(q);
+  }
+}
 ctx.stage.renderer.setAnimationLoop(() => {
   const now = performance.now();
   const realDt = Math.min(0.05, (now - last) / 1000);
@@ -637,6 +653,11 @@ ctx.stage.renderer.setAnimationLoop(() => {
     scale = slowmoStrength;
   }
   const dt = realDt * scale;
+
+  if (bootProbe) {
+    probeAccum += realDt;
+    probeFrames++;
+  }
 
   // Adaptive quality: if sustained FPS is poor, step quality down once so the
   // game never *feels* like it's lagging. Never below the user's choice floor.
@@ -665,6 +686,8 @@ ctx.stage.renderer.setAnimationLoop(() => {
       surgeMusic = true;
       ctx.music.play("surge");
     }
+    // Adaptive music: swell with how many are pressing the wall, peak at dawn.
+    ctx.music.setIntensity(Math.min(1, ctx.enemies.count / 14) * 0.7 + director.progress * 0.3);
     ctx.player.update(dt);
     ctx.enemies.update(dt);
     ctx.bullets.update(dt);
@@ -726,8 +749,16 @@ ctx.stage.renderer.setAnimationLoop(() => {
   ctx.input.endFrame();
 });
 
-// Boot into the title
-toTitle();
+// Boot: a brief loading screen while the menu track buffers + an FPS probe runs,
+// then the title. Capped so it never stalls (the smoke waits on the title).
+state = "menu";
+menus.showLoading();
+bootProbe = true;
+Promise.race([ctx.music.preload(), new Promise<void>((r) => window.setTimeout(r, 1200))]).then(() => {
+  bootProbe = false;
+  applyBootQuality();
+  toTitle();
+});
 
 // Debug hook for console debugging + headless smoke tests (harmless in prod).
 (window as unknown as Record<string, unknown>).__wod = {

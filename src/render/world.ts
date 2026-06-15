@@ -42,6 +42,8 @@ export class World {
   onFlash: (() => void) | null = null;
   /** photosensitivity-safe: suppresses lightning flashes. */
   reducedFx = false;
+  /** Storm night = rain + lightning; clear night = dry + brighter moon. */
+  private storm = true;
   private rng = new Rng(1337);
   private t = 0;
   private dawn = 0;
@@ -360,6 +362,20 @@ export class World {
     this.field.visible = visible;
   }
 
+  /** Pick the night's weather: a storm (rain + lightning) or a clear moonlit
+   * night (dry, brighter moon, more stars). */
+  setWeather(storm: boolean): void {
+    this.storm = storm;
+    this.rain.visible = storm;
+    const moonGlow = this.moon.children[1] as THREE.Sprite;
+    moonGlow.scale.setScalar(storm ? 64 : 92);
+    for (const c of this.clouds) (c.sprite.material as THREE.SpriteMaterial).opacity = storm ? 0.5 : 0.22;
+  }
+
+  get isStorm(): boolean {
+    return this.storm;
+  }
+
   private buildRubble(): void {
     // Concrete rubble + chunks of debris (urban, not forest).
     const mat = new THREE.MeshStandardMaterial({ color: 0x161b1f, roughness: 1, flatShading: true });
@@ -651,7 +667,8 @@ export class World {
       if (c.sprite.position.x > 140) c.sprite.position.x = -140;
     }
 
-    // Rain
+    // Rain (storm nights only)
+    if (this.storm) {
     const rp = this.rain.geometry.getAttribute("position") as THREE.BufferAttribute;
     for (let i = 0; i < this.rainY.length; i++) {
       let y = this.rainY[i] - 30 * dt;
@@ -664,6 +681,7 @@ export class World {
     }
     rp.needsUpdate = true;
     (this.rain.material as THREE.LineBasicMaterial).opacity = lerp(0.22, 0.06, this.dawn);
+    }
 
     // Distant battle flashes
     for (const f of this.flashes) {
@@ -691,8 +709,8 @@ export class World {
       (s.pivot.children[0] as THREE.Mesh).visible = vis > 0.3;
     }
 
-    // Distant lightning (night only): a quick flash + delayed thunder
-    if (this.dawn < 0.55 && !this.reducedFx) {
+    // Distant lightning (storm nights only): a quick flash + delayed thunder
+    if (this.storm && this.dawn < 0.55 && !this.reducedFx) {
       this.lightningTimer -= dt;
       if (this.lightningTimer <= 0) {
         this.lightningTimer = this.rng.range(11, 26);

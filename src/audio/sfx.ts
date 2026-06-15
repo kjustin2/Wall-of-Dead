@@ -28,7 +28,7 @@ export class Sfx {
     } catch {
       this.ac = null;
     }
-    events.on("SFX", ({ id, pan }) => this.play(id, pan ?? 0));
+    events.on("SFX", ({ id, pan, gain }) => this.play(id, pan ?? 0, gain ?? 1));
     events.on("LAST_STAND", () => this.play("last_stand"));
     events.on("RUN_VICTORY", () => this.play("victory"));
     events.on("PLAYER_DIED", () => this.play("defeat"));
@@ -118,9 +118,16 @@ export class Sfx {
     }
   }
 
-  play(id: string, pan = 0): void {
+  play(id: string, pan = 0, gain = 1): void {
     if (!this.ac) return;
-    this.dest = pan ? this.panNode(pan) : this.master;
+    let out: AudioNode = pan ? this.panNode(pan) : (this.master as AudioNode);
+    if (gain < 0.999) {
+      const g = this.ac.createGain();
+      g.gain.value = Math.max(0, gain);
+      g.connect(out);
+      out = g;
+    }
+    this.dest = out;
     switch (id) {
       case "shot_pistol":
         this.burst(0.09, 0.5, 1800);

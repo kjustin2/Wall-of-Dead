@@ -18,6 +18,8 @@ export interface Settings {
   aimAssist: boolean;
   /** Accessibility re-binds: physical KeyboardEvent.code → canonical code. */
   rebinds: Record<string, string>;
+  /** Set once the player picks a quality, so boot auto-detect won't override. */
+  qualityTouched: boolean;
 }
 
 const KEY = "wod-settings";
@@ -50,6 +52,7 @@ function loadSettings(): Settings {
     difficulty: "normal",
     aimAssist: false,
     rebinds: {},
+    qualityTouched: false,
   };
   try {
     const raw = localStorage.getItem(KEY);
@@ -162,6 +165,15 @@ export class Menus {
     this.root.addEventListener("click", advance);
     window.addEventListener("keydown", onKey);
     show();
+  }
+
+  /** Brief boot screen while the first music track buffers + the FPS probe runs. */
+  showLoading(): void {
+    this.paint(`
+      <div class="screen screen--title">
+        <h1 class="title">WALL <span>OF</span> DEAD</h1>
+        <p class="subtitle loading-dots">Loading…</p>
+      </div>`);
   }
 
   showTitle(onStart: () => void, onSettings: () => void, onContinue?: () => void): void {
@@ -321,6 +333,7 @@ export class Menus {
     });
     qual.addEventListener("change", () => {
       s.quality = qual.value as Quality;
+      s.qualityTouched = true; // an explicit choice — disable boot auto-detect
       this.applySettings();
       saveSettings(s);
     });

@@ -1,4 +1,4 @@
-import { approach } from "../core/math";
+import { approach, clamp01 } from "../core/math";
 
 export type MusicCue = "menu" | "night" | "surge" | "day" | "victory" | "defeat";
 
@@ -36,6 +36,8 @@ export class Music {
   private wanted: MusicCue | null = null;
   private currentFile = "";
   private rng = 12345;
+  private intensity = 1; // adaptive mix: swells with the action, ducks at lulls
+  private intensitySmooth = 1;
 
   private rand(): number {
     this.rng = (this.rng * 1664525 + 1013904223) >>> 0;
@@ -52,6 +54,23 @@ export class Music {
   resume(): void {
     this.unlocked = true;
     if (this.wanted) this.play(this.wanted);
+  }
+
+  /** Begin buffering the menu track so the first play doesn't hitch. Resolves
+   * when it can play through, or immediately on error (no AudioElement support). */
+  preload(): Promise<void> {
+    return new Promise((resolve) => {
+      try {
+        const el = new Audio(`${BASE}music/${TRACKS.menu[0]}`);
+        el.preload = "auto";
+        const done = () => resolve();
+        el.addEventListener("canplaythrough", done, { once: true });
+        el.addEventListener("error", done, { once: true });
+        el.load();
+      } catch {
+        resolve();
+      }
+    });
   }
 
   /** Crossfade to a (random) track for this cue. No-op if it's already playing. */
@@ -81,6 +100,12 @@ export class Music {
     this.active = next;
   }
 
+  /** 0..1 — how thick the action is right now; the active track swells toward
+   * the peak and ducks during lulls (adaptive mixing of the cue track). */
+  setIntensity(x: number): void {
+    this.intensity = clamp01(x);
+  }
+
   stop(): void {
     this.wanted = null;
     this.slots[0].target = 0;
@@ -103,11 +128,15 @@ export class Music {
 
   update(dt: number): void {
     const rate = dt * 0.8; // ~1.2s crossfade
+    this.intensitySmooth = approach(this.intensitySmooth, this.intensity, dt * 0.6);
+    // The active track is mixed by intensity (0.55 at a lull → 1.0 at the peak).
+    const mod = 0.55 + 0.45 * this.intensitySmooth;
     for (let i = 0; i < 2; i++) {
       const s = this.slots[i];
       if (!s.el) continue;
       s.vol = approach(s.vol, s.target, rate);
-      s.el.volume = Math.max(0, Math.min(1, s.vol));
+      const m = i === this.active ? mod : 1;
+      s.el.volume = Math.max(0, Math.min(1, s.vol * m));
       if (s.target === 0 && s.vol <= 0.001) this.stopSlot(i);
     }
   }
