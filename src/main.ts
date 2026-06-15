@@ -277,20 +277,19 @@ function onDayDone(tier: string, frac: number): void {
   state = "loot";
   ctx.input.enabled = false;
 
-  // Supplies become repair kits — the wall no longer auto-heals.
-  const kits = Math.round(frac * 4);
-  ctx.run.repairKits += kits;
+  // Ammo + repair kits were gathered live in the run; top mags and find a weapon.
+  ctx.run.refillMags();
   const finds = ["rifle", "lmg"];
   const found = finds.find((id) => !ctx.run.weapons.some((w) => w.def.id === id)) ?? null;
   if (found) ctx.run.grantWeapon(found);
-  else ctx.run.grantWeapon("shotgun");
+  else ctx.run.addAmmo(60);
 
   ctx.run.leg += 1;
 
   const lines = [
-    `Run rating — ${tier}  (${Math.round(frac * 100)}% supplies)`,
-    `Repair kits recovered — ${kits}  (you now hold ${ctx.run.repairKits})`,
-    found ? `Found a ${found.toUpperCase()} in the wreckage!` : "Restocked ammo from the cache.",
+    `Run rating — ${tier}  (${Math.round(frac * 100)}% ammo crates)`,
+    `Repair kits — ${ctx.run.repairKits}`,
+    found ? `Found a ${found.toUpperCase()} in the wreckage!` : "Restocked extra ammo.",
   ];
 
   lootContinue = () => {

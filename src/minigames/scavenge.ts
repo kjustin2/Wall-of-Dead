@@ -196,6 +196,7 @@ export class Scavenge {
   private crates: Crate[] = [];
   private guards: Guard[] = [];
   private survivor: Survivor | null = null;
+  private redLights: { light: THREE.PointLight; glow: THREE.Sprite; phase: number }[] = [];
   private fogPrev = 0.017;
   private groanT = 4;
   private t = 0;
@@ -215,6 +216,7 @@ export class Scavenge {
 
     this.buildWalls();
     this.buildBoundary();
+    this.buildSetDressing();
 
     // Sight-cone sector geometry (points +Z; rotated to each guard's facing).
     const shape = new THREE.Shape();
@@ -288,6 +290,70 @@ export class Scavenge {
     }
   }
 
+  /** Decorative clutter to make the dark map intense: rubble, barrels, debris,
+   * blood, and flickering red emergency lights. No collision — placed for mood. */
+  private buildSetDressing(): void {
+    const rng = this.ctx.rng;
+    const dark = new THREE.MeshStandardMaterial({ color: 0x14181c, roughness: 1, flatShading: true });
+    const rust = new THREE.MeshStandardMaterial({ color: 0x3a2a22, roughness: 1, flatShading: true });
+    const wood = new THREE.MeshStandardMaterial({ color: 0x2e2316, roughness: 1, flatShading: true });
+    const bloodMat = new THREE.MeshBasicMaterial({ color: 0x3a0608, transparent: true, opacity: 0.5, depthWrite: false });
+
+    const spot = () => {
+      for (let i = 0; i < 20; i++) {
+        const x = rng.range(AREA.minX + 2, AREA.maxX - 2);
+        const z = rng.range(AREA.minZ + 2, AREA.maxZ - 2);
+        if (!this.inWall(x, z, 1.4)) return { x, z };
+      }
+      return { x: 0, z: -20 };
+    };
+
+    // Rubble piles
+    for (let i = 0; i < 16; i++) {
+      const s = rng.range(0.4, 1.2);
+      const r = new THREE.Mesh(new THREE.DodecahedronGeometry(s, 0), dark);
+      const p = spot();
+      r.position.set(p.x, s * 0.3, p.z);
+      r.scale.y = 0.5;
+      r.rotation.set(rng.range(0, 3), rng.range(0, 3), rng.range(0, 3));
+      this.group.add(r);
+    }
+    // Barrels + scattered debris
+    for (let i = 0; i < 7; i++) {
+      const p = spot();
+      const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.45, 0.45, 1.1, 10), rust);
+      barrel.position.set(p.x, 0.55, p.z);
+      barrel.rotation.z = rng.chance(0.3) ? Math.PI / 2 : 0;
+      barrel.castShadow = true;
+      this.group.add(barrel);
+    }
+    for (let i = 0; i < 8; i++) {
+      const p = spot();
+      const plank = new THREE.Mesh(new THREE.BoxGeometry(rng.range(0.8, 1.6), 0.1, 0.22), wood);
+      plank.position.set(p.x, 0.06, p.z);
+      plank.rotation.y = rng.range(0, Math.PI);
+      this.group.add(plank);
+    }
+    // Blood pools
+    for (let i = 0; i < 8; i++) {
+      const p = spot();
+      const blood = new THREE.Mesh(new THREE.CircleGeometry(rng.range(0.6, 1.4), 12), bloodMat);
+      blood.rotation.x = -Math.PI / 2;
+      blood.position.set(p.x, 0.03, p.z);
+      this.group.add(blood);
+    }
+    // Flickering red emergency lights
+    for (let i = 0; i < 3; i++) {
+      const p = spot();
+      const light = new THREE.PointLight(0xff2820, 0, 18, 2);
+      light.position.set(p.x, 4, p.z);
+      const glow = makeGlow(0xff3a30, 2.6, 0.5);
+      glow.position.set(p.x, 4, p.z);
+      this.group.add(light, glow);
+      this.redLights.push({ light, glow, phase: rng.range(0, 6) });
+    }
+  }
+
   private buildBoundary(): void {
     const mat = new THREE.MeshBasicMaterial({
       color: 0x3a6a8a,
@@ -333,15 +399,36 @@ export class Scavenge {
 
   private makeCrate(x: number, z: number, gold: boolean, kit: boolean): Crate {
     const g = new THREE.Group();
-    const tint = kit ? 0x2a5a6a : gold ? 0xc8961e : 0x8a5a1a;
     const beacon = kit ? 0x5fd8ff : gold ? 0xffd84a : AMBER;
+    const tint = kit ? 0x244a5a : gold ? 0xb8881e : 0x5a4a2a;
     const box = new THREE.Mesh(
-      new THREE.BoxGeometry(0.9, 0.9, 0.9),
-      new THREE.MeshStandardMaterial({ color: tint, roughness: 0.85, emissive: new THREE.Color(kit ? 0x06303a : gold ? 0x4a3000 : 0x2a1c00), flatShading: true })
+      new THREE.BoxGeometry(0.95, 0.72, 0.72),
+      new THREE.MeshStandardMaterial({ color: tint, roughness: 0.85, emissive: new THREE.Color(kit ? 0x06303a : gold ? 0x4a3000 : 0x221a08), flatShading: true })
     );
-    box.position.y = 0.45;
+    box.position.y = 0.4;
     box.castShadow = true;
-    g.add(box, makeGlow(beacon, gold || kit ? 2.2 : 1.7, 0.6));
+    g.add(box);
+
+    if (kit) {
+      // Repair kit — a white maintenance cross
+      const cm = new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: new THREE.Color(0x88c0ff), emissiveIntensity: 0.9 });
+      const c1 = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.1, 0.16), cm);
+      const c2 = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.1, 0.5), cm);
+      c1.position.y = 0.82;
+      c2.position.y = 0.82;
+      g.add(c1, c2);
+    } else {
+      // Ammo crate — brass rounds standing on top
+      const brass = new THREE.MeshStandardMaterial({ color: 0xdca94a, roughness: 0.4, metalness: 0.5, emissive: new THREE.Color(0x3a2a08) });
+      const n = gold ? 5 : 3;
+      for (let i = 0; i < n; i++) {
+        const b = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, 0.34, 8), brass);
+        b.position.set((i / (n - 1) - 0.5) * 0.5, 0.92, 0);
+        g.add(b);
+      }
+    }
+
+    g.add(makeGlow(beacon, gold || kit ? 2.2 : 1.7, 0.6));
     g.position.set(x, 0, z);
     this.group.add(g);
     return { group: g, x, z, got: false, gold, kit };
@@ -510,6 +597,12 @@ export class Scavenge {
       this.groanT = 3 + this.ctx.rng.next() * 5;
       this.ctx.events.emit("SFX", { id: "groan", pan: this.ctx.rng.range(-1, 1) });
     }
+    // Pulsing red emergency lights
+    for (const r of this.redLights) {
+      const n = 0.5 + 0.5 * Math.sin(this.t * 3 + r.phase);
+      r.light.intensity = 1 + n * 4;
+      r.glow.material.opacity = 0.25 + n * 0.45;
+    }
     // Time pressure — heartbeat in the final stretch
     if (this.timeLeft < 12 && Math.floor(this.timeLeft) !== Math.floor(this.timeLeft + dt)) {
       this.ctx.events.emit("SFX", { id: "heartbeat" });
@@ -534,10 +627,12 @@ export class Scavenge {
       this.got++;
       if (c.gold) {
         this.ctx.stats.cratesGrabbed += 1;
-        this.ctx.floaters.spawn(c.x, 1.6, c.z, "+2 SUPPLY", "crit");
+        this.ctx.run.addAmmo(80); // ammo cache
+        this.ctx.floaters.spawn(c.x, 1.6, c.z, "+AMMO CACHE", "crit");
         this.ctx.fx.burst(c.x, 1.0, c.z, 22, 0xffd84a, { speed: 8, up: 6, life: 0.6, size: 7 });
       } else {
-        this.ctx.floaters.spawn(c.x, 1.5, c.z, "+SUPPLY", "heal");
+        this.ctx.run.addAmmo(35);
+        this.ctx.floaters.spawn(c.x, 1.5, c.z, "+AMMO", "heal");
         this.ctx.fx.burst(c.x, 0.9, c.z, 12, AMBER, { speed: 6, up: 5, life: 0.5 });
       }
       this.ctx.events.emit("CRATE_GRABBED", { got: this.got, total: this.total });

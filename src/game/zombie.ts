@@ -191,7 +191,9 @@ let NEXT_ID = 1;
 // eyes geometry. This slashes draw calls (~24 meshes → 2) and per-spawn GC.
 const bodyGeoCache: Record<string, THREE.BufferGeometry> = {};
 const eyeGeoCache: Record<string, THREE.BufferGeometry> = {};
+const boneGeoCache: Record<string, THREE.BufferGeometry> = {};
 const eyeMatCache: Record<string, THREE.MeshBasicMaterial> = {};
+const BONE_MAT = new THREE.MeshStandardMaterial({ color: 0xd8d0bd, roughness: 1, flatShading: true });
 
 function box(w: number, h: number, d: number, x: number, y: number, z: number, rx = 0): THREE.BufferGeometry {
   const g = new THREE.BoxGeometry(w, h, d);
@@ -205,8 +207,8 @@ function ball(r: number, x: number, y: number, z: number): THREE.BufferGeometry 
   return g;
 }
 
-function buildZombieGeo(t: ZType): { body: THREE.BufferGeometry; eyes: THREE.BufferGeometry } {
-  if (bodyGeoCache[t.key]) return { body: bodyGeoCache[t.key], eyes: eyeGeoCache[t.key] };
+function buildZombieGeo(t: ZType): { body: THREE.BufferGeometry; eyes: THREE.BufferGeometry; bone: THREE.BufferGeometry } {
+  if (bodyGeoCache[t.key]) return { body: bodyGeoCache[t.key], eyes: eyeGeoCache[t.key], bone: boneGeoCache[t.key] };
   const s = t.scale;
   const lean = t.key === "runner" ? 0.32 : t.key === "brute" ? 0.1 : 0.2;
   const p: THREE.BufferGeometry[] = [
@@ -238,11 +240,23 @@ function buildZombieGeo(t: ZType): { body: THREE.BufferGeometry; eyes: THREE.Buf
   }
   const body = mergeGeometries(p, false) as THREE.BufferGeometry;
   for (const g of p) g.dispose();
-  const eyes = mergeGeometries([ball(0.1 * s, -0.12 * s, 1.66 * s, 0.42 * s), ball(0.1 * s, 0.12 * s, 1.66 * s, 0.42 * s)], false) as THREE.BufferGeometry;
+  const eyes = mergeGeometries([ball(0.12 * s, -0.12 * s, 1.66 * s, 0.42 * s), ball(0.12 * s, 0.12 * s, 1.66 * s, 0.42 * s)], false) as THREE.BufferGeometry;
+  // Exposed bone accents: collarbone, jutting rib tips, a row of teeth.
+  const bp: THREE.BufferGeometry[] = [
+    box(0.5 * s, 0.06 * s, 0.06 * s, 0, 1.34 * s, 0.24 * s), // collarbone
+    box(0.26 * s, 0.04 * s, 0.05 * s, 0, 1.34 * s, 0.5 * s), // teeth row
+  ];
+  for (const rx of [-0.18, 0.18]) {
+    bp.push(box(0.05 * s, 0.05 * s, 0.05 * s, rx * s, 0.72 * s, 0.26 * s));
+    bp.push(box(0.05 * s, 0.05 * s, 0.05 * s, rx * s * 0.7, 0.58 * s, 0.27 * s));
+  }
+  const bone = mergeGeometries(bp, false) as THREE.BufferGeometry;
+  for (const g of bp) g.dispose();
   bodyGeoCache[t.key] = body;
   eyeGeoCache[t.key] = eyes;
+  boneGeoCache[t.key] = bone;
   eyeMatCache[t.key] = new THREE.MeshBasicMaterial({ color: t.eye, fog: false });
-  return { body, eyes };
+  return { body, eyes, bone };
 }
 
 export class Zombie {
@@ -306,6 +320,8 @@ export class Zombie {
     this.group.add(this.body);
     const eyes = new THREE.Mesh(geo.eyes, eyeMatCache[t.key]);
     this.group.add(eyes);
+    const bones = new THREE.Mesh(geo.bone, BONE_MAT);
+    this.group.add(bones);
     this.glow = makeGlow(t.eye, 1.7 * s, 0.6);
     this.glow.position.set(0, 1.66 * s, 0.4 * s);
     this.group.add(this.glow);

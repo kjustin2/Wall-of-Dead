@@ -54,6 +54,11 @@ export class RunManager {
     this.weaponOwner.push(null);
   }
 
+  /** Add reserve ammo to every weapon (a supply/ammo crate pickup). */
+  addAmmo(n: number): void {
+    for (const w of this.weapons) w.reserve += n;
+  }
+
   refillMags(): void {
     for (const w of this.weapons) {
       const need = w.def.mag - w.ammo;

@@ -264,7 +264,7 @@ export class Hud {
   private updateDay(): void {
     if (!this.scav) return;
     const low = this.scav.timeLeft < 12;
-    this.el.dayCrates.textContent = `SUPPLIES ${this.scav.got}/${this.scav.total}   ·   ${Math.max(0, Math.ceil(this.scav.timeLeft))}s`;
+    this.el.dayCrates.textContent = `AMMO ${this.scav.got}/${this.scav.total}   ·   ${Math.max(0, Math.ceil(this.scav.timeLeft))}s`;
     const f = Math.max(0, this.scav.timeLeft) / this.scav.maxTime;
     this.el.dayFill.style.width = `${f * 100}%`;
     this.el.dayCrates.style.color = this.scav.spotted || low ? "#ff5a3c" : "#ffce7a";

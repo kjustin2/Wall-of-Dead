@@ -108,10 +108,27 @@ export class Player {
     holster.position.set(0.34, 0.72, 0.1);
     this.group.add(holster);
     for (const lx of [-0.18, 0.18]) {
-      const leg = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.88, 0.26), dark);
-      leg.position.set(lx, 0.44, 0);
+      const leg = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.78, 0.26), dark);
+      leg.position.set(lx, 0.49, 0);
       leg.castShadow = true;
       this.group.add(leg);
+      const boot = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.16, 0.4), dark);
+      boot.position.set(lx, 0.08, 0.06);
+      boot.castShadow = true;
+      this.group.add(boot);
+    }
+    // Goggles across the helmet brow
+    const goggles = new THREE.Mesh(
+      new THREE.BoxGeometry(0.44, 0.1, 0.12),
+      new THREE.MeshStandardMaterial({ color: 0x101316, roughness: 0.4, metalness: 0.5, emissive: new THREE.Color(0x1a3a44), emissiveIntensity: 0.5 })
+    );
+    goggles.position.set(0, 1.79, -0.18);
+    this.group.add(goggles);
+    // Chest-rig pouches
+    for (const px of [-0.2, 0.2]) {
+      const pouch = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.2, 0.12), olive);
+      pouch.position.set(px, 0.95, -0.27);
+      this.group.add(pouch);
     }
 
     // Aim rig — yaws toward the cursor. Holds the rifle, arms, flashlight, muzzle.
