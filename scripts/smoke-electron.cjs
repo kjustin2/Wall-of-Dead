@@ -218,12 +218,12 @@ app.whenReady().then(async () => {
         if (!started) errors.push("FLOW: no Supply Run button on report (leg " + leg + ")");
         await sleep(1200);
         if (leg === 0) {
-          // Exercise the stealth verbs (toggle flashlight + lure) while backing to
-          // the safe entrance edge, away from the guards deeper in the lot — caught
-          // now ends the run on first contact, so don't wander into one.
+          // Exercise the stealth verbs (toggle flashlight) while backing to the
+          // safe entrance edge, away from the guards deeper in the lot — caught now
+          // ends the run on first contact, so don't wander into one.
           await win.webContents.executeJavaScript(`(()=>{
             const fire = (code, type) => window.dispatchEvent(new KeyboardEvent(type || 'keydown', { code }));
-            fire('KeyF'); fire('KeyQ'); fire('KeyF'); fire('KeyS','keydown');
+            fire('KeyF'); fire('KeyF'); fire('KeyS','keydown');
           })()`);
           // Let the opening banner fade so the shot shows the lot, not the title.
           await sleep(1700);
@@ -253,6 +253,13 @@ app.whenReady().then(async () => {
         await win.webContents.executeJavaScript(`(()=>{const b=document.querySelector('.screen--road .act-cont'); if(b) b.click();})()`);
         await sleep(1400);
         finalState = await win.webContents.executeJavaScript(`window.__wod.state()`);
+        // The next leg re-themes the environment (per-night zone). Capture night 2
+        // so a zone-retint regression is visible in the shots.
+        if (leg === 0 && finalState === "night") {
+          await win.webContents.executeJavaScript(`window.__wod.setNightProgress(0.4)`);
+          await sleep(500);
+          await shot(win, "03d-night2-zone.png");
+        }
         if (finalState === "victory") break;
       }
       await shot(win, "08-victory.png");

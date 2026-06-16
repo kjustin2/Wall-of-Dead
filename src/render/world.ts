@@ -1,11 +1,82 @@
 import * as THREE from "three";
 import type { Stage } from "./stage";
 import { makeGlow, groundTexture } from "./textures";
-import { clamp01, lerp } from "../core/math";
+import { clamp, clamp01, lerp } from "../core/math";
 import { FIELD, PAL, CHOKES } from "../config";
 import { Rng } from "../core/rng";
 
 const EMBERS = 150;
+
+/**
+ * One environment theme per leg of the road to the safe zone. Geometry is shared
+ * across all of them; a zone only swaps the sky/fog/ground/window/ember colors
+ * and the weather, so each night reads as a distinct place. `name` shows on the
+ * road map + the night banner.
+ */
+export interface Zone {
+  name: string;
+  skyTopNight: number;
+  skyHorizonNight: number;
+  skyTopDawn: number;
+  skyHorizonDawn: number;
+  fogNight: number;
+  fogDawn: number;
+  key: number; // key-light night tint
+  ground: number;
+  window: number;
+  ember: number;
+  storm: boolean;
+}
+
+/** The themed name of a leg (1-based night), for the road map + night banner. */
+export function zoneName(night: number): string {
+  return ZONES[clamp(night - 1, 0, ZONES.length - 1)].name;
+}
+
+export const ZONES: Zone[] = [
+  {
+    name: "THE OUTER WALL",
+    skyTopNight: 0x03040a,
+    skyHorizonNight: 0x080a12,
+    skyTopDawn: 0x243049,
+    skyHorizonDawn: 0xb5683a,
+    fogNight: 0x080a10,
+    fogDawn: 0x4a3b46,
+    key: 0xaecbe8,
+    ground: 0x0c1014,
+    window: 0x6a4e24,
+    ember: 0xff8a3a,
+    storm: true,
+  },
+  {
+    name: "THE REFINERY",
+    skyTopNight: 0x04080a,
+    skyHorizonNight: 0x0a1610,
+    skyTopDawn: 0x1e3034,
+    skyHorizonDawn: 0x7a8a3a,
+    fogNight: 0x0a1410,
+    fogDawn: 0x3a4632,
+    key: 0x9ad0b0,
+    ground: 0x0b130f,
+    window: 0x4ea24e,
+    ember: 0x8aff6a,
+    storm: false,
+  },
+  {
+    name: "THE LAST MILE",
+    skyTopNight: 0x0a0608,
+    skyHorizonNight: 0x180a08,
+    skyTopDawn: 0x402838,
+    skyHorizonDawn: 0xd87a3a,
+    fogNight: 0x140a0a,
+    fogDawn: 0x5a3b32,
+    key: 0xe8b0a0,
+    ground: 0x130d0c,
+    window: 0xc25a2a,
+    ember: 0xff6a2a,
+    storm: false,
+  },
+];
 
 /**
  * The static night environment around the wall: ground, the rampart the
@@ -52,6 +123,12 @@ export class World {
   private skyHorizonNight = new THREE.Color(0x080a12);
   private skyTopDawn = new THREE.Color(0x243049);
   private skyHorizonDawn = new THREE.Color(0xb5683a);
+  private fogNight = new THREE.Color(PAL.fogNight);
+  private fogDawn = new THREE.Color(PAL.fogDawn);
+  // Captured at build time so setZone() can retint per night.
+  private groundMat!: THREE.MeshStandardMaterial;
+  private winMat!: THREE.MeshBasicMaterial;
+  private keyNight = new THREE.Color(0xaecbe8);
 
   constructor(private stage: Stage) {
     this.group.add(this.field);
@@ -84,6 +161,7 @@ export class World {
       roughness: 0.95,
       metalness: 0.05,
     });
+    this.groundMat = mat;
     const ground = new THREE.Mesh(geo, mat);
     ground.rotation.x = -Math.PI / 2;
     ground.position.z = -60;
@@ -323,6 +401,7 @@ export class World {
     const dark = new THREE.MeshStandardMaterial({ color: 0x05080a, roughness: 1 });
     const near = new THREE.MeshStandardMaterial({ color: 0x0a1014, roughness: 1, flatShading: true });
     const winMat = new THREE.MeshBasicMaterial({ color: 0x6a4e24, fog: true });
+    this.winMat = winMat;
     const farthest = new THREE.MeshStandardMaterial({ color: 0x03060a, roughness: 1 });
     const rows: { z: number; mat: THREE.Material; min: number; max: number; n: number; windows: boolean }[] = [
       { z: -205, mat: farthest, min: 30, max: 80, n: 16, windows: false },
@@ -716,6 +795,28 @@ export class World {
     return { points: pts, vel };
   }
 
+  /**
+   * Re-theme the environment for a given night (1-based). Each leg of the road to
+   * the safe zone reads as a distinct place — the cold outer wall, a toxic
+   * refinery, then the ash-choked last mile — by retinting sky/fog/ground/windows
+   * /embers and toggling the storm. Geometry is shared; only colors change.
+   */
+  setZone(night: number): void {
+    const z = ZONES[clamp(night - 1, 0, ZONES.length - 1)];
+    this.skyTopNight.setHex(z.skyTopNight);
+    this.skyHorizonNight.setHex(z.skyHorizonNight);
+    this.skyTopDawn.setHex(z.skyTopDawn);
+    this.skyHorizonDawn.setHex(z.skyHorizonDawn);
+    this.fogNight.setHex(z.fogNight);
+    this.fogDawn.setHex(z.fogDawn);
+    this.keyNight.setHex(z.key);
+    this.groundMat.color.setHex(z.ground);
+    this.winMat.color.setHex(z.window);
+    (this.embers.material as THREE.PointsMaterial).color.setHex(z.ember);
+    this.setWeather(z.storm);
+    this.setDawn(this.dawn); // re-apply with the new palette
+  }
+
   /** 0 = deep night, 1 = full dawn. Lerps sky, fog, lights, moon, embers. */
   setDawn(t: number): void {
     this.dawn = clamp01(t);
@@ -726,12 +827,12 @@ export class World {
     (this.skyMat.uniforms.uHorizon.value as THREE.Color)
       .copy(this.skyHorizonNight)
       .lerp(this.skyHorizonDawn, d);
-    this.stage.fog.color.set(PAL.fogNight).lerp(new THREE.Color(PAL.fogDawn), d);
+    this.stage.fog.color.copy(this.fogNight).lerp(this.fogDawn, d);
     this.stage.fog.density = lerp(0.032, 0.012, d);
     this.stage.scene.background = this.stage.fog.color;
     this.stage.hemiLight.intensity = lerp(0.26, 0.8, d);
     this.stage.keyLight.intensity = lerp(0.3, 1.05, d);
-    this.stage.keyLight.color.set(0xaecbe8).lerp(new THREE.Color(0xffd9a8), d);
+    this.stage.keyLight.color.copy(this.keyNight).lerp(new THREE.Color(0xffd9a8), d);
     (this.stars.material as THREE.PointsMaterial).opacity = lerp(0.5, 0, d);
     const moonGlow = this.moon.children[1] as THREE.Sprite;
     (this.moon.children[0] as THREE.Mesh).visible = d < 0.85;

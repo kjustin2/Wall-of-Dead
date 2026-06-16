@@ -49,11 +49,13 @@ interface Survivor {
   z: number;
   taken: boolean;
 }
+type GType = "shambler" | "runner" | "spitter";
 interface Guard {
   group: THREE.Group;
   cone: THREE.Mesh;
   coneMat: THREE.MeshBasicMaterial;
   eyeMat: THREE.MeshBasicMaterial;
+  type: GType;
   x: number;
   z: number;
   facing: number;
@@ -62,6 +64,8 @@ interface Guard {
   state: "patrol" | "chase" | "investigate";
   alertT: number;
   speed: number;
+  chase: number; // chase speed
+  spitCd: number; // spitter: time until next projectile
   stuckT: number;
   px: number;
   pz: number;
@@ -69,6 +73,20 @@ interface Guard {
   invZ: number;
   dead: boolean;
 }
+interface Spit {
+  x: number;
+  z: number;
+  vx: number;
+  vz: number;
+  life: number;
+  mesh: THREE.Mesh;
+}
+// Per-type look + movement. Body color is the main read; eyes/cone are state-tinted.
+const GUARD_CFG: Record<GType, { flesh: number; coat: number; scale: number; speed: number; chase: number }> = {
+  shambler: { flesh: 0x35402c, coat: 0x232a1c, scale: 1.0, speed: 3.0, chase: 7.4 },
+  runner: { flesh: 0x5a3020, coat: 0x331a12, scale: 0.84, speed: 4.6, chase: 10.5 },
+  spitter: { flesh: 0x2f4a26, coat: 0x1c3018, scale: 1.1, speed: 2.3, chase: 5.6 },
+};
 interface HideZone {
   x: number;
   z: number;
@@ -77,24 +95,60 @@ interface HideZone {
 const AMBER = 0xffb24a;
 const THREAT = 0xff4030;
 
-// Static maze-ish layout (corners to break line of sight). Concrete barriers
-// plus a couple of wrecked cars — all solid cover.
-const WALLS: Wall[] = [
-  { x: -14, z: -14, w: 20, d: 1.4 },
-  { x: 12, z: -13, w: 1.4, d: 14 },
-  { x: 26, z: -20, w: 1.4, d: 18 },
-  { x: -2, z: -27, w: 22, d: 1.4 },
-  { x: -26, z: -26, w: 1.4, d: 22 },
-  { x: 18, z: -34, w: 1.4, d: 22 },
-  { x: 4, z: -42, w: 18, d: 1.4 },
-  { x: -16, z: -44, w: 14, d: 1.4 },
-  { x: -30, z: -52, w: 1.4, d: 16 },
-  { x: 28, z: -50, w: 1.4, d: 18 },
-  { x: 8, z: -58, w: 22, d: 1.4 },
-  { x: -10, z: -58, w: 1.4, d: 12 },
-  { x: -8, z: -22, w: 2.4, d: 4.6, car: true },
-  { x: 16, z: -40, w: 4.6, d: 2.4, car: true },
-  { x: -22, z: -50, w: 2.4, d: 4.6, car: true },
+// Several maze-ish layouts (corners to break line of sight); one is picked per
+// run. Concrete barriers plus a couple of wrecked cars — all solid cover.
+const MAPS: Wall[][] = [
+  // 0 — the original lot
+  [
+    { x: -14, z: -14, w: 20, d: 1.4 },
+    { x: 12, z: -13, w: 1.4, d: 14 },
+    { x: 26, z: -20, w: 1.4, d: 18 },
+    { x: -2, z: -27, w: 22, d: 1.4 },
+    { x: -26, z: -26, w: 1.4, d: 22 },
+    { x: 18, z: -34, w: 1.4, d: 22 },
+    { x: 4, z: -42, w: 18, d: 1.4 },
+    { x: -16, z: -44, w: 14, d: 1.4 },
+    { x: -30, z: -52, w: 1.4, d: 16 },
+    { x: 28, z: -50, w: 1.4, d: 18 },
+    { x: 8, z: -58, w: 22, d: 1.4 },
+    { x: -10, z: -58, w: 1.4, d: 12 },
+    { x: -8, z: -22, w: 2.4, d: 4.6, car: true },
+    { x: 16, z: -40, w: 4.6, d: 2.4, car: true },
+    { x: -22, z: -50, w: 2.4, d: 4.6, car: true },
+  ],
+  // 1 — a tighter, more enclosed warehouse grid
+  [
+    { x: 0, z: -12, w: 30, d: 1.4 },
+    { x: -15, z: -20, w: 1.4, d: 18 },
+    { x: 15, z: -20, w: 1.4, d: 18 },
+    { x: -4, z: -24, w: 16, d: 1.4 },
+    { x: 8, z: -34, w: 1.4, d: 20 },
+    { x: -10, z: -36, w: 16, d: 1.4 },
+    { x: -24, z: -40, w: 1.4, d: 22 },
+    { x: 24, z: -42, w: 1.4, d: 24 },
+    { x: 2, z: -48, w: 22, d: 1.4 },
+    { x: -14, z: -56, w: 18, d: 1.4 },
+    { x: 14, z: -58, w: 1.4, d: 12 },
+    { x: 18, z: -16, w: 2.4, d: 4.6, car: true },
+    { x: -10, z: -46, w: 4.6, d: 2.4, car: true },
+    { x: 6, z: -60, w: 2.4, d: 4.6, car: true },
+  ],
+  // 2 — open plaza with diagonal-ish staggered cover (longer sightlines)
+  [
+    { x: -20, z: -16, w: 1.4, d: 20 },
+    { x: 20, z: -18, w: 1.4, d: 24 },
+    { x: 0, z: -20, w: 14, d: 1.4 },
+    { x: -10, z: -30, w: 14, d: 1.4 },
+    { x: 10, z: -32, w: 14, d: 1.4 },
+    { x: -28, z: -38, w: 1.4, d: 18 },
+    { x: 0, z: -42, w: 1.4, d: 18 },
+    { x: -14, z: -50, w: 20, d: 1.4 },
+    { x: 16, z: -50, w: 14, d: 1.4 },
+    { x: -6, z: -60, w: 26, d: 1.4 },
+    { x: 12, z: -24, w: 2.4, d: 4.6, car: true },
+    { x: -16, z: -36, w: 4.6, d: 2.4, car: true },
+    { x: 22, z: -56, w: 2.4, d: 4.6, car: true },
+  ],
 ];
 
 function pushOutAABB(px: number, pz: number, r: number, w: Wall): [number, number] {
@@ -196,6 +250,7 @@ export class Scavenge {
   timeLeft = DURATION;
   readonly maxTime = DURATION;
   stamina = 1;
+  private exhausted = false;
   spotted = false;
   // HUD-facing state (read by the day HUD)
   promptText = "";
@@ -204,6 +259,7 @@ export class Scavenge {
 
   private group = new THREE.Group();
   private startGrace = 0; // no detection for a beat at the start of a run
+  private spits: Spit[] = [];
   private hideZones: HideZone[] = [];
   private extractZone = { x: 0, z: -5 };
   private extractMarker = new THREE.Group();
@@ -224,6 +280,11 @@ export class Scavenge {
   private tmp = new THREE.Vector2();
   private coneGeo: THREE.BufferGeometry;
   private nearest = new THREE.Vector3();
+  private walls: Wall[] = MAPS[0]; // active layout (chosen per run)
+  private wallGroup = new THREE.Group();
+  private spitGeo = new THREE.SphereGeometry(0.22, 8, 6);
+  private spitMat = new THREE.MeshBasicMaterial({ color: 0x9bff4a, fog: false });
+  private spitPool: THREE.Mesh[] = [];
 
   constructor(private ctx: Ctx, scene: THREE.Scene) {
     this.buildAvatar();
@@ -300,12 +361,15 @@ export class Scavenge {
   }
 
   private buildWalls(): void {
+    // Rebuildable: clear any prior layout's meshes, then build the active one.
+    this.wallGroup.clear();
+    if (!this.wallGroup.parent) this.group.add(this.wallGroup);
     const concrete = new THREE.MeshStandardMaterial({ color: 0x2a2f35, roughness: 1, flatShading: true });
     const cap = new THREE.MeshStandardMaterial({ color: 0x3a4048, roughness: 1, flatShading: true });
     const rust = new THREE.MeshStandardMaterial({ color: 0x3a2a22, roughness: 1, flatShading: true });
     const metal = new THREE.MeshStandardMaterial({ color: 0x20242a, roughness: 0.8, metalness: 0.3, flatShading: true });
     const tire = new THREE.MeshStandardMaterial({ color: 0x0c0c0e, roughness: 1 });
-    for (const w of WALLS) {
+    for (const w of this.walls) {
       if (w.car) {
         const car = new THREE.Group();
         const body = new THREE.Mesh(new THREE.BoxGeometry(w.w, 0.9, w.d), rust);
@@ -324,7 +388,7 @@ export class Scavenge {
             car.add(wheel);
           }
         car.position.set(w.x, 0, w.z);
-        this.group.add(car);
+        this.wallGroup.add(car);
       } else {
         const m = new THREE.Mesh(new THREE.BoxGeometry(w.w, 1.8, w.d), concrete);
         m.position.set(w.x, 0.9, w.z);
@@ -332,7 +396,7 @@ export class Scavenge {
         m.receiveShadow = true;
         const top = new THREE.Mesh(new THREE.BoxGeometry(w.w + 0.1, 0.25, w.d + 0.1), cap);
         top.position.set(w.x, 1.85, w.z);
-        this.group.add(m, top);
+        this.wallGroup.add(m, top);
       }
     }
   }
@@ -548,7 +612,7 @@ export class Scavenge {
   }
 
   private inWall(x: number, z: number, pad = 1): boolean {
-    for (const w of WALLS) {
+    for (const w of this.walls) {
       if (x > w.x - w.w / 2 - pad && x < w.x + w.w / 2 + pad && z > w.z - w.d / 2 - pad && z < w.z + w.d / 2 + pad)
         return true;
     }
@@ -624,44 +688,58 @@ export class Scavenge {
     return { group: g, x, z, taken: false };
   }
 
-  private makeGuard(center?: { x: number; z: number }): Guard {
+  private makeGuard(type: GType, center?: { x: number; z: number }): Guard {
     const g = new THREE.Group();
-    const flesh = new THREE.MeshStandardMaterial({ color: 0x35402c, roughness: 1, flatShading: true });
-    const coat = new THREE.MeshStandardMaterial({ color: 0x232a1c, roughness: 1, flatShading: true });
-    // A hunched, gaunt patroller — reads as a threat, not a tidy soldier.
-    const torso = new THREE.Mesh(new THREE.BoxGeometry(0.66, 1.0, 0.4), coat);
-    torso.position.set(0, 0.95, 0);
-    torso.rotation.x = 0.28; // hunched forward
+    const cfg = GUARD_CFG[type];
+    const flesh = new THREE.MeshStandardMaterial({ color: cfg.flesh, roughness: 1, flatShading: true });
+    const coat = new THREE.MeshStandardMaterial({ color: cfg.coat, roughness: 1, flatShading: true });
+    // Body parts go in a scaled sub-group so the sight cone stays full-size.
+    const body = new THREE.Group();
+    // Runner is leaner + more upright; shambler/spitter are hunched and bulky.
+    const lean = type === "runner" ? 0.12 : 0.28;
+    const torso = new THREE.Mesh(new THREE.BoxGeometry(type === "runner" ? 0.5 : 0.66, type === "runner" ? 1.15 : 1.0, 0.4), coat);
+    torso.position.set(0, type === "runner" ? 1.05 : 0.95, 0);
+    torso.rotation.x = lean;
     torso.castShadow = true;
     const hump = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.4, 0.34), coat);
     hump.position.set(0, 1.2, -0.16);
     const head = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.4, 0.4), flesh);
-    head.position.set(0, 1.5, 0.26); // jutting ahead
+    head.position.set(0, type === "runner" ? 1.62 : 1.5, type === "runner" ? 0.1 : 0.26);
     const jaw = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.12, 0.26), flesh);
     jaw.position.set(0, 1.36, 0.42);
     jaw.rotation.x = 0.4;
-    // Long gaunt arms hanging forward.
+    body.add(torso, hump, head, jaw);
+    // Spitter: a bulging acid sac on the belly.
+    if (type === "spitter") {
+      const sac = new THREE.Mesh(
+        new THREE.SphereGeometry(0.4, 8, 8),
+        new THREE.MeshStandardMaterial({ color: 0x6a8a3a, roughness: 1, flatShading: true, emissive: new THREE.Color(0x2a4a12), emissiveIntensity: 0.8 })
+      );
+      sac.position.set(0, 0.82, 0.32);
+      body.add(sac);
+    }
     for (const ax of [-0.42, 0.42]) {
-      const arm = new THREE.Mesh(new THREE.BoxGeometry(0.13, 0.9, 0.13), flesh);
+      const arm = new THREE.Mesh(new THREE.BoxGeometry(0.13, type === "runner" ? 0.78 : 0.9, 0.13), flesh);
       arm.position.set(ax, 0.85, 0.24);
-      arm.rotation.x = 0.5;
-      g.add(arm);
+      arm.rotation.x = type === "runner" ? 0.25 : 0.5;
+      body.add(arm);
     }
     for (const lx of [-0.16, 0.16]) {
-      const leg = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.8, 0.18), coat);
-      leg.position.set(lx, 0.4, 0);
-      g.add(leg);
+      const leg = new THREE.Mesh(new THREE.BoxGeometry(0.18, type === "runner" ? 0.95 : 0.8, 0.18), coat);
+      leg.position.set(lx, type === "runner" ? 0.48 : 0.4, 0);
+      body.add(leg);
     }
     const eyeMat = new THREE.MeshBasicMaterial({ color: AMBER, fog: false });
     for (const ex of [-0.1, 0.1]) {
       const eye = new THREE.Mesh(new THREE.SphereGeometry(0.07, 6, 6), eyeMat);
-      eye.position.set(ex, 1.53, 0.46);
-      g.add(eye);
+      eye.position.set(ex, type === "runner" ? 1.65 : 1.53, type === "runner" ? 0.3 : 0.46);
+      body.add(eye);
     }
-    // A faint eye-glow so cones read back to a face in the dark.
     const eyeGlow = makeGlow(AMBER, 0.9, 0.5);
     eyeGlow.position.set(0, 1.52, 0.5);
-    g.add(torso, hump, head, jaw, eyeGlow);
+    body.add(eyeGlow);
+    body.scale.setScalar(cfg.scale);
+    g.add(body);
     const coneMat = new THREE.MeshBasicMaterial({
       color: AMBER,
       transparent: true,
@@ -693,7 +771,12 @@ export class Scavenge {
     }
     // Face along the patrol from the start (not toward the player's spawn).
     const f0 = Math.atan2(patrol[1].x - patrol[0].x, patrol[1].z - patrol[0].z);
-    return { group: g, cone, coneMat, eyeMat, x: patrol[0].x, z: patrol[0].z, facing: f0, patrol, pIdx: 1, state: "patrol", alertT: 0, speed: 3, stuckT: 0, px: patrol[0].x, pz: patrol[0].z, invX: 0, invZ: 0, dead: false };
+    return {
+      group: g, cone, coneMat, eyeMat, type, x: patrol[0].x, z: patrol[0].z, facing: f0,
+      patrol, pIdx: 1, state: "patrol", alertT: 0, speed: cfg.speed, chase: cfg.chase,
+      spitCd: this.ctx.rng.range(1.2, 2.6), stuckT: 0, px: patrol[0].x, pz: patrol[0].z,
+      invX: 0, invZ: 0, dead: false,
+    };
   }
 
   start(): void {
@@ -702,6 +785,7 @@ export class Scavenge {
     this.got = 0;
     this.timeLeft = DURATION;
     this.stamina = 1;
+    this.exhausted = false;
     this.spotted = false;
     this.ax = 0;
     this.az = -7;
@@ -719,6 +803,11 @@ export class Scavenge {
     this.light.distance = 23;
     this.light.intensity = this.lightDefault;
 
+    // Pick a random map layout for this run and (re)build its walls.
+    this.walls = MAPS[Math.floor(this.ctx.rng.next() * MAPS.length)];
+    this.buildWalls();
+    this.clearSpits();
+
     for (const c of this.crates) this.group.remove(c.group);
     this.crates = [];
     for (let i = 0; i < CRATES; i++) {
@@ -735,10 +824,24 @@ export class Scavenge {
     const sv = this.freeSpot(AREA.minZ + 4, AREA.minZ + 20);
     this.survivor = this.makeSurvivor(sv.x, sv.z);
 
+    // Guard mix scales with the night: more guards, and more runners/spitters,
+    // so later supply runs are tougher.
     for (const g of this.guards) this.group.remove(g.group);
     this.guards = [];
-    for (let i = 0; i < 5; i++) this.guards.push(this.makeGuard());
-    for (let i = 0; i < 3; i++) this.guards.push(this.makeGuard(sv)); // defending the survivor
+    const night = this.ctx.run.night;
+    const patrols = 4 + night; // 5 / 6 / 7
+    const spitterChance = 0.1 + night * 0.1;
+    const runnerChance = 0.22 + night * 0.08;
+    const rollType = (): GType => {
+      const r = this.ctx.rng.next();
+      if (r < spitterChance) return "spitter";
+      if (r < spitterChance + runnerChance) return "runner";
+      return "shambler";
+    };
+    for (let i = 0; i < patrols; i++) this.guards.push(this.makeGuard(rollType()));
+    // Three defenders around the survivor (a spitter joins from night 2).
+    const defenders: GType[] = night >= 2 ? ["shambler", "runner", "spitter"] : ["shambler", "shambler", "runner"];
+    for (const t of defenders) this.guards.push(this.makeGuard(t, sv));
     for (const g of this.guards) g.group.position.set(g.x, 0, g.z);
 
     this.ctx.cam.mode = "topdown";
@@ -760,17 +863,21 @@ export class Scavenge {
       this.ctx.events.emit("SFX", { id: "ui_click" });
     }
 
-    // Move (sneak, or sprint while stamina holds).
+    // Move (sneak, or sprint while stamina holds). Once stamina bottoms out the
+    // legs lock until it recovers past a clear threshold — so "out of breath"
+    // actually stops you sprinting instead of stutter-sprinting on every tick.
     const a = this.ctx.input.axis(this.tmp);
     const moving = a.x !== 0 || a.y !== 0;
-    const sprint = this.ctx.input.down("ShiftLeft") && this.stamina > 0.05 && moving;
+    if (this.stamina <= 0.001) this.exhausted = true;
+    else if (this.stamina > 0.35) this.exhausted = false;
+    const sprint = this.ctx.input.down("ShiftLeft") && !this.exhausted && moving;
     this.stamina = sprint ? Math.max(0, this.stamina - dt * 0.72) : Math.min(1, this.stamina + dt * 0.26);
     const sp = sprint ? SPRINT : SNEAK;
     let nx = this.ax + a.x * sp * dt;
     let nz = this.az + a.y * sp * dt;
     nx = clamp(nx, AREA.minX, AREA.maxX);
     nz = clamp(nz, AREA.minZ, AREA.maxZ);
-    for (const w of WALLS) [nx, nz] = pushOutAABB(nx, nz, AV_R, w);
+    for (const w of this.walls) [nx, nz] = pushOutAABB(nx, nz, AV_R, w);
     this.ax = nx;
     this.az = nz;
     this.avatar.position.set(this.ax, 0, this.az);
@@ -807,6 +914,8 @@ export class Scavenge {
       this.updateGuard(g, dt);
       if (this.done) return; // a catch ended the run mid-loop — stop here
     }
+    this.updateSpits(dt);
+    if (this.done) return; // a spit-hit ended the run mid-loop
     for (const g of this.guards) if (!g.dead && g.state === "chase") anyChase = true;
     if (anyChase && !this.spotted) {
       this.spotted = true;
@@ -930,7 +1039,7 @@ export class Scavenge {
   }
 
   private losBlocked(ax: number, az: number, bx: number, bz: number): boolean {
-    for (const w of WALLS) if (segAABB(ax, az, bx, bz, w)) return true;
+    for (const w of this.walls) if (segAABB(ax, az, bx, bz, w)) return true;
     return false;
   }
 
@@ -939,7 +1048,7 @@ export class Scavenge {
     const bx = gx + Math.sin(facing) * VISION_RANGE;
     const bz = gz + Math.cos(facing) * VISION_RANGE;
     let best = VISION_RANGE;
-    for (const w of WALLS) {
+    for (const w of this.walls) {
       const t = segEntryT(gx, gz, bx, bz, w);
       if (t !== Infinity) best = Math.min(best, t * VISION_RANGE);
     }
@@ -985,11 +1094,20 @@ export class Scavenge {
     if (g.state === "chase") {
       tx = this.ax;
       tz = this.az;
-      speed = 8.2;
+      speed = g.chase;
       // Caught — the run ends right here.
       if (dist < 1.4) {
         this.onCaught();
         return;
+      }
+      // Spitters hang back and lob acid instead of closing all the way.
+      if (g.type === "spitter") {
+        g.spitCd -= dt;
+        if (dist > 6) speed *= 0.45; // keep their distance to pelt you
+        if (g.spitCd <= 0 && dist < VISION_RANGE && !this.losBlocked(g.x, g.z, this.ax, this.az)) {
+          g.spitCd = 1.8;
+          this.spawnSpit(g);
+        }
       }
     } else if (g.state === "investigate") {
       tx = g.invX;
@@ -1011,7 +1129,7 @@ export class Scavenge {
     g.x = clamp(g.x, AREA.minX, AREA.maxX);
     g.z = clamp(g.z, AREA.minZ, AREA.maxZ);
     // Guards collide with walls too (no walking through cover).
-    for (const w of WALLS) [g.x, g.z] = pushOutAABB(g.x, g.z, 0.55, w);
+    for (const w of this.walls) [g.x, g.z] = pushOutAABB(g.x, g.z, 0.55, w);
 
     // Stuck recovery: if a patrolling guard hasn't progressed (wedged on a wall),
     // pick a fresh patrol target so it never jams (e.g. around the survivor).
@@ -1040,6 +1158,66 @@ export class Scavenge {
     g.coneMat.color.set(hunting ? THREAT : AMBER);
     g.coneMat.opacity = hunting ? 0.28 : 0.14;
     g.eyeMat.color.set(hunting ? THREAT : AMBER);
+  }
+
+  /** A spitter lobs an acid bolt that leads the avatar. Hitting you ends the run. */
+  private spawnSpit(g: Guard): void {
+    let mesh = this.spitPool.pop();
+    if (!mesh) {
+      mesh = new THREE.Mesh(this.spitGeo, this.spitMat);
+      this.group.add(mesh);
+    }
+    mesh.visible = true;
+    const sx = g.x;
+    const sz = g.z;
+    const SPEED = 13;
+    const dx = this.ax - sx;
+    const dz = this.az - sz;
+    const d = Math.hypot(dx, dz) || 1;
+    mesh.position.set(sx, 1.3, sz);
+    this.spits.push({ x: sx, z: sz, vx: (dx / d) * SPEED, vz: (dz / d) * SPEED, life: 2.2, mesh });
+    this.ctx.events.emit("SFX", { id: "spit" });
+  }
+
+  private updateSpits(dt: number): void {
+    for (let i = this.spits.length - 1; i >= 0; i--) {
+      const s = this.spits[i];
+      s.x += s.vx * dt;
+      s.z += s.vz * dt;
+      s.life -= dt;
+      s.mesh.position.set(s.x, 1.3, s.z);
+      const dx = s.x - this.ax;
+      const dz = s.z - this.az;
+      let hitWall = false;
+      for (const w of this.walls) {
+        if (s.x > w.x - w.w / 2 && s.x < w.x + w.w / 2 && s.z > w.z - w.d / 2 && s.z < w.z + w.d / 2) {
+          hitWall = true;
+          break;
+        }
+      }
+      const offMap = s.x < AREA.minX || s.x > AREA.maxX || s.z < AREA.minZ || s.z > AREA.maxZ;
+      if (dx * dx + dz * dz < 1.0) {
+        this.retireSpit(i);
+        if (!this.done) this.onCaught();
+        return;
+      }
+      if (s.life <= 0 || hitWall || offMap) this.retireSpit(i);
+    }
+  }
+
+  private retireSpit(i: number): void {
+    const s = this.spits[i];
+    s.mesh.visible = false;
+    this.spitPool.push(s.mesh);
+    this.spits.splice(i, 1);
+  }
+
+  private clearSpits(): void {
+    for (const s of this.spits) {
+      s.mesh.visible = false;
+      this.spitPool.push(s.mesh);
+    }
+    this.spits.length = 0;
   }
 
   private nearestCrate(): Crate | null {

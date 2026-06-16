@@ -2,6 +2,7 @@ import type { Ctx } from "../game/ctx";
 import type { Quality } from "../render/stage";
 import type { Stats } from "../game/ctx";
 import { DIFFICULTY, type DifficultyId } from "../config";
+import { BINDABLE, GAMEPAD_REF } from "../core/input";
 
 export interface Settings {
   volume: number;
@@ -16,7 +17,7 @@ export interface Settings {
   fov: number;
   difficulty: DifficultyId;
   aimAssist: boolean;
-  /** Accessibility re-binds: physical KeyboardEvent.code → canonical code. */
+  /** Key bindings: action id (canonical code) → the physical key bound to it. */
   rebinds: Record<string, string>;
   /** Set once the player picks a quality, so boot auto-detect won't override. */
   qualityTouched: boolean;
@@ -24,17 +25,15 @@ export interface Settings {
 
 const KEY = "wod-settings";
 
-// Actions you can add an alternate key for (canonical code → label).
-const REBIND_ACTIONS: [string, string][] = [
-  ["KeyA", "Move left"],
-  ["KeyD", "Move right"],
-  ["KeyR", "Reload"],
-  ["Space", "Shove / bash"],
-  ["KeyE", "Interact"],
-];
-
 function prettyKey(code: string): string {
-  return code.replace(/^Key/, "").replace(/^Digit/, "").replace("Space", "SPACE").replace("ArrowLeft", "←").replace("ArrowRight", "→");
+  return code
+    .replace(/^Key/, "")
+    .replace(/^Digit/, "")
+    .replace("Space", "SPACE")
+    .replace("ArrowLeft", "←")
+    .replace("ArrowRight", "→")
+    .replace("ArrowUp", "↑")
+    .replace("ArrowDown", "↓");
 }
 
 function defaultSettings(): Settings {
@@ -99,7 +98,7 @@ export class Menus {
     this.ctx.cam.setBaseFov(s.fov);
     this.ctx.tuning = DIFFICULTY[s.difficulty] ?? DIFFICULTY.normal;
     this.ctx.player.aimAssist = s.aimAssist;
-    this.ctx.input.setRebinds(s.rebinds ?? {});
+    this.ctx.input.setBinds(BINDABLE.map((b) => b.id), s.rebinds ?? {});
     document.body.classList.toggle("cb", s.colorblind);
     document.body.classList.toggle("bigtext", s.bigText);
     document.body.classList.toggle("reduced", s.reducedFx);
@@ -113,6 +112,13 @@ export class Menus {
       window.removeEventListener("keydown", this.rebindCapture, true);
       this.rebindCapture = null;
     }
+  }
+
+  /** Bind `action` to physical key `phys`; a default binding stays absent from
+   * the map so an untouched config serializes as `{}`. */
+  private setBind(s: Settings, action: string, phys: string): void {
+    if (phys === action) delete s.rebinds[action];
+    else s.rebinds[action] = phys;
   }
 
   clear(): void {
@@ -318,11 +324,13 @@ export class Menus {
         <div class="settings-row"><label>Reduced flashing</label><input type="checkbox" class="set-reduced" ${s.reducedFx ? "checked" : ""}></div>
         <div class="settings-row"><label>Colorblind palette</label><input type="checkbox" class="set-cb" ${s.colorblind ? "checked" : ""}></div>
         <div class="settings-row"><label>Large text</label><input type="checkbox" class="set-big" ${s.bigText ? "checked" : ""}></div>
-        <div class="rebind-head">EXTRA KEY BINDS (accessibility — adds an alternate key)</div>
-        ${REBIND_ACTIONS.map(([code, label]) => {
-          const alt = Object.entries(s.rebinds).find(([, c]) => c === code)?.[0];
-          return `<div class="settings-row"><label>${label}</label><button class="mbtn mbtn--sm act-rebind" data-code="${code}">${alt ? prettyKey(alt) : "＋ set"}</button></div>`;
+        <div class="rebind-head">CONTROLS — KEYBOARD (click to rebind)</div>
+        ${BINDABLE.map((b) => {
+          const phys = s.rebinds[b.id] ?? b.id;
+          return `<div class="settings-row"><label>${b.label}</label><button class="mbtn mbtn--sm act-rebind" data-code="${b.id}">${prettyKey(phys)}</button></div>`;
         }).join("")}
+        <div class="rebind-head">CONTROLS — GAMEPAD</div>
+        ${GAMEPAD_REF.map((g) => `<div class="settings-row settings-row--ref"><label>${g.label}</label><span class="pad-key">${g.pad}</span></div>`).join("")}
         </div>
         <div class="menu menu--row">
           <button class="mbtn act-defaults">RESTORE DEFAULTS</button>
@@ -381,10 +389,13 @@ export class Menus {
       saveSettings(s);
     });
     bind(".set-aim", (el) => (s.aimAssist = el.checked));
-    // Re-bind: click → capture the next key as an alternate for that action.
+    // Re-bind: click → capture the next key as THIS action's key (a real
+    // replacement). If that key already runs another action, the two swap so no
+    // action is ever left unbound.
+    const physOf = (id: string) => s.rebinds[id] ?? id;
     this.root.querySelectorAll(".act-rebind").forEach((el) => {
-      const code = el.getAttribute("data-code");
-      if (!code) return;
+      const action = el.getAttribute("data-code");
+      if (!action) return;
       el.addEventListener("click", () => {
         this.cancelRebindCapture(); // only one armed at a time
         el.textContent = "press a key…";
@@ -392,9 +403,12 @@ export class Menus {
           e.preventDefault();
           this.cancelRebindCapture();
           if (e.code !== "Escape") {
-            // Clear any prior alt for this action, then add the new one.
-            for (const k of Object.keys(s.rebinds)) if (s.rebinds[k] === code) delete s.rebinds[k];
-            s.rebinds[e.code] = code;
+            const want = e.code;
+            const prev = physOf(action);
+            // If another action already uses `want`, give it our old key (swap).
+            const clash = BINDABLE.find((b) => b.id !== action && physOf(b.id) === want);
+            if (clash) this.setBind(s, clash.id, prev);
+            this.setBind(s, action, want);
           }
           this.applySettings();
           saveSettings(s);

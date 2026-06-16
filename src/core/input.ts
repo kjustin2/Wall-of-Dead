@@ -2,6 +2,35 @@ import * as THREE from "three";
 import { FIELD } from "../config";
 
 /**
+ * The rebindable keyboard actions. The `id` is the canonical code the game reads
+ * via `input.down(id)` (and the default key). Movement also accepts the arrow
+ * keys (handled in axis); aim/fire are mouse and aren't rebindable here.
+ */
+export const BINDABLE: { id: string; label: string }[] = [
+  { id: "KeyA", label: "Move left" },
+  { id: "KeyD", label: "Move right" },
+  { id: "KeyR", label: "Reload" },
+  { id: "Space", label: "Shove / bash" },
+  { id: "KeyE", label: "Interact (repair / revive)" },
+  { id: "KeyF", label: "Frag / Last Stand" },
+  { id: "KeyT", label: "Place trap" },
+];
+
+/** The full fixed gamepad mapping, shown for reference (not rebindable). */
+export const GAMEPAD_REF: { label: string; pad: string }[] = [
+  { label: "Move", pad: "Left stick" },
+  { label: "Aim", pad: "Right stick" },
+  { label: "Fire", pad: "RT (right trigger)" },
+  { label: "Shove / bash", pad: "Ⓐ" },
+  { label: "Interact", pad: "Ⓑ" },
+  { label: "Reload", pad: "✕" },
+  { label: "Frag / Last Stand", pad: "Ⓨ" },
+  { label: "Place trap", pad: "D-pad ↑" },
+  { label: "Swap weapon", pad: "LB / RB" },
+  { label: "Pause", pad: "Start" },
+];
+
+/**
  * Keyboard + mouse. The cursor is raycast onto a horizontal plane at body
  * height to produce a world-space aim point, so aiming reads naturally as
  * "point into the field". Key edges (justPressed) distinguish tap vs hold.
@@ -39,20 +68,47 @@ export class Input {
     12: "KeyT", // dpad up — trap
   };
 
-  /** Optional accessibility re-binds: physical code → canonical code (additive). */
-  private remap: Record<string, string> = {};
-  setRebinds(m: Record<string, string>): void {
-    this.remap = m || {};
+  // --- Keyboard rebinding (replacement semantics) ---
+  /** physical KeyboardEvent.code → canonical action id. */
+  private reverse: Record<string, string> = {};
+  /** All canonical action ids the rebind UI manages (suppressed when remapped). */
+  private managed = new Set<string>();
+  /**
+   * Apply the player's key bindings. `binds` maps an action id (the canonical
+   * code, e.g. "KeyA") to the physical key currently bound to it. Any managed
+   * default key that's been reassigned elsewhere stops triggering its old action
+   * — a true rebind, not just an added alternate.
+   */
+  setBinds(actionIds: string[], binds: Record<string, string>): void {
+    this.managed = new Set(actionIds);
+    this.reverse = {};
+    for (const id of actionIds) {
+      const phys = binds[id] ?? id; // default: action bound to its own code
+      this.reverse[phys] = id;
+    }
+  }
+
+  /** Translate a physical key to its action id, or null to ignore the key. */
+  private resolve(physical: string): string | null {
+    const mapped = this.reverse[physical];
+    if (mapped !== undefined) return mapped;
+    // A managed default that was rebound to another key no longer does anything.
+    if (this.managed.has(physical)) return null;
+    return physical; // unmanaged key (e.g. weapon digits) passes through
   }
 
   constructor(private canvas: HTMLCanvasElement) {
     window.addEventListener("keydown", (e) => {
       if (e.repeat) return;
-      const code = this.remap[e.code] ?? e.code;
+      const code = this.resolve(e.code);
+      if (code === null) return;
       this.keys.add(code);
       this.justPressed.add(code);
     });
-    window.addEventListener("keyup", (e) => this.keys.delete(this.remap[e.code] ?? e.code));
+    window.addEventListener("keyup", (e) => {
+      const code = this.resolve(e.code);
+      if (code !== null) this.keys.delete(code);
+    });
     window.addEventListener("blur", () => {
       this.keys.clear();
       this.mouseDown = false;

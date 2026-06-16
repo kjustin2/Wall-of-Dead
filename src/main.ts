@@ -12,7 +12,7 @@ import { Particles } from "./render/particles";
 import { Telegraphs } from "./render/telegraphs";
 import { Floaters } from "./render/floaters";
 import { Decals } from "./render/decals";
-import { World } from "./render/world";
+import { World, zoneName } from "./render/world";
 import { Input } from "./core/input";
 import { EventBus } from "./core/events";
 import { Rng } from "./core/rng";
@@ -188,7 +188,7 @@ function toTitle(): void {
   ctx.world.setFieldClutter(true);
   ctx.cam.mode = "menu";
   scavenge.hide(); // restore fog BEFORE we set the menu lighting
-  ctx.world.setWeather(true); // rainy, moody title backdrop
+  ctx.world.setZone(1); // reset to the outer-wall palette for the title backdrop
   ctx.world.setDawn(0.12);
   hud.setMode("hidden");
   ctx.sfx.startAmbient();
@@ -270,8 +270,8 @@ function beginNight(): void {
   ctx.wall.dmgMul = ctx.tuning.enemyDmg;
   ctx.wall.group.visible = true;
   ctx.world.setFieldClutter(true);
-  // Each night gets its own weather: clear → storm → ominous-clear.
-  ctx.world.setWeather(ctx.run.night === 2);
+  // Re-theme the environment for this leg of the road (also picks the weather).
+  ctx.world.setZone(ctx.run.night);
   ctx.player.reset();
   ctx.player.group.visible = true;
   ctx.companions.spawnFromRun();
@@ -298,7 +298,7 @@ function beginNight(): void {
   streakTimer = 0;
   ctx.music.play("night");
   ctx.events.emit("NIGHT_START", { night: ctx.run.night });
-  hud.banner(`NIGHT ${ctx.run.night} / ${ctx.run.legsTotal}`, NIGHT_FLAVOR[(ctx.run.night - 1) % NIGHT_FLAVOR.length]);
+  hud.banner(`NIGHT ${ctx.run.night} / ${ctx.run.legsTotal} — ${zoneName(ctx.run.night)}`, NIGHT_FLAVOR[(ctx.run.night - 1) % NIGHT_FLAVOR.length]);
 
   // A radio beat as later nights open.
   const radio = NIGHT_RADIO[ctx.run.night];
@@ -425,7 +425,7 @@ function onDayDone(tier: string, frac: number): void {
       menus.showRoadMap(
         ctx.run.leg,
         ctx.run.legsTotal,
-        `NIGHT ${ctx.run.night} / ${ctx.run.legsTotal}`,
+        `NIGHT ${ctx.run.night} / ${ctx.run.legsTotal} — ${zoneName(ctx.run.night)}`,
         ROAD_STORY[ctx.run.night] ?? "The convoy rolls on toward the safe zone.",
         beginNight
       );
