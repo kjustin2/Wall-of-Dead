@@ -203,6 +203,7 @@ export class Scavenge {
   extractOpen = false;
 
   private group = new THREE.Group();
+  private startGrace = 0; // no detection for a beat at the start of a run
   private hideZones: HideZone[] = [];
   private extractZone = { x: 0, z: -5 };
   private extractMarker = new THREE.Group();
@@ -690,7 +691,9 @@ export class Scavenge {
         patrol.push(this.freeSpot(AREA.minZ + 2, AREA.maxZ - 8));
       }
     }
-    return { group: g, cone, coneMat, eyeMat, x: patrol[0].x, z: patrol[0].z, facing: 0, patrol, pIdx: 1, state: "patrol", alertT: 0, speed: 3, stuckT: 0, px: patrol[0].x, pz: patrol[0].z, invX: 0, invZ: 0, dead: false };
+    // Face along the patrol from the start (not toward the player's spawn).
+    const f0 = Math.atan2(patrol[1].x - patrol[0].x, patrol[1].z - patrol[0].z);
+    return { group: g, cone, coneMat, eyeMat, x: patrol[0].x, z: patrol[0].z, facing: f0, patrol, pIdx: 1, state: "patrol", alertT: 0, speed: 3, stuckT: 0, px: patrol[0].x, pz: patrol[0].z, invX: 0, invZ: 0, dead: false };
   }
 
   start(): void {
@@ -708,6 +711,7 @@ export class Scavenge {
     this.extractMarker.visible = false;
     this.lightOn = true;
     this.promptText = "";
+    this.startGrace = 1.6; // brief grace so no guard can spot you the instant you spawn
     this.ctx.world.setDawn(0.08); // dark + moody, but still navigable
     // Thicker fog + a dimmer, tighter flashlight = scarier.
     this.fogPrev = this.ctx.stage.fog.density;
@@ -746,6 +750,7 @@ export class Scavenge {
     if (!this.active || this.done) return;
     this.t += dt;
     this.timeLeft -= dt;
+    if (this.startGrace > 0) this.startGrace -= dt;
     this.promptText = "";
 
     // Flashlight toggle (F) — off = harder to be seen, but you see far less.
@@ -759,7 +764,7 @@ export class Scavenge {
     const a = this.ctx.input.axis(this.tmp);
     const moving = a.x !== 0 || a.y !== 0;
     const sprint = this.ctx.input.down("ShiftLeft") && this.stamina > 0.05 && moving;
-    this.stamina = sprint ? Math.max(0, this.stamina - dt * 0.55) : Math.min(1, this.stamina + dt * 0.3);
+    this.stamina = sprint ? Math.max(0, this.stamina - dt * 0.72) : Math.min(1, this.stamina + dt * 0.26);
     const sp = sprint ? SPRINT : SNEAK;
     let nx = this.ax + a.x * sp * dt;
     let nz = this.az + a.y * sp * dt;
@@ -954,7 +959,7 @@ export class Scavenge {
     const dist = Math.hypot(dx, dz);
     const range = this.lightOn ? VISION_RANGE : VISION_RANGE * 0.5;
     let sees = false;
-    if (dist < range && !this.hidden) {
+    if (dist < range && !this.hidden && this.startGrace <= 0) {
       const toAvatar = Math.atan2(dx, dz);
       let diff = toAvatar - g.facing;
       while (diff > Math.PI) diff -= Math.PI * 2;
