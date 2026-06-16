@@ -245,6 +245,12 @@ app.whenReady().then(async () => {
           `(()=>{const b=document.querySelector('.act-choice-0'); if(b){b.click(); return true;} return false;})()`
         );
         if (leg === 0 && !dilemma) errors.push("STAKES: no dawn dilemma after the first day");
+        await sleep(700);
+        // Then the road-map interstitial (story + advancing convoy).
+        const road = await win.webContents.executeJavaScript(`!!document.querySelector('.screen--road')`);
+        if (leg === 0 && !road) errors.push("STORY: no road-map interstitial between nights");
+        if (leg === 0 && road) await shot(win, "07b-roadmap.png");
+        await win.webContents.executeJavaScript(`(()=>{const b=document.querySelector('.screen--road .act-cont'); if(b) b.click();})()`);
         await sleep(1400);
         finalState = await win.webContents.executeJavaScript(`window.__wod.state()`);
         if (finalState === "victory") break;

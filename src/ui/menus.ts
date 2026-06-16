@@ -481,6 +481,34 @@ export class Menus {
     this.btn(".act-cont", onContinue);
   }
 
+  /** The convoy advancing along the road toward the safe zone, plus a story beat
+   * for the night ahead. Shown between nights. */
+  showRoadMap(leg: number, total: number, title: string, story: string, onContinue: () => void): void {
+    let nodes = "";
+    for (let i = 0; i <= total; i++) {
+      const pct = (i / total) * 100;
+      const done = i <= leg;
+      const safe = i === total;
+      const label = safe ? "SAFE ZONE" : i === 0 ? "START" : `LEG ${i}`;
+      nodes += `<div class="road-node ${done ? "road-node--done" : ""} ${safe ? "road-node--safe" : ""}" style="left:${pct}%"><span class="road-dot"></span><span class="road-label">${label}</span></div>`;
+    }
+    const convoyPct = (leg / total) * 100;
+    this.paint(`
+      <div class="screen screen--road">
+        <h2 class="panel-title">THE ROAD TO THE SAFE ZONE</h2>
+        <div class="roadmap">
+          <div class="road-line"></div>
+          <div class="road-line road-line--done" style="width:${convoyPct}%"></div>
+          ${nodes}
+          <div class="convoy" style="left:${convoyPct}%">▣</div>
+        </div>
+        <h3 class="road-night">${title}</h3>
+        <p class="subtitle road-story">${story}</p>
+        <div class="menu"><button class="mbtn mbtn--primary act-cont">PRESS ON ▶</button></div>
+      </div>`);
+    this.btn(".act-cont", onContinue);
+  }
+
   /** A dawn dilemma: one choice with a consequence. Each option runs its effect
    * then proceeds. */
   showDilemma(title: string, sub: string, options: { label: string; detail: string; onPick: () => void }[], after: () => void): void {

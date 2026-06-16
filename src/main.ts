@@ -64,6 +64,12 @@ const NIGHT_RADIO: Record<number, string> = {
   3: "Convoy: 'This is the gate. Hold it and we all walk out.'",
 };
 
+// Story shown on the road-map interstitial before the named night.
+const ROAD_STORY: Record<number, string> = {
+  2: "One leg of broken road is behind you. The convoy crawls on through the wrecks toward the next holdout. The dead are thicker here — and something heavier moves with them tonight.",
+  3: "The safe zone's floodlights smear the horizon now — one last stretch of road. Whatever has been dragging itself after the convoy has caught up. Hold this gate till dawn and you all walk out.",
+};
+
 const canvas = document.getElementById("game") as HTMLCanvasElement;
 
 // ---------------------------------------------------------------- boot wiring
@@ -415,7 +421,14 @@ function onDayDone(tier: string, frac: number): void {
     // A dawn dilemma before pressing on — one choice, one consequence.
     offerDilemma(() => {
       ctx.run.night += 1;
-      beginNight();
+      // Show the convoy advancing toward the safe zone + a story beat, then night.
+      menus.showRoadMap(
+        ctx.run.leg,
+        ctx.run.legsTotal,
+        `NIGHT ${ctx.run.night} / ${ctx.run.legsTotal}`,
+        ROAD_STORY[ctx.run.night] ?? "The convoy rolls on toward the safe zone.",
+        beginNight
+      );
     });
   };
   menus.showDayLoot(lines, lootContinue);

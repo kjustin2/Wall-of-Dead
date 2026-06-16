@@ -615,6 +615,57 @@ body {
 
 .menu { display: flex; flex-direction: column; gap: 10px; margin-top: 8px; }
 .menu--row { flex-direction: row; justify-content: center; gap: 14px; }
+
+/* Between-nights "road to the safe zone" map */
+.roadmap {
+  position: relative;
+  width: min(620px, 74vw);
+  height: 70px;
+  margin: 26px 0 10px;
+}
+.road-line {
+  position: absolute;
+  top: 22px;
+  left: 0;
+  width: 100%;
+  height: 3px;
+  background: #2a3138;
+  border-radius: 2px;
+}
+.road-line--done { background: linear-gradient(90deg, #ff7a3a, #ffce5a); box-shadow: 0 0 8px rgba(255, 150, 60, 0.5); }
+.road-node { position: absolute; top: 0; transform: translateX(-50%); text-align: center; }
+.road-dot {
+  display: block;
+  width: 12px;
+  height: 12px;
+  margin: 16px auto 0;
+  border-radius: 50%;
+  background: #2a3138;
+  border: 2px solid #3a444c;
+}
+.road-node--done .road-dot { background: #ffb04a; border-color: #ffce5a; box-shadow: 0 0 8px rgba(255, 170, 60, 0.6); }
+.road-node--safe .road-dot { width: 16px; height: 16px; margin-top: 14px; background: #6fffa8; border-color: #6fffa8; box-shadow: 0 0 12px rgba(110, 255, 168, 0.7); }
+.road-label {
+  display: block;
+  margin-top: 6px;
+  font-family: var(--display);
+  font-size: 10px;
+  letter-spacing: 2px;
+  color: var(--dim);
+}
+.road-node--safe .road-label { color: #6fffa8; }
+.convoy {
+  position: absolute;
+  top: 6px;
+  transform: translateX(-50%);
+  font-size: 18px;
+  color: #ffe08a;
+  text-shadow: 0 0 10px rgba(255, 200, 90, 0.8);
+  animation: convoy-bob 1.6s ease-in-out infinite;
+}
+@keyframes convoy-bob { 0%, 100% { transform: translateX(-50%) translateY(0); } 50% { transform: translateX(-50%) translateY(-3px); } }
+.road-night { font-family: var(--display); letter-spacing: 5px; font-size: 22px; color: #fff; margin-top: 8px; }
+.road-story { max-width: 560px; line-height: 1.6; }
 .mbtn {
   font-family: var(--display);
   font-weight: 600;
