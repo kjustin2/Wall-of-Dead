@@ -205,6 +205,23 @@ export class Wall {
     this.refreshAll();
   }
 
+  /** Snapshot per-segment HP (so a breach persists across nights instead of being
+   * averaged back up by setTotal). */
+  segHp(): number[] {
+    return Array.from(this.hp);
+  }
+
+  /** Restore per-segment HP from a snapshot. */
+  setSegHp(arr: number[]): void {
+    for (let i = 0; i < SEG; i++) this.hp[i] = clamp(arr[i] ?? MAX_PER, 0, MAX_PER);
+    this.refreshAll();
+  }
+
+  /** Max HP a single segment can hold (for the HUD per-segment bars). */
+  get segMax(): number {
+    return MAX_PER;
+  }
+
   /** Fully restore the segment under x (a completed repair-kit fix). */
   repairSegmentAt(x: number): void {
     const i = this.segAt(x);

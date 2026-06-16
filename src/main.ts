@@ -239,7 +239,7 @@ function toCutscene(): void {
   ctx.deployables.clear();
   ctx.fx.clear();
   ctx.decals.clear();
-  ctx.wall.setTotal(ctx.run.wallHp);
+  restoreWall();
   ctx.wall.group.visible = true;
   ctx.world.setFieldClutter(true);
   ctx.player.reset();
@@ -260,7 +260,7 @@ function beginNight(): void {
   saveRun();
   scavenge.hide();
   ctx.run.refillMags();
-  ctx.wall.setTotal(ctx.run.wallHp);
+  restoreWall(); // per-segment HP persists — breaches do NOT auto-heal between nights
   ctx.wall.dmgMul = ctx.tuning.enemyDmg;
   ctx.wall.group.visible = true;
   ctx.world.setFieldClutter(true);
@@ -311,15 +311,21 @@ function beginNight(): void {
     tip(4500, "MOVE & AIM", "A / D move · mouse aim · click fire");
     tip(9500, "HOLD THE WALL", "R reload · SPACE shove · E plug a breach");
     tip(14500, "FIELD TACTICS", "Press T to drop a spike trap in front of the wall");
-    tip(19500, "ORDER ALLIES", "C makes allies focus-fire your mark");
-    tip(24500, "ADRENALINE", "Fill the meter, then hold F to lob a frag");
+    tip(20000, "ADRENALINE", "Fill the meter, then hold F to lob a frag");
   }
+}
+
+/** Restore the wall to its persisted per-segment HP (breaches survive nights). */
+function restoreWall(): void {
+  if (ctx.run.wallSegs.length) ctx.wall.setSegHp(ctx.run.wallSegs);
+  else ctx.wall.setTotal(ctx.run.wallHp);
 }
 
 function onDawn(): void {
   state = "report";
   ctx.input.enabled = false;
   ctx.run.wallHp = ctx.wall.totalHp();
+  ctx.run.wallSegs = ctx.wall.segHp(); // persist exact breach state, no averaging
   ctx.stats.wallHeld = ctx.wall.integrityFrac() * 100;
   // Cinematic dawn: the sun crests and fog burns off over a short beat.
   ctx.world.setDawn(0.92);
@@ -573,7 +579,7 @@ ctx.events.on("COMPANION_DOWN", ({ name }) => {
   if (state === "night") hud.banner(`${name} is DOWN`, "Revive with E or lose them at dawn");
 });
 ctx.events.on("MINIBOSS", ({ name }) => {
-  hud.banner(name, "It'll smash the wall — focus fire");
+  hud.banner(name, "It'll smash the wall — hit it hard");
   ctx.events.emit("SFX", { id: "brute_slam" });
   ctx.cam.addTrauma(0.4);
   requestSlowmo(0.5, 0.5);
@@ -722,11 +728,6 @@ ctx.stage.renderer.setAnimationLoop(() => {
     ctx.deployables.update(dt);
     ctx.companions.update(dt);
     ctx.adrenaline.update(dt);
-    // C — order allies to concentrate fire on the aim mark for a few seconds.
-    if (ctx.input.pressed("KeyC")) {
-      ctx.companions.commandFocus(ctx.input.aimWorld.x, ctx.input.aimWorld.z);
-      hud.banner("FOCUS FIRE", "Allies target your mark");
-    }
     // Hold F to aim the frag (landing ring preview), release to throw.
     if (ctx.adrenaline.canCrash() && ctx.input.down("KeyF")) {
       const tx = clamp(ctx.input.aimWorld.x, -FIELD.wallHalf + 2, FIELD.wallHalf - 2);

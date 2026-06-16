@@ -17,20 +17,40 @@ export interface WeaponDef {
   sidearm?: boolean; // always-available fallback — never runs out of reserve
 }
 
+// A very weak, infinite-ammo holdout used by allies who have no gun assigned.
+export const ALLY_SIDEARM: WeaponDef = {
+  id: "ally_sidearm",
+  name: "Sidearm",
+  fireRate: 0.5,
+  mag: 99,
+  reload: 1,
+  damage: 5,
+  pellets: 1,
+  spread: 0.06,
+  speed: 145,
+  auto: false,
+  shake: 0,
+  pierce: 0,
+  tracer: 2.6,
+  color: 0xffd47a,
+  sfx: "shot_pistol",
+  sidearm: true,
+};
+
 // Tuned against reference HP: shambler 30, runner 14, spitter 22, brute 135.
 export const WEAPONS: Record<string, WeaponDef> = {
   pistol: {
     id: "pistol",
     name: "Sidearm",
-    fireRate: 0.2,
-    mag: 13,
-    reload: 1.1,
-    damage: 16,
+    fireRate: 0.28,
+    mag: 10,
+    reload: 1.2,
+    damage: 8,
     pellets: 1,
-    spread: 0.012,
+    spread: 0.03,
     speed: 150,
     auto: false,
-    shake: 0.06,
+    shake: 0.05,
     pierce: 0,
     tracer: 3.2,
     color: 0xffd47a,

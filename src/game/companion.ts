@@ -3,6 +3,7 @@ import type { Ctx } from "./ctx";
 import { FIELD } from "../config";
 import { makeGlow, makeLabel } from "../render/textures";
 import { TRAITS, type TraitId } from "./traits";
+import { ALLY_SIDEARM } from "./weapons";
 
 const RANGE = 64;
 const ALLY = 0x52e0a0;
@@ -125,7 +126,7 @@ class Companion {
     const label = makeLabel(`${name}  ·  ${tLabel}`, trait ? TRAITS[trait].color : "#9dffd0");
     label.position.y = 3.05;
     this.nameLabel = label;
-    this.meleeLabel = makeLabel("⚠ MELEE — NO AMMO", "#ff7a5a");
+    this.meleeLabel = makeLabel("⚠ SIDEARM — give a gun", "#ff9a5a");
     this.meleeLabel.position.y = 3.05; // same slot as the nameplate — they swap, never overlap
     this.meleeLabel.scale.set(3.2, 0.8, 1);
     this.meleeLabel.visible = false;
@@ -210,17 +211,13 @@ class Companion {
       ctx.floaters.spawn(this.x, 3.4, this.group.position.z, ctx.rng.pick(BARKS), "heal");
     }
 
-    // Nearest live zombie in front — or nearest to the player's mark if commanded
-    const focus = ctx.companions.focusActive();
-    const fp = ctx.companions.focusPoint();
-    const ox = focus ? fp.x : this.x;
-    const oz = focus ? fp.z : this.group.position.z;
+    // Nearest live zombie in front of this ally.
     let target: { x: number; z: number; obj: import("./zombie").Zombie } | null = null;
     let bestD = RANGE * RANGE;
     for (const z of ctx.enemies.alive) {
       if (!z.killable || z.z > this.group.position.z) continue;
-      const dx = z.x - ox;
-      const dz = z.z - oz;
+      const dx = z.x - this.x;
+      const dz = z.z - this.group.position.z;
       const d = dx * dx + dz * dz;
       if (d < bestD) {
         bestD = d;
@@ -260,16 +257,17 @@ class Companion {
       this.muzzle.intensity = 4;
       ctx.events.emit("SFX", { id: lo.def.sfx });
     } else {
-      // No weapon / out of ammo — melee only (close range)
-      this.gun.visible = !!lo;
-      if (Math.sqrt(bestD) < 2.6) {
-        this.cd = 0.85;
-        ctx.combat.damageZombie(target.obj, 14, false, false);
-        ctx.fx.cone(this.x, 1.4, this.group.position.z - 1.2, 0, -1, 8, 0xbfd0e0, 12);
-        ctx.events.emit("SFX", { id: "shove" });
-      } else {
-        this.cd = 0.3;
-      }
+      // No assigned gun (or it's truly empty) — plink with the weak, infinite
+      // sidearm instead of standing around.
+      this.cd = ALLY_SIDEARM.fireRate * 1.5;
+      const dx = target.x - this.x;
+      const dz = target.z - this.group.position.z;
+      const base = Math.atan2(dx, dz);
+      const a = base + (ctx.rng.next() - 0.5) * ALLY_SIDEARM.spread * 2;
+      ctx.bullets.spawn(this.x, this.group.position.z, Math.sin(a), Math.cos(a), ALLY_SIDEARM, ALLY_SIDEARM.damage, false);
+      this.gun.visible = true;
+      this.muzzle.intensity = 2.6;
+      ctx.events.emit("SFX", { id: ALLY_SIDEARM.sfx });
     }
   }
 
@@ -304,24 +302,8 @@ class Companion {
 
 export class CompanionManager {
   list: Companion[] = [];
-  private focusX = 0;
-  private focusZ = 0;
-  private focusT = 0;
 
   constructor(private ctx: Ctx, private scene: THREE.Scene) {}
-
-  /** Order allies to concentrate fire on the mark for a few seconds. */
-  commandFocus(x: number, z: number): void {
-    this.focusX = x;
-    this.focusZ = z;
-    this.focusT = 5;
-  }
-  focusActive(): boolean {
-    return this.focusT > 0;
-  }
-  focusPoint(): { x: number; z: number } {
-    return { x: this.focusX, z: this.focusZ };
-  }
 
   spawnFromRun(): void {
     this.clear();
@@ -363,7 +345,6 @@ export class CompanionManager {
   }
 
   update(dt: number): void {
-    if (this.focusT > 0) this.focusT -= dt;
     for (const c of this.list) c.update(dt, this.ctx);
     for (const z of this.ctx.enemies.alive) {
       if (z.state !== "crossing") continue;

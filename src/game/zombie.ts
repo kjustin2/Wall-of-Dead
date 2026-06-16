@@ -40,8 +40,8 @@ export interface ZType {
 export const TYPES: Record<string, ZType> = {
   shambler: {
     key: "shambler",
-    hp: 30,
-    speed: 3.0,
+    hp: 32,
+    speed: 4.2,
     radius: 0.85,
     claw: 5,
     clawCD: 1.1,
@@ -225,7 +225,7 @@ export const TYPES: Record<string, ZType> = {
   },
   behemoth: {
     key: "behemoth",
-    hp: 1150,
+    hp: 2100,
     speed: 2.0,
     radius: 2.6,
     claw: 26,
@@ -244,7 +244,7 @@ export const TYPES: Record<string, ZType> = {
   },
   tank: {
     key: "tank",
-    hp: 420,
+    hp: 720,
     speed: 2.4,
     radius: 2.0,
     claw: 30,

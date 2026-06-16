@@ -37,7 +37,6 @@ export class Input {
     3: "KeyF", // Y — flashlight / last-stand
     9: "Escape", // Start — pause
     12: "KeyT", // dpad up — trap
-    13: "KeyC", // dpad down — command allies
   };
 
   /** Optional accessibility re-binds: physical code → canonical code (additive). */
@@ -62,6 +61,7 @@ export class Input {
     canvas.addEventListener("pointermove", (e) => {
       this.px = e.clientX;
       this.py = e.clientY;
+      if (e.movementX || e.movementY) this.padActive = false; // mouse takes over
     });
     canvas.addEventListener("pointerdown", (e) => {
       if (e.button !== 0) return;
@@ -69,6 +69,7 @@ export class Input {
       this.py = e.clientY;
       this.mouseDown = true;
       this.mouseJustDown = true;
+      this.padActive = false;
     });
     window.addEventListener("pointerup", (e) => {
       if (e.button === 0) this.mouseDown = false;
@@ -108,7 +109,11 @@ export class Input {
       }
     }
     if (!pad) {
-      this.padActive = false;
+      // No gamepad: release any keys the pad was holding so they don't stick.
+      if (this.padHeld.size) {
+        for (const c of this.padHeld) this.keys.delete(c);
+        this.padHeld.clear();
+      }
       return;
     }
     const dead = (v: number) => (Math.abs(v) < 0.18 ? 0 : v);
@@ -130,16 +135,26 @@ export class Input {
       this.padActive = true;
     }
 
-    // Buttons → mapped key edges; RT (7) + RB-less fire trigger → fire.
+    // Buttons → mapped key edges. CRUCIAL: only release keys the GAMEPAD pressed
+    // (tracked in padHeld) — never blindly delete the mapped code, or a key the
+    // player is holding on the keyboard (F/E/R/Space…) gets clobbered every frame.
     const btns = pad.buttons;
     for (let i = 0; i < btns.length; i++) {
       const pressed = btns[i]?.pressed ?? false;
       const was = this.padPrev[i] ?? false;
       const code = Input.PAD_KEYS[i];
       if (code) {
-        if (pressed) this.keys.add(code);
-        else this.keys.delete(code);
-        if (pressed && !was) this.justPressed.add(code);
+        if (pressed) {
+          this.keys.add(code);
+          this.padHeld.add(code);
+          if (!was) {
+            this.justPressed.add(code);
+            this.padActive = true;
+          }
+        } else if (this.padHeld.has(code)) {
+          this.keys.delete(code);
+          this.padHeld.delete(code);
+        }
       }
       this.padPrev[i] = pressed;
     }
@@ -157,6 +172,7 @@ export class Input {
 
   padFireJust = false;
   private padFirePrev = false;
+  private padHeld = new Set<string>();
   private padPrev4 = false;
   private padPrev5 = false;
 

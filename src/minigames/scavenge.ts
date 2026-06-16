@@ -16,8 +16,6 @@ const AV_R = 0.6;
 const VISION_RANGE = 15;
 const CONE_HALF = 0.52; // radians, half-angle of a guard's sight cone
 const NOISE_SPRINT = 12; // a sprinting avatar is heard within this radius
-const LURE_RANGE = 20; // guards within this of a lure go investigate it
-const LURE_CD = 8;
 const HIDE_R = 2.6; // radius of a hiding alcove
 
 export type Tier = "S" | "A" | "B" | "C" | "D";
@@ -70,12 +68,6 @@ interface Guard {
   invX: number;
   invZ: number;
   dead: boolean;
-}
-interface Lure {
-  x: number;
-  z: number;
-  life: number;
-  glow: THREE.Sprite;
 }
 interface HideZone {
   x: number;
@@ -211,8 +203,6 @@ export class Scavenge {
   extractOpen = false;
 
   private group = new THREE.Group();
-  private lures: Lure[] = [];
-  private lureCd = 0;
   private hideZones: HideZone[] = [];
   private extractZone = { x: 0, z: -5 };
   private extractMarker = new THREE.Group();
@@ -714,13 +704,10 @@ export class Scavenge {
     this.az = -7;
     this.group.visible = true;
     this.groanT = 4;
-    this.lureCd = 0;
     this.extractOpen = false;
     this.extractMarker.visible = false;
     this.lightOn = true;
     this.promptText = "";
-    for (const l of this.lures) this.group.remove(l.glow);
-    this.lures = [];
     this.ctx.world.setDawn(0.08); // dark + moody, but still navigable
     // Thicker fog + a dimmer, tighter flashlight = scarier.
     this.fogPrev = this.ctx.stage.fog.density;
@@ -759,7 +746,6 @@ export class Scavenge {
     if (!this.active || this.done) return;
     this.t += dt;
     this.timeLeft -= dt;
-    if (this.lureCd > 0) this.lureCd -= dt;
     this.promptText = "";
 
     // Flashlight toggle (F) — off = harder to be seen, but you see far less.
@@ -796,10 +782,6 @@ export class Scavenge {
       }
     }
     if (this.hidden) this.promptText = "HIDDEN";
-
-    // Throw a distraction lure (Q) — pulls patrolling guards toward the noise.
-    if (this.ctx.input.pressed("KeyQ") && this.lureCd <= 0) this.throwLure();
-    this.updateLures(dt);
 
     // Sprinting is loud: nearby patrolling guards investigate the sound.
     if (sprint && moving) {
@@ -931,42 +913,6 @@ export class Scavenge {
 
     this.ctx.cam.target.set(this.ax, 0, this.az);
     if (this.timeLeft <= 0) this.finish();
-  }
-
-  /** Throw a clattering lure ahead — patrolling guards go investigate the noise. */
-  private throwLure(): void {
-    this.lureCd = LURE_CD;
-    let lx = clamp(this.ax + Math.sin(this.avatar.rotation.y) * 10, AREA.minX + 2, AREA.maxX - 2);
-    let lz = clamp(this.az + Math.cos(this.avatar.rotation.y) * 10, AREA.minZ + 2, AREA.maxZ - 2);
-    for (const w of WALLS) [lx, lz] = pushOutAABB(lx, lz, 0.6, w);
-    const glow = makeGlow(0x9dd0ff, 2.4, 0.7);
-    glow.position.set(lx, 0.6, lz);
-    this.group.add(glow);
-    this.lures.push({ x: lx, z: lz, life: 4, glow });
-    this.ctx.fx.burst(lx, 0.5, lz, 8, 0x9dd0ff, { speed: 5, up: 3, life: 0.4, size: 5 });
-    this.ctx.events.emit("SFX", { id: "crate" });
-    for (const g of this.guards) {
-      if (g.dead || g.state === "chase") continue;
-      if ((g.x - lx) ** 2 + (g.z - lz) ** 2 < LURE_RANGE * LURE_RANGE) {
-        g.state = "investigate";
-        g.invX = lx;
-        g.invZ = lz;
-        g.alertT = 4;
-      }
-    }
-  }
-
-  private updateLures(dt: number): void {
-    for (let i = this.lures.length - 1; i >= 0; i--) {
-      const l = this.lures[i];
-      l.life -= dt;
-      const p = 0.5 + 0.5 * Math.sin(this.t * 12);
-      (l.glow.material as THREE.SpriteMaterial).opacity = Math.max(0, (l.life / 4) * (0.35 + p * 0.45));
-      if (l.life <= 0) {
-        this.group.remove(l.glow);
-        this.lures.splice(i, 1);
-      }
-    }
   }
 
   /** Caught by a chaser — the run ends immediately. */

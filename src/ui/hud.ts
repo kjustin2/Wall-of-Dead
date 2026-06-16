@@ -27,14 +27,13 @@ export class Hud {
       <div class="hud-top">
         <div class="dawn"><div class="dawn-fill"></div><div class="dawn-moon">🌙</div><span class="dawn-label">NIGHT</span></div>
         <div class="boss-bar"><span class="boss-name">THE BEHEMOTH</span><div class="boss-track"><div class="boss-fill"></div></div></div>
-        <div class="wall-strip"></div>
       </div>
       <div class="hud-bottom">
         <div class="hud-left">
           <div class="stat"><span class="stat-tag">HEALTH</span><div class="bar bar-hp"><div class="bar-ghost"></div><div class="bar-fill"></div></div></div>
-          <div class="stat"><span class="stat-tag">WALL</span><div class="bar bar-wall"><div class="bar-ghost"></div><div class="bar-fill"></div></div></div>
+          <div class="wall-stat"><span class="stat-tag">WALL</span><div class="wall-strip"></div></div>
           <div class="kits">🔧 REPAIR KITS <span class="kits-n">0</span></div>
-          <div class="tactics">🪤 TRAPS <span class="traps-n">0</span> <span class="tac-sep">·</span> <span class="tac-key">T</span></div>
+          <div class="tactics">🪤 TRAPS <span class="traps-n">0</span></div>
         </div>
         <div class="repair"><div class="repair-label">REPAIRING…</div><div class="bar bar-repair"><div class="bar-fill"></div></div></div>
         <div class="prompt"></div>
@@ -55,7 +54,7 @@ export class Hud {
         <div class="day-crates">SUPPLIES 0/0</div>
         <div class="bar bar-day"><div class="bar-fill"></div></div>
         <div class="stamina"><div class="stamina-fill"></div></div>
-        <div class="day-obj">Grab supplies · rescue survivors · reach the exit · SHIFT sprint (loud!) · Q lure · F light · don't get caught</div>
+        <div class="day-obj">Grab supplies · rescue survivors · reach the exit · SHIFT sprint (loud!) · F flashlight · don't get caught</div>
         <div class="day-status"></div>
       </div>
       <div class="day-prompt"></div>
@@ -78,8 +77,6 @@ export class Hud {
       wallStrip: q(".wall-strip"),
       hpFill: q(".bar-hp .bar-fill"),
       hpGhost: q(".bar-hp .bar-ghost"),
-      wallFill: q(".bar-wall .bar-fill"),
-      wallGhost: q(".bar-wall .bar-ghost"),
       kitsN: q(".kits-n"),
       trapsN: q(".traps-n"),
       repair: q(".repair"),
@@ -157,7 +154,6 @@ export class Hud {
   private cx = window.innerWidth / 2;
   private cy = window.innerHeight / 2;
   private hpGhostV = 1;
-  private wallGhostV = 1;
   private lastKills = -1;
 
   /** Brief additive full-screen flash, color-coded by the event. Honors the
@@ -225,7 +221,6 @@ export class Hud {
     if (night) {
       // Fresh night: reset the reactive HUD trails.
       this.hpGhostV = 1;
-      this.wallGhostV = 1;
       this.lastKills = -1;
     }
   }
@@ -260,6 +255,8 @@ export class Hud {
     }
 
     if (this.mode === "night") {
+      // On gamepad, the ground reticle is the aim — hide the DOM cursor crosshair.
+      this.el.crosshair.style.display = this.ctx.input.padActive ? "none" : "";
       this.el.crosshair.style.left = `${this.cx}px`;
       this.el.crosshair.style.top = `${this.cy}px`;
       this.updateNight(dt);
@@ -271,12 +268,9 @@ export class Hud {
     const hpFrac = Math.max(0, c.player.hp / c.player.maxHp);
     const wallFrac = c.wall.integrityFrac();
     this.el.hpFill.style.width = `${hpFrac * 100}%`;
-    this.el.wallFill.style.width = `${wallFrac * 100}%`;
     // Ghost trail: a red chip that lags the real value down after damage.
     this.hpGhostV = this.hpGhostV > hpFrac ? Math.max(hpFrac, this.hpGhostV - dt * 0.7) : hpFrac;
-    this.wallGhostV = this.wallGhostV > wallFrac ? Math.max(wallFrac, this.wallGhostV - dt * 0.7) : wallFrac;
     this.el.hpGhost.style.width = `${this.hpGhostV * 100}%`;
-    this.el.wallGhost.style.width = `${this.wallGhostV * 100}%`;
     // Danger edge-glow when HP or wall is critical.
     const danger = hpFrac < 0.3 || wallFrac < 0.3;
     this.el.dangerVig.classList.toggle("danger-vig--on", danger);

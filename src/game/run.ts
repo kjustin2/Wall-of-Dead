@@ -20,6 +20,9 @@ export class RunManager {
   leg = 0;
   legsTotal = 3;
   wallHp: number = RUN.wallMaxHp;
+  /** Per-segment wall HP, persisted across nights so breaches don't auto-heal.
+   * Empty = "full" (start of run, before the first night damages anything). */
+  wallSegs: number[] = [];
   repairKits = 0;
   traps = 0;
   name = "Defender";
@@ -40,6 +43,7 @@ export class RunManager {
     this.night = 1;
     this.leg = 0;
     this.wallHp = RUN.wallMaxHp;
+    this.wallSegs = []; // full wall to begin
     this.repairKits = 1;
     this.traps = 3;
     const am = this.ctx.tuning.ammo;
@@ -138,6 +142,7 @@ export class RunManager {
       night: this.night,
       leg: this.leg,
       wallHp: this.wallHp,
+      wallSegs: this.wallSegs.slice(),
       repairKits: this.repairKits,
       traps: this.traps,
       weapons: this.weapons.map((w) => ({ id: w.def.id, ammo: w.ammo, reserve: w.reserve })),
@@ -156,6 +161,7 @@ export class RunManager {
     this.night = d.night;
     this.leg = d.leg;
     this.wallHp = d.wallHp;
+    this.wallSegs = (d.wallSegs ?? []).slice();
     this.repairKits = d.repairKits;
     this.traps = d.traps;
     this.weapons = d.weapons.map((w) => {
@@ -177,6 +183,7 @@ export interface RunSave {
   night: number;
   leg: number;
   wallHp: number;
+  wallSegs?: number[];
   repairKits: number;
   traps: number;
   weapons: { id: string; ammo: number; reserve: number }[];
