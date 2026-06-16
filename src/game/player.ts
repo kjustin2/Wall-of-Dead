@@ -10,7 +10,7 @@ const MOVE_SPEED = 9.5;
 const GUN_REACH = 1.3;
 const FLY_Y = FIELD.fireY;
 const SHOVE_TIME = 0.28; // melee swing duration
-const REPAIR_TIME = 10; // seconds to fix a breached segment (per kit)
+const REPAIR_TIME = 5; // seconds to fix a damaged/breached segment (per kit)
 const RELOAD_WIN_A = 0.5; // active-reload sweet spot (fraction of reload progress)
 const RELOAD_WIN_B = 0.72;
 
@@ -371,8 +371,8 @@ export class Player {
       this.reloadTimer -= dt;
       if (this.reloadTimer <= 0) this.finishReload();
     }
-    // Hold E (context): revive a downed ally nearby, else fix a breach with a kit.
-    this.atBreach = this.alive && this.ctx.wall.isBrokenAt(this.x);
+    // Hold E (context): revive a downed ally nearby, else patch the wall with a kit.
+    this.atBreach = this.alive && this.ctx.wall.needsRepairAt(this.x);
     this.repairing = false;
     this.repairFrac = this.repairT / REPAIR_TIME;
     if (this.alive && input.down("KeyE") && this.ctx.companions.reviveTick(this.x, dt)) {
@@ -381,7 +381,7 @@ export class Player {
     } else if (
       this.alive &&
       input.down("KeyE") &&
-      this.ctx.wall.isBrokenAt(this.x) &&
+      this.ctx.wall.needsRepairAt(this.x) &&
       this.ctx.run.repairKits > 0
     ) {
       this.repairing = true;

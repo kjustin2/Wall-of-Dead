@@ -212,6 +212,21 @@ app.whenReady().then(async () => {
           if (pooled <= 0) errors.push("PERF: zombie pool not reused after clear");
         }
         if (leg === 0) await shot(win, "05-day-report.png");
+        if (leg === 0) {
+          // Loadout (ally weapon assignment): it opens, the sidearm row is locked,
+          // and assigning a real weapon to an ally sticks (doesn't reset others).
+          await win.webContents.executeJavaScript(`(()=>{const b=document.querySelector('.act-loadout'); if(b) b.click();})()`);
+          await sleep(450);
+          const lockedSidearm = await win.webContents.executeJavaScript(
+            `!!document.querySelector('.lo-row--locked')`
+          );
+          if (!lockedSidearm) errors.push("LOADOUT: sidearm row is not locked / assignable");
+          await win.webContents.executeJavaScript(`(()=>{const r=document.querySelector('.lo-row:not(.lo-row--locked)'); if(r) r.click();})()`);
+          await sleep(300);
+          await shot(win, "05b-loadout.png");
+          await win.webContents.executeJavaScript(`(()=>{const b=document.querySelector('.act-back'); if(b) b.click();})()`);
+          await sleep(400);
+        }
         const started = await win.webContents.executeJavaScript(
           `(()=>{const b=document.querySelector('.act-start'); if(b){b.click(); return true;} return false;})()`
         );

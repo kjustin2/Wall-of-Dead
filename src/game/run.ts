@@ -111,6 +111,9 @@ export class RunManager {
    * the player to the first slot they can still use. */
   assignWeapon(i: number, owner: string | null): void {
     if (i < 0 || i >= this.weapons.length) return;
+    // The player's sidearm is a personal holdout — it can't be handed to an ally
+    // (allies have their own infinite fallback already).
+    if (owner && this.weapons[i].def.sidearm) return;
     // An ally can only hold one weapon — release their previous one.
     if (owner) {
       const prev = this.allyWeaponIndex(owner);
@@ -120,6 +123,13 @@ export class RunManager {
     if (owner && this.weaponIndex === i) {
       const next = this.weaponOwner.findIndex((o) => o == null);
       this.weaponIndex = next >= 0 ? next : 0;
+    }
+  }
+
+  /** Sidearms are player-only; reclaim any an old save handed to an ally. */
+  normalizeSidearms(): void {
+    for (let i = 0; i < this.weapons.length; i++) {
+      if (this.weapons[i].def.sidearm) this.weaponOwner[i] = null;
     }
   }
 
@@ -170,6 +180,7 @@ export class RunManager {
       return lo;
     });
     this.weaponOwner = d.weaponOwner.slice();
+    this.normalizeSidearms();
     this.weaponIndex = d.weaponIndex;
     this.companions = d.companions.slice();
     this.companionTraits = { ...d.companionTraits };

@@ -285,11 +285,11 @@ export class Hud {
       this.el.repair.style.display = "none";
     }
 
-    // Contextual repair prompt at a breach
+    // Contextual repair prompt at a damaged/breached segment
     if (c.player.atBreach && !c.player.repairing) {
       this.el.prompt.style.display = "";
       const hasKit = c.run.repairKits > 0;
-      this.el.prompt.textContent = hasKit ? "HOLD  E  TO REPAIR  (10s)" : "NEED A REPAIR KIT";
+      this.el.prompt.textContent = hasKit ? "HOLD  E  TO REPAIR WALL" : "NEED A REPAIR KIT";
       this.el.prompt.style.color = hasKit ? "#ffce7a" : "#ff5a3c";
     } else {
       this.el.prompt.style.display = "none";

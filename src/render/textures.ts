@@ -34,7 +34,15 @@ export function makeLabel(text: string, color = "#7dffb0"): THREE.Sprite {
   c.height = h;
   const ctx = c.getContext("2d");
   if (ctx) {
-    ctx.font = "700 34px Oswald, sans-serif";
+    // Auto-shrink the font so long labels (e.g. "⚠ SIDEARM — give a gun") fit the
+    // fixed-width canvas instead of clipping at the edges.
+    const maxW = w - 16; // a little horizontal padding
+    let size = 34;
+    ctx.font = `700 ${size}px Oswald, sans-serif`;
+    while (size > 12 && ctx.measureText(text).width > maxW) {
+      size -= 2;
+      ctx.font = `700 ${size}px Oswald, sans-serif`;
+    }
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     ctx.lineWidth = 6;

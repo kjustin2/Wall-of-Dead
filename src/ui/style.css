@@ -764,6 +764,9 @@ body.reduced .report li { animation: none; opacity: 1; transform: none; }
   transition: border-color 0.15s;
 }
 .lo-row:hover { border-color: rgba(255, 90, 60, 0.5); }
+/* The player's sidearm: locked to you, not a clickable assignment. */
+.lo-row--locked { cursor: default; opacity: 0.66; }
+.lo-row--locked:hover { border-color: var(--edge); }
 .lo-name { font-family: var(--display); font-weight: 600; color: #fff; }
 .lo-arrow { color: var(--dim); text-align: center; }
 .lo-owner { color: var(--good); }

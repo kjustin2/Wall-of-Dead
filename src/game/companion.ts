@@ -126,7 +126,7 @@ class Companion {
     const label = makeLabel(`${name}  ·  ${tLabel}`, trait ? TRAITS[trait].color : "#9dffd0");
     label.position.y = 3.05;
     this.nameLabel = label;
-    this.meleeLabel = makeLabel("⚠ SIDEARM — give a gun", "#ff9a5a");
+    this.meleeLabel = makeLabel("⚠ NEEDS A GUN", "#ff9a5a");
     this.meleeLabel.position.y = 3.05; // same slot as the nameplate — they swap, never overlap
     this.meleeLabel.scale.set(3.2, 0.8, 1);
     this.meleeLabel.visible = false;

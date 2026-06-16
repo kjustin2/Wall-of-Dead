@@ -453,18 +453,22 @@ export class Menus {
       /* ignore */
     }
     const nudge = firstTime
-      ? `<div class="lo-nudge">💡 SHARED ARMORY — a weapon you give an ally is theirs: they use its ammo and you can't carry it (and vice-versa). When a gun runs dry, you fall back to a melee bash (SPACE). Hand your spare to a survivor to cover a second lane.</div>`
+      ? `<div class="lo-nudge">💡 SHARED ARMORY — a weapon you give an ally is theirs: they use its ammo and you can't carry it (and vice-versa). An unarmed ally falls back to a weak infinite sidearm, so hand your spare to a survivor to cover a second lane. Your own 🔒 sidearm stays with you.</div>`
       : "";
     const rows = run.weapons
       .map((w, i) => {
-        const cur = run.weaponOwner[i] ?? "You";
-        return `<div class="lo-row" data-i="${i}"><span class="lo-name">${w.def.name}</span><span class="lo-arrow">▸</span><span class="lo-owner">${cur}</span><span class="lo-ammo">${w.ammo} / ${w.reserve}</span></div>`;
+        const locked = !!w.def.sidearm; // the player's holdout — never handed off
+        const cur = locked ? "You · holdout" : run.weaponOwner[i] ?? "You";
+        const cls = locked ? "lo-row lo-row--locked" : "lo-row";
+        const arrow = locked ? "🔒" : "▸";
+        const ammo = w.def.sidearm ? "∞" : `${w.ammo} / ${w.reserve}`;
+        return `<div class="${cls}" data-i="${i}"><span class="lo-name">${w.def.name}</span><span class="lo-arrow">${arrow}</span><span class="lo-owner">${cur}</span><span class="lo-ammo">${ammo}</span></div>`;
       })
       .join("");
     this.paint(`
       <div class="screen screen--loadout">
         <h2 class="panel-title">LOADOUT</h2>
-        <p class="subtitle">Click a weapon to hand it to an ally (or take it back). An ally holding a weapon uses its ammo and falls back to melee when empty — you can't use it while they hold it.</p>
+        <p class="subtitle">Click a weapon to hand it to an ally (or take it back). An ally holding a weapon uses its ammo and falls back to a weak sidearm when empty — you can't use it while they hold it.</p>
         ${nudge}
         <div class="loadout">${rows || '<div class="lo-row">No weapons</div>'}</div>
         <div class="menu"><button class="mbtn mbtn--primary act-back">DONE</button></div>
@@ -472,11 +476,22 @@ export class Menus {
     this.root.querySelectorAll(".lo-row").forEach((el) => {
       const attr = el.getAttribute("data-i");
       if (attr == null) return;
+      const i = parseInt(attr, 10);
+      const w = run.weapons[i];
+      if (!w || w.def.sidearm) return; // sidearm stays with the player — not clickable
       el.addEventListener("click", () => {
-        const i = parseInt(attr, 10);
-        const order: (string | null)[] = [null, ...run.companions];
+        // Cycle the owner through the player + allies who are FREE (or already hold
+        // this exact weapon). Skipping allies who hold another gun means passing a
+        // weapon to the next owner never steals someone else's — fixes assignments
+        // "resetting" as you cycle past a busy ally.
+        const free = run.companions.filter((n) => {
+          const held = run.allyWeaponIndex(n);
+          return held < 0 || held === i;
+        });
+        const order: (string | null)[] = [null, ...free];
         const cur = run.weaponOwner[i] ?? null;
-        const next = order[(order.indexOf(cur) + 1) % order.length];
+        const at = order.indexOf(cur);
+        const next = order[((at < 0 ? 0 : at) + 1) % order.length];
         run.assignWeapon(i, next);
         this.ctx.events.emit("SFX", { id: "ui_click" });
         this.showLoadout(onBack);

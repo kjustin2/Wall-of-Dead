@@ -129,6 +129,12 @@ export class Wall {
     return this.hp[this.segAt(x)] <= 0;
   }
 
+  /** A repair kit is usable on the segment under x once it's meaningfully hurt
+   * (at or below half), not only after it fully breaches. */
+  needsRepairAt(x: number): boolean {
+    return this.hp[this.segAt(x)] <= MAX_PER * 0.5;
+  }
+
   anyBreached(): boolean {
     for (let i = 0; i < SEG; i++) if (this.hp[i] <= 0) return true;
     return false;
