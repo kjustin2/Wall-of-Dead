@@ -3,6 +3,8 @@ import type { Quality } from "../render/stage";
 import type { Stats } from "../game/ctx";
 import { DIFFICULTY, type DifficultyId } from "../config";
 import { BINDABLE, GAMEPAD_REF } from "../core/input";
+import type { Density } from "../minigames/scavenge";
+import type { SupplyTheme } from "../game/acts";
 
 export interface Settings {
   volume: number;
@@ -73,6 +75,33 @@ function saveSettings(s: Settings): void {
     /* ignore */
   }
 }
+
+const SUPPLY_CHOICE: Record<SupplyTheme, { intro: string; opts: { d: Density; label: string; detail: string }[] }> = {
+  outer: {
+    intro: "Wrecks, service roads, and refinery lots still have usable supplies. Pick how deep into the road clutter you push.",
+    opts: [
+      { d: "high", label: "Crowded wrecks", detail: "Best haul. Tight lanes, more crates, more dead." },
+      { d: "med", label: "Picked-over blocks", detail: "A steady haul through broken street cover." },
+      { d: "low", label: "Quiet shoulder", detail: "Lean pickings on open road margins." },
+    ],
+  },
+  flood: {
+    intro: "The flooded blocks hide caches under black water and broken pumps. Pick how much risk you take in the low ground.",
+    opts: [
+      { d: "high", label: "Sunken district", detail: "Best haul. Water, cover, and patrols everywhere." },
+      { d: "med", label: "Pump-yard blocks", detail: "A measured route through wet machinery." },
+      { d: "low", label: "High-ground edge", detail: "Fewer supplies, clearer exits, less water." },
+    ],
+  },
+  haven: {
+    intro: "Haven's outer checkpoint is stocked, lit, and watched. Pick which part of the perimeter you raid.",
+    opts: [
+      { d: "high", label: "Screening queue", detail: "Best haul. Floodlights and bodies packed close." },
+      { d: "med", label: "Service alleys", detail: "A controlled route past checkpoints and storage." },
+      { d: "low", label: "Perimeter road", detail: "Sparse supplies outside the main security line." },
+    ],
+  },
+};
 
 /** All full-screen DOM overlays. Each show* method paints #overlay and wires
  * its buttons to the callbacks main.ts passes in. */
@@ -223,7 +252,7 @@ export class Menus {
     this.paint(`
       <div class="screen screen--help">
         <h2 class="panel-title">HOW TO PLAY</h2>
-        <p class="subtitle">Hold the wall each night until dawn. By day, sneak the dark for supplies. Survive three nights of road to reach the safe zone. Hand spare weapons to allies on the LOADOUT screen — a weapon they carry, you can't (and vice-versa). Fix breaches at night with repair kits found by day.</p>
+        <p class="subtitle">Hold the wall each night until dawn. By day, pick a district and sneak the dark for supplies. Survive three acts of road to reach Haven - the safe zone - and decide what it's worth. You can carry up to five weapons; hand spares to allies on the LOADOUT screen (a weapon they carry, you can't, and vice-versa). Fix breaches at night with repair kits found by day.</p>
         <div class="help-cols">
           <div class="help-col">
             <h3>NIGHT — DEFEND</h3>
@@ -511,19 +540,19 @@ export class Menus {
   }
 
   /** The convoy advancing along the road toward the safe zone, plus a story beat
-   * for the night ahead. Shown between nights. */
-  showRoadMap(leg: number, total: number, title: string, story: string, onContinue: () => void): void {
+   * for the night ahead and (optionally) a random between-nights event. */
+  showRoadMap(leg: number, total: number, title: string, story: string, onContinue: () => void, eventLine?: string, labels?: string[], theme: SupplyTheme = "outer"): void {
     let nodes = "";
     for (let i = 0; i <= total; i++) {
       const pct = (i / total) * 100;
       const done = i <= leg;
       const safe = i === total;
-      const label = safe ? "SAFE ZONE" : i === 0 ? "START" : `LEG ${i}`;
+      const label = safe ? "SAFE ZONE" : labels?.[i] ?? (i === 0 ? "START" : `LEG ${i}`);
       nodes += `<div class="road-node ${done ? "road-node--done" : ""} ${safe ? "road-node--safe" : ""}" style="left:${pct}%"><span class="road-dot"></span><span class="road-label">${label}</span></div>`;
     }
     const convoyPct = (leg / total) * 100;
     this.paint(`
-      <div class="screen screen--road">
+      <div class="screen screen--road screen--act-${theme}">
         <h2 class="panel-title">THE ROAD TO THE SAFE ZONE</h2>
         <div class="roadmap">
           <div class="road-line"></div>
@@ -532,10 +561,37 @@ export class Menus {
           <div class="convoy" style="left:${convoyPct}%">▣</div>
         </div>
         <h3 class="road-night">${title}</h3>
+        ${eventLine ? `<p class="road-event">${eventLine}</p>` : ""}
         <p class="subtitle road-story">${story}</p>
         <div class="menu"><button class="mbtn mbtn--primary act-cont">PRESS ON ▶</button></div>
       </div>`);
     this.btn(".act-cont", onContinue);
+  }
+
+  /** Before a supply run: choose how populated a district to scavenge — richer
+   * loot means more of the dead between you and it. */
+  showSupplyChoice(onPick: (d: Density) => void, actName = "THE ROAD", theme: SupplyTheme = "outer"): void {
+    let opts: { d: Density; label: string; detail: string }[] = [
+      { d: "high", label: "Crowded district", detail: "Best haul — more crates & ammo caches. Crawling with the dead." },
+      { d: "med", label: "Picked-over blocks", detail: "A steady haul for steady risk." },
+      { d: "low", label: "Quiet outskirts", detail: "Lean pickings — but far fewer of them about." },
+    ];
+    const themed = SUPPLY_CHOICE[theme];
+    opts = themed.opts;
+    this.paint(`
+      <div class="screen screen--report screen--supply screen--act-${theme}">
+        <h2 class="panel-title">WHERE TO SCAVENGE?</h2>
+        <p class="subtitle">${actName}: ${themed.intro}</p>
+        <div class="menu">
+          ${opts
+            .map(
+              (o, i) =>
+                `<button class="mbtn ${i === 1 ? "mbtn--primary" : ""} act-supply act-supply-${i}"><b>${o.label}</b><br><span class="choice-detail">${o.detail}</span></button>`
+            )
+            .join("")}
+        </div>
+      </div>`);
+    opts.forEach((o, i) => this.btn(`.act-supply-${i}`, () => onPick(o.d)));
   }
 
   /** A dawn dilemma: one choice with a consequence. Each option runs its effect

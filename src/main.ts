@@ -12,7 +12,7 @@ import { Particles } from "./render/particles";
 import { Telegraphs } from "./render/telegraphs";
 import { Floaters } from "./render/floaters";
 import { Decals } from "./render/decals";
-import { World, zoneName } from "./render/world";
+import { World } from "./render/world";
 import { Input } from "./core/input";
 import { EventBus } from "./core/events";
 import { Rng } from "./core/rng";
@@ -28,9 +28,12 @@ import { GrenadeManager } from "./game/grenade";
 import { Deployables } from "./game/deployables";
 import { Player } from "./game/player";
 import { RunManager } from "./game/run";
+import { WEAPONS } from "./game/weapons";
 import { TRAITS } from "./game/traits";
 import { WaveDirector } from "./game/waveDirector";
-import { Scavenge } from "./minigames/scavenge";
+import { actLevelLabel, bossTypeKeys, campaignNodeLabels, levelInfo, nextLevelInfo, TOTAL_LEVELS } from "./game/acts";
+import { TYPES } from "./game/zombie";
+import { Scavenge, type Density } from "./minigames/scavenge";
 import { Hud } from "./ui/hud";
 import { Menus } from "./ui/menus";
 import { freshStats, type Ctx } from "./game/ctx";
@@ -41,34 +44,23 @@ type GameState = "menu" | "cutscene" | "night" | "day" | "report" | "loot" | "pa
 
 const STORY = [
   "The dead rose at dusk, and the highway choked on the living.",
-  "What's left of the convoy threw up a barricade on the last road to the safe zone.",
+  "What's left of the convoy threw up a barricade on the long road to HAVEN — the last safe zone.",
   "You and Mara hold the line — fire over the wall, keep them in the dark.",
-  "Survive the night. Scavenge by dawn. Don't let them over.",
+  "Three acts of road. Survive each holdout, scavenge by dawn, and keep moving.",
 ];
 
-const NIGHT_FLAVOR = [
-  "Hold until dawn.",
-  "They came back angrier. Hold the line.",
-  "Last stretch of road. Whatever it takes — hold.",
+// The finale reveal: Haven is safe, but the wall faces both ways. The dawn after
+// the final hold, you choose what that "freedom" is worth.
+const ENDING_STAY = [
+  "Haven takes you in. A bunk, hot food, a wall that holds.",
+  "They also hand you a roster: who gets turned away at the gate tomorrow, and who doesn't.",
+  "You traded one wall for another. Inside it, you are safe — and you are theirs.",
 ];
-
-// Inter-night radio chatter shown on the dawn report after surviving night N.
-const STORY_BEATS: Record<number, string> = {
-  1: "Convoy: 'You held. Two legs of road left to the safe zone. Move at dusk.'",
-  2: "Convoy: 'Something big is dragging itself toward you. Last night — make it count.'",
-};
-
-// A radio bark as each later night begins (drip-feeds the convoy's plight).
-const NIGHT_RADIO: Record<number, string> = {
-  2: "Convoy: 'Fuel's low, road's long — buy us one more dawn.'",
-  3: "Convoy: 'This is the gate. Hold it and we all walk out.'",
-};
-
-// Story shown on the road-map interstitial before the named night.
-const ROAD_STORY: Record<number, string> = {
-  2: "One leg of broken road is behind you. The convoy crawls on through the wrecks toward the next holdout. The dead are thicker here — and something heavier moves with them tonight.",
-  3: "The safe zone's floodlights smear the horizon now — one last stretch of road. Whatever has been dragging itself after the convoy has caught up. Hold this gate till dawn and you all walk out.",
-};
+const ENDING_LEAVE = [
+  "You look at the crowd outside the gate, and you walk back out to them.",
+  "Mara and the others follow without a word. Haven's floodlights shrink behind you.",
+  "No walls now. No promises. Just the road, the dark, and people worth holding it for.",
+];
 
 const canvas = document.getElementById("game") as HTMLCanvasElement;
 
@@ -118,6 +110,24 @@ let heartbeatTimer = 0;
 let streak = 0;
 let streakTimer = 0;
 let fHeld = false;
+/** Which Act-5 ending the player chose at Haven's gate (set in onVictory). */
+let endingPick: string[] = ENDING_STAY;
+/** A weapon found at full armory, awaiting the dusk swap decision. */
+let pendingWeapon: string | null = null;
+
+// What turns up in the wreckage after each leg (preferred → fallback to any
+// unowned). The 5-weapon cap turns the later finds into swap decisions.
+const WEAPON_FINDS: Record<number, string[]> = {
+  1: ["rifle", "ar"],
+  2: ["ar", "lmg"],
+  3: ["dmr", "autoshotgun"],
+  4: ["lmg", "rifle"],
+  5: ["autoshotgun", "dmr"],
+  6: ["minigun", "magnum"],
+  7: ["magnum", "ar"],
+  8: ["minigun", "autoshotgun", "dmr"],
+};
+const ALL_FINDABLE = ["rifle", "ar", "lmg", "dmr", "autoshotgun", "minigun", "magnum"];
 
 // Audio unlock on first gesture
 const unlock = () => {
@@ -262,6 +272,7 @@ function toCutscene(): void {
 
 function beginNight(): void {
   menus.clear();
+  const level = levelInfo(ctx.run.night);
   // Checkpoint: the run is saved at the start of every night.
   saveRun();
   scavenge.hide();
@@ -271,10 +282,11 @@ function beginNight(): void {
   ctx.wall.group.visible = true;
   ctx.world.setFieldClutter(true);
   // Re-theme the environment for this leg of the road (also picks the weather).
-  ctx.world.setZone(ctx.run.night);
+  ctx.world.setZone(level.zone);
   ctx.player.reset();
   ctx.player.group.visible = true;
   ctx.companions.spawnFromRun();
+  ctx.companions.setMarkersVisible(false);
   ctx.enemies.clear();
   ctx.bullets.clear();
   ctx.grenades.clear();
@@ -298,13 +310,15 @@ function beginNight(): void {
   streakTimer = 0;
   ctx.music.play("night");
   ctx.events.emit("NIGHT_START", { night: ctx.run.night });
-  hud.banner(`NIGHT ${ctx.run.night} / ${ctx.run.legsTotal} — ${zoneName(ctx.run.night)}`, NIGHT_FLAVOR[(ctx.run.night - 1) % NIGHT_FLAVOR.length]);
+  hud.banner(
+    `${actLevelLabel(ctx.run.night)} - ${level.title}`,
+    `${level.actName} - ${level.flavor}`
+  );
 
   // A radio beat as later nights open.
-  const radio = NIGHT_RADIO[ctx.run.night];
-  if (radio) {
+  if (level.radio) {
     window.setTimeout(() => {
-      if (state === "night") hud.banner("📻 RADIO", radio);
+      if (state === "night") hud.banner("RADIO", level.radio ?? "");
     }, 3200);
   }
 
@@ -350,7 +364,7 @@ function onDawn(): void {
     return tr ? `${n} ${TRAITS[tr].lostLine}` : `${n} is gone.`;
   });
   for (const name of lost) ctx.run.loseCompanion(name);
-  const beat = STORY_BEATS[ctx.run.night] ?? "";
+  const beat = levelInfo(ctx.run.night).beat;
   const lines = [
     `Kills tonight — ${ctx.stats.kills}`,
     `Wall integrity — ${Math.round(ctx.wall.integrityFrac() * 100)}%`,
@@ -364,7 +378,13 @@ function onDawn(): void {
   }, 1300);
 }
 
+/** Picking where to scavenge (population vs. loot) comes before the run itself. */
 function startDay(): void {
+  const level = levelInfo(ctx.run.night);
+  menus.showSupplyChoice(beginSupplyRun, level.actName, level.supplyTheme);
+}
+
+function beginSupplyRun(density: Density): void {
   menus.clear();
   ctx.enemies.clear();
   ctx.bullets.clear();
@@ -385,9 +405,11 @@ function startDay(): void {
   ctx.wall.group.visible = false;
   ctx.companions.setVisible(false);
   ctx.world.setFieldClutter(false);
-  scavenge.start();
+  // The environment + layout are themed to the district you chose (crowded /
+  // picked-over / outskirts), so the map matches its description.
+  scavenge.start({ density });
   state = "day";
-  hud.banner("SUPPLY RUN", "Sneak the dark · stay out of their sight");
+  hud.banner(scavenge.envName, "Supply run - sneak the dark - stay out of their sight");
 }
 
 function onDayDone(tier: string, frac: number): void {
@@ -398,18 +420,32 @@ function onDayDone(tier: string, frac: number): void {
 
   // Ammo + repair kits were gathered live in the run; top mags and find a weapon.
   ctx.run.refillMags();
-  const finds = ["rifle", "lmg"];
-  const found = finds.find((id) => !ctx.run.weapons.some((w) => w.def.id === id)) ?? null;
-  if (found) ctx.run.grantWeapon(found);
-  else ctx.run.addAmmo(60);
   ctx.run.traps += 2;
 
   ctx.run.leg += 1;
 
+  // A weapon turns up in the wreckage. Under the cap it's yours immediately;
+  // at the cap it waits for a swap decision at dusk (see offerDilemma).
+  const owned = (id: string) => ctx.run.weapons.some((w) => w.def.id === id);
+  const pool = WEAPON_FINDS[ctx.run.leg] ?? [];
+  let found = pool.find((id) => !owned(id)) ?? null;
+  if (!found && !ctx.run.reachedSafeZone) found = ALL_FINDABLE.find((id) => !owned(id)) ?? null;
+  let foundLine: string;
+  if (found && ctx.run.atWeaponCap()) {
+    pendingWeapon = found;
+    foundLine = `Found a ${WEAPONS[found].name.toUpperCase()} — no room in the armory. Choose at dusk.`;
+  } else if (found) {
+    ctx.run.grantWeapon(found);
+    foundLine = `Found a ${WEAPONS[found].name.toUpperCase()} in the wreckage!`;
+  } else {
+    ctx.run.addAmmo(60);
+    foundLine = "Restocked extra ammo.";
+  }
+
   const lines = [
     `Run rating — ${tier}  (${Math.round(frac * 100)}% ammo crates)`,
     `Repair kits — ${ctx.run.repairKits}`,
-    found ? `Found a ${found.toUpperCase()} in the wreckage!` : "Restocked extra ammo.",
+    foundLine,
   ];
 
   lootContinue = () => {
@@ -421,25 +457,97 @@ function onDayDone(tier: string, frac: number): void {
     // A dawn dilemma before pressing on — one choice, one consequence.
     offerDilemma(() => {
       ctx.run.night += 1;
+      // The march between nights isn't safe — roll a random event (an ally may be
+      // lost, or a quiet scavenge may pay off) and surface it on the road map.
+      const ev = interNightEvent();
+      const next = nextLevelInfo(ctx.run.night);
       // Show the convoy advancing toward the safe zone + a story beat, then night.
       menus.showRoadMap(
         ctx.run.leg,
         ctx.run.legsTotal,
-        `NIGHT ${ctx.run.night} / ${ctx.run.legsTotal} — ${zoneName(ctx.run.night)}`,
-        ROAD_STORY[ctx.run.night] ?? "The convoy rolls on toward the safe zone.",
-        beginNight
+        `${actLevelLabel(ctx.run.night)} - ${next.title}`,
+        next.story,
+        beginNight,
+        ev ?? undefined,
+        campaignNodeLabels(),
+        next.supplyTheme
       );
     });
   };
   menus.showDayLoot(lines, lootContinue);
 }
 
+/**
+ * A random event during the march to the next holdout. Allies can be lost to
+ * infection, the road, or just losing heart — or a quiet scavenge can pay off.
+ * Returns a narrative line for the road map (or null when nothing happened).
+ */
+function interNightEvent(): string | null {
+  const r = ctx.run;
+  if (r.companions.length === 0) {
+    if (ctx.rng.chance(0.3)) {
+      r.addAmmo(40);
+      return "On the road alone, you scrounge a few magazines from a wreck. (+40 ammo)";
+    }
+    return null;
+  }
+  // Bad-luck chance climbs as the road gets worse; eased when you've only one ally
+  // left so a run isn't stripped bare by chance alone.
+  const badChance = Math.min(0.55, 0.22 + r.night * 0.05) * (r.companions.length === 1 ? 0.6 : 1);
+  if (ctx.rng.chance(badChance)) {
+    const name = ctx.rng.pick(r.companions);
+    const trait = r.companionTraits[name];
+    const tail = trait ? ` ${name} ${TRAITS[trait].lostLine}` : ` ${name} is gone.`;
+    const kind = ctx.rng.pick(["infection", "accident", "vanished"]);
+    r.loseCompanion(name);
+    if (kind === "infection")
+      return `Between nights, ${name} took a bite no one saw. They turned before dawn and had to be put down.${tail}`;
+    if (kind === "accident")
+      return `Between nights, the road took ${name} — a wreck shifted, a wall came down.${tail}`;
+    return `Between nights, ${name} slipped away in the dark, unable to face another wall.${tail}`;
+  }
+  if (ctx.rng.chance(0.35)) {
+    if (ctx.rng.chance(0.5)) {
+      r.repairKits += 1;
+      return "Between nights, your crew cracks a maintenance cache off the road. (+1 repair kit)";
+    }
+    r.addAmmo(50);
+    return "Between nights, a quiet scavenge pays off. (+50 ammo across the armory)";
+  }
+  return null;
+}
+
 /** A light, memorable dawn choice — touches only run resources. */
 function offerDilemma(after: () => void): void {
+  // A full armory takes priority: a found weapon you have no room for forces a
+  // swap (drop one of your five) or you leave it for the ammo.
+  if (pendingWeapon) {
+    const newId = pendingWeapon;
+    pendingWeapon = null;
+    const newName = WEAPONS[newId].name.toUpperCase();
+    const opts = ctx.run.droppableIndices().map((i) => ({
+      label: `Drop ${ctx.run.weapons[i].def.name}`,
+      detail: `Swap it for the ${newName}.`,
+      onPick: () => {
+        ctx.run.dropWeapon(i);
+        ctx.run.grantWeapon(newId);
+        hud.banner("LOADOUT CHANGED", `Picked up the ${newName}`);
+      },
+    }));
+    opts.push({
+      label: `Leave the ${newName}`,
+      detail: "Keep your current five. Take the ammo instead (+60).",
+      onPick: () => ctx.run.addAmmo(60),
+    });
+    menus.showDilemma("ARMORY FULL", `You found a ${newName}, but you're already carrying five. Something has to go.`, opts, after);
+    return;
+  }
+
   const haveSlot = ctx.run.companions.length < 4;
   const strangerName = ["Harlan", "Pike", "Dunn", "Sora"].find((n) => !ctx.run.companions.includes(n)) ?? "a stranger";
-  // Alternate the dilemma by which leg you're on.
-  if (ctx.run.leg % 2 === 1 && haveSlot) {
+  // Alternate the dilemma by which leg you're on — and only sometimes offer a
+  // recruit, so allies stay hard to come by (the cache dilemma fills the rest).
+  if (ctx.run.leg % 2 === 1 && haveSlot && ctx.rng.chance(0.5)) {
     menus.showDilemma(
       "A figure at the fenceline",
       `${strangerName} is begging to come in. Taking them in means another mouth — but another gun on the wall.`,
@@ -500,9 +608,32 @@ function onVictory(): void {
   ctx.cam.mode = "menu";
   ctx.world.setDawn(1);
   hud.setMode("hidden");
-  ctx.music.play("victory");
   ctx.events.emit("RUN_VICTORY", {});
-  menus.showVictory(ctx.stats, startRun, toTitle, endingLines());
+  // The "freedom isn't free" turn: you reached Haven, but its gate faces both
+  // ways. One last choice decides what the safe zone is worth — then the ending.
+  menus.showDilemma(
+    "HAVEN'S GATE — DAWN",
+    "You held the wall till first light. Haven will take you in now. But you've seen the guns facing inward, and the people they keep outside.",
+    [
+      {
+        label: "Stay inside the wall",
+        detail: "Safety, a bunk, a roster of who gets turned away. You're theirs now.",
+        onPick: () => {
+          ctx.music.play("victory");
+          endingPick = ENDING_STAY;
+        },
+      },
+      {
+        label: "Walk back into the dark",
+        detail: "No walls, no promises — the open road and the people worth holding it for.",
+        onPick: () => {
+          ctx.music.play("victory");
+          endingPick = ENDING_LEAVE;
+        },
+      },
+    ],
+    () => menus.showVictory(ctx.stats, startRun, toTitle, [...endingPick, ...endingLines()])
+  );
 }
 
 function defeat(reason: string): void {
@@ -527,7 +658,7 @@ function endingLines(): string[] {
     `Survivors with you — ${r.companions.length}  ·  rescued ${r.alliesRecruited}  ·  lost ${r.alliesLost}`,
   ];
   if (r.nightsWallHeld.length) {
-    lines.push(`Wall held per night — ${r.nightsWallHeld.map((p) => `${p}%`).join(" · ")}`);
+    lines.push(`Wall held per level - ${r.nightsWallHeld.map((p) => `${p}%`).join(" / ")}`);
   }
   return lines;
 }
@@ -591,22 +722,23 @@ ctx.events.on("COMPANION_DOWN", ({ name }) => {
   if (wi >= 0) ctx.run.weaponOwner[wi] = null;
   if (state === "night") hud.banner(`${name} is DOWN`, "Revive with E or lose them at dawn");
 });
-ctx.events.on("MINIBOSS", ({ name }) => {
-  hud.banner(name, "It'll smash the wall — hit it hard");
+ctx.events.on("MINIBOSS", ({ name, sub }) => {
+  hud.banner(name, sub ?? "It'll smash the wall - hit it hard");
   ctx.events.emit("SFX", { id: "brute_slam" });
   ctx.cam.addTrauma(0.4);
   requestSlowmo(0.5, 0.5);
 });
 ctx.events.on("ZOMBIE_KILLED", ({ kind }) => {
   if (state !== "night") return;
-  if (kind === "behemoth") {
-    // Finale kill-cam: a long dilation + camera punch as the Behemoth falls.
+  const killedType = TYPES[kind];
+  if (killedType?.boss) {
+    // Boss kill-cam: a long dilation + camera punch as the act boss falls.
     requestSlowmo(1.6, 0.22);
     ctx.cam.pulseFov(0.9);
     ctx.cam.addTrauma(0.7);
     ctx.stage.punch(0.6);
     ctx.events.emit("SFX", { id: "boss_roar" });
-    hud.banner("THE BEHEMOTH FALLS", "Hold to first light");
+    hud.banner(`${killedType.bossTitle ?? kind.toUpperCase()} FALLS`, "Hold to first light");
   }
   streak++;
   streakTimer = 2.6;
@@ -798,7 +930,9 @@ bootProbe = true;
 Promise.race([ctx.music.preload(), new Promise<void>((r) => window.setTimeout(r, 1200))]).then(() => {
   bootProbe = false;
   applyBootQuality();
+  ctx.enemies.primeTypes(Array.from(new Set([...Object.keys(TYPES), ...bossTypeKeys()])));
   ctx.stage.warmUp(); // pre-compile shaders so the first wave doesn't hitch
+  ctx.enemies.clear();
   toTitle();
 });
 
@@ -815,6 +949,10 @@ Promise.race([ctx.music.preload(), new Promise<void>((r) => window.setTimeout(r,
   completeDay: () => scavenge.debugComplete(),
   scavengeShown: () => scavenge.visible,
   dayObjectCount: () => scavenge.objectCount,
+  scavengeTotal: () => scavenge.total,
+  envName: () => scavenge.envName,
+  campaignTotal: () => TOTAL_LEVELS,
+  campaignLabels: () => campaignNodeLabels(),
   setNightProgress: (p: number) => {
     if (director) director.elapsed = director.length * p;
   },
@@ -823,4 +961,8 @@ Promise.race([ctx.music.preload(), new Promise<void>((r) => window.setTimeout(r,
   spawnWave: (type: string, n: number) => {
     for (let i = 0; i < n; i++) ctx.enemies.spawn(type, ctx.rng.range(-20, 20));
   },
+  // Test hooks for campaign systems (supply density, inter-night events, ending).
+  startSupply: (d: Density) => beginSupplyRun(d),
+  interNightEvent: () => interNightEvent(),
+  forceVictory: () => onVictory(),
 };

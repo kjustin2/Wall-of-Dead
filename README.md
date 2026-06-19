@@ -7,10 +7,14 @@ night until dawn, scavenge the field by day, and push for the safe zone.
 Built with **Three.js + Vite + TypeScript** — procedural everything (no art
 files; music is the one bundled exception): low-poly geometry under ACES tone
 mapping + bloom, a trauma camera, and synthesized Web Audio. A polished
-**vertical slice**: Title → **3 Nights / Days** → Safe Zone, with night tactics
-(traps, flares, ally orders, a night-3 boss + dawn surge), a real stealth day
-(takedowns, lures, hiding, extraction), survivor traits + a dawn dilemma,
-difficulty presets, controller + mid-run save/resume.
+**3-act campaign**: Title -> **9 Nights / Days** -> HAVEN, with a "freedom isn't
+free" choice at the gate. Each act is its own place (Outer Road -> Floodline ->
+Haven Approach). Features: night tactics (traps, flares,
+ally orders, an act-end zombie boss + dawn surge), a real stealth day with per-act
+environments + a population choice (more loot = more risk), a 5-weapon carry cap
+that forces loadout decisions, random between-nights events that can cost you
+allies, survivor traits + a dawn dilemma, difficulty presets, controller +
+mid-run save/resume.
 
 ## Play / develop
 
@@ -26,9 +30,11 @@ Night (defend):
 - **T** — spike trap · **G** — flare · **C** — order allies to focus your mark
 - **F (hold)** — lob a frag when Adrenaline is full · **Esc** — pause
 
-Day (supply run): **WASD** sneak · **Shift** sprint (loud) · **E** takedown ·
-**Q** lure · **F** flashlight · hide in dumpsters · grab supplies then reach the
-exit. A **gamepad** works throughout (twin-stick).
+Day (supply run): pick a district (more loot = more dead), then **WASD** sneak ·
+**Shift** sprint (loud) · **F** flashlight (off = stealthier, blind) · hide in
+dumpsters to break a chase · grab supplies + repair kits, then reach the exit.
+Stay out of the sight cones — getting caught ends the run. A **gamepad** works
+throughout (twin-stick).
 
 ### Adrenaline
 

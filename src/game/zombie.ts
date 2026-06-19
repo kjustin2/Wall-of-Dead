@@ -34,7 +34,8 @@ export interface ZType {
   explodes?: boolean; // bursts a damaging gas cloud on death
   shield?: number; // frontal riot shield: absorbs body shots until broken
   miniboss?: boolean;
-  boss?: boolean; // the night-3 finale: phases, wide slam, spawns adds
+  boss?: boolean; // act finale: phases, wide slam, spawns adds
+  bossTitle?: string;
 }
 
 export const TYPES: Record<string, ZType> = {
@@ -203,6 +204,46 @@ export const TYPES: Record<string, ZType> = {
     groan: "groan_brute",
     shield: 60,
   },
+  roadblock: {
+    key: "roadblock",
+    hp: 980,
+    speed: 2.25,
+    radius: 2.2,
+    claw: 28,
+    clawCD: 2.0,
+    touch: 34,
+    touchCD: 1.45,
+    body: 0x20242a,
+    head: 0x303840,
+    eye: 0xff482c,
+    scale: 2.45,
+    heavy: true,
+    headshotChance: 0.08,
+    groan: "groan_brute",
+    slam: true,
+    boss: true,
+    bossTitle: "THE ROADBLOCK",
+  },
+  drowned: {
+    key: "drowned",
+    hp: 1450,
+    speed: 1.95,
+    radius: 2.45,
+    claw: 24,
+    clawCD: 2.15,
+    touch: 36,
+    touchCD: 1.55,
+    body: 0x10242a,
+    head: 0x18343a,
+    eye: 0x7fe8ff,
+    scale: 2.75,
+    heavy: true,
+    headshotChance: 0.07,
+    groan: "groan_brute",
+    slam: true,
+    boss: true,
+    bossTitle: "THE DROWNED TITAN",
+  },
   leaper: {
     key: "leaper",
     hp: 16,
@@ -241,6 +282,7 @@ export const TYPES: Record<string, ZType> = {
     groan: "groan_brute",
     slam: true,
     boss: true,
+    bossTitle: "THE BEHEMOTH",
   },
   tank: {
     key: "tank",
@@ -311,6 +353,10 @@ function buildZombieGeo(t: ZType): { body: THREE.BufferGeometry; eyes: THREE.Buf
     box(0.12 * s, 0.5 * s, 0.04 * s, 0.22 * s, 0.5 * s, 0.27 * s, -0.1),
     box(0.1 * s, 0.42 * s, 0.04 * s, 0.05 * s, 0.38 * s, 0.3 * s, 0.05),
   ];
+  // Sinewy neck + a heavy brow ridge over the eyes — reads as a skull at distance.
+  p.push(box(0.22 * s, 0.24 * s, 0.22 * s, 0, 1.48 * s, 0.08 * s, lean)); // neck
+  p.push(box(0.44 * s, 0.09 * s, 0.12 * s, 0, 1.76 * s, 0.4 * s)); // brow ridge
+  p.push(box(0.18 * s, 0.16 * s, 0.16 * s, 0, 1.58 * s, 0.46 * s)); // nose/snout stub
   // Exposed ribs
   for (const ry of [0.78, 0.62, 0.46]) p.push(box(0.5 * s, 0.05 * s, 0.48 * s, 0, ry * s, 0.04 * s, lean));
   // Gaunt reaching arms + long gnarled claws
@@ -323,20 +369,56 @@ function buildZombieGeo(t: ZType): { body: THREE.BufferGeometry; eyes: THREE.Buf
     p.push(box(0.22 * s, 0.85 * s, 0.22 * s, lx * s, 0.42 * s, 0));
     p.push(box(0.24 * s, 0.14 * s, 0.42 * s, lx * s, 0.07 * s, 0.12 * s));
   }
-  if (t.key === "brute" || t.key === "behemoth") {
+  if (t.key === "brute" || t.boss) {
     for (const sx of [-0.6, 0.6]) p.push(box(0.42 * s, 0.42 * s, 0.6 * s, sx * s, 1.5 * s, 0.1 * s));
     p.push(box(0.7 * s, 0.7 * s, 0.25 * s, 0, 1.2 * s, -0.3 * s));
   }
-  if (t.key === "behemoth") {
+  if (t.boss) {
     // jagged horns, a heavy back hump, and slab forearms
     for (const hx of [-0.24, 0.24]) p.push(box(0.12 * s, 0.55 * s, 0.12 * s, hx * s, 1.96 * s, 0.16 * s, -0.45));
     p.push(ball(0.55 * s, 0, 1.05 * s, -0.26 * s)); // spine hump
     for (const ax of [-0.62, 0.62]) p.push(box(0.34 * s, 0.34 * s, 0.7 * s, ax * s, 0.7 * s, 0.5 * s, -0.5));
   }
+  if (t.key === "roadblock") {
+    // ripped car-door armor and an engine block embedded in the chest
+    p.push(box(0.95 * s, 0.12 * s, 0.65 * s, -0.52 * s, 1.12 * s, 0.42 * s, 0.18));
+    p.push(box(0.95 * s, 0.12 * s, 0.65 * s, 0.52 * s, 1.1 * s, 0.42 * s, -0.18));
+    p.push(box(0.62 * s, 0.46 * s, 0.2 * s, 0, 0.92 * s, 0.5 * s));
+  } else if (t.key === "drowned") {
+    // swollen waterlogged silhouette with hanging weeds
+    p.push(ball(0.72 * s, 0, 0.92 * s, 0.12 * s));
+    for (const sx of [-0.34, 0, 0.34]) p.push(box(0.08 * s, 0.72 * s, 0.06 * s, sx * s, 0.55 * s, 0.52 * s, 0.25));
+  }
   if (t.key === "spitter") {
-    p.push(ball(0.42 * s, 0, 1.1 * s, -0.34 * s));
+    p.push(ball(0.42 * s, 0, 1.1 * s, -0.34 * s)); // acid sac on the back
+    p.push(ball(0.3 * s, 0, 1.34 * s, 0.18 * s)); // swollen, distended throat
   } else if (t.key === "exploder") {
     p.push(ball(0.56 * s, 0, 0.82 * s, 0.22 * s)); // bloated, gas-filled belly
+    // pustules straining over the belly
+    for (const [px, py, pz] of [[-0.3, 0.92, 0.5], [0.32, 0.7, 0.56], [0.0, 1.04, 0.6], [0.22, 0.5, 0.5]] as [number, number, number][])
+      p.push(ball(0.14 * s, px * s, py * s, pz * s));
+  }
+  // Armored/tank: bolted-on plate, shoulder pauldrons, a helmet dome + cheek
+  // guards that frame the glowing eyes (body colour reads as battered steel).
+  if (t.key === "armored" || t.key === "tank" || t.key === "roadblock") {
+    p.push(box(0.64 * s, 0.62 * s, 0.18 * s, 0, 1.0 * s, 0.3 * s)); // chest plate
+    for (const sx of [-0.46, 0.46]) p.push(box(0.36 * s, 0.24 * s, 0.48 * s, sx * s, 1.46 * s, 0.1 * s)); // pauldrons
+    p.push(box(0.5 * s, 0.26 * s, 0.5 * s, 0, 1.84 * s, 0.18 * s)); // helmet dome
+    for (const cx of [-0.27, 0.27]) p.push(box(0.1 * s, 0.32 * s, 0.32 * s, cx * s, 1.55 * s, 0.3 * s)); // cheek guards
+  }
+  if (t.key === "tank" || t.key === "roadblock") {
+    p.push(box(0.82 * s, 0.5 * s, 0.2 * s, 0, 0.58 * s, 0.32 * s)); // heavy belly plate
+    for (const ax of [-0.6, 0.6]) p.push(box(0.32 * s, 0.5 * s, 0.5 * s, ax * s, 0.78 * s, 0.42 * s, -0.4)); // forearm guards
+  }
+  // Screamer: a distended, gaping maw + swollen throat (it howls the horde on).
+  if (t.key === "screamer") {
+    p.push(box(0.4 * s, 0.16 * s, 0.34 * s, 0, 1.46 * s, 0.5 * s)); // upper gape
+    p.push(box(0.38 * s, 0.18 * s, 0.32 * s, 0, 1.18 * s, 0.5 * s, 0.55)); // dropped lower jaw
+    p.push(ball(0.2 * s, 0, 1.1 * s, 0.36 * s)); // bulging throat
+  }
+  // Leaper: a coiled, crouched stance — extra bent shins ready to spring.
+  if (t.key === "leaper") {
+    for (const lx of [-0.2, 0.2]) p.push(box(0.2 * s, 0.42 * s, 0.3 * s, lx * s, 0.32 * s, 0.16 * s, 0.7));
   }
   const body = mergeGeometries(p, false) as THREE.BufferGeometry;
   for (const g of p) g.dispose();
@@ -510,6 +592,10 @@ export class Zombie {
     return this.state !== "dying" && this.hp > 0;
   }
 
+  get title(): string {
+    return this.t.bossTitle ?? this.kind.toUpperCase();
+  }
+
   get gone(): boolean {
     return (this.state === "dying" && this.dieTimer <= 0) || (this.state === "fleeing" && this.z < -92);
   }
@@ -647,8 +733,9 @@ export class Zombie {
     if (phase <= this.bossPhase) return;
     this.bossPhase = phase;
     this.enrageMul = 1 + phase * 0.32; // 1 → 1.32 → 1.64
+    const title = this.title;
     ctx.events.emit("NOTICE", {
-      text: phase === 1 ? "THE BEHEMOTH RAGES" : "THE BEHEMOTH IS DESPERATE",
+      text: phase === 1 ? `${title} RAGES` : `${title} IS DESPERATE`,
       sub: "It's calling more down on you!",
     });
     ctx.events.emit("SFX", { id: "boss_roar", pan: clamp(this.x / FIELD.wallHalf, -1, 1) });
@@ -892,7 +979,7 @@ const ACID_G = 22;
 /** Spawns, ticks and reaps zombies; also owns spitter acid projectiles. */
 // Per-instance meshes/state make these awkward to recycle — never pool them.
 function poolable(kind: string): boolean {
-  return kind !== "shielded" && kind !== "behemoth";
+  return kind !== "shielded";
 }
 const POOL_CAP = 40;
 
@@ -915,6 +1002,9 @@ export class EnemyManager {
   /** 0..1 boss health, or 0 if no boss is alive. */
   bossFrac(): number {
     return this.boss ? Math.max(0, this.boss.hp / this.boss.maxHp) : 0;
+  }
+  bossName(): string {
+    return this.boss?.title ?? "";
   }
   get bossAlive(): boolean {
     return this.boss !== null && this.boss.killable;
@@ -960,7 +1050,17 @@ export class EnemyManager {
     return this.alive.length;
   }
 
+  primeTypes(typeKeys: string[]): void {
+    for (let i = 0; i < typeKeys.length; i++) {
+      this.spawnOne(typeKeys[i], -18 + i * 4, FIELD.spawnZ, true);
+    }
+  }
+
   spawn(typeKey: string, x: number, atZ?: number): void {
+    this.spawnOne(typeKey, x, atZ, false);
+  }
+
+  private spawnOne(typeKey: string, x: number, atZ: number | undefined, quiet: boolean): void {
     const t = TYPES[typeKey];
     if (!t) return;
     let z: Zombie;
@@ -975,7 +1075,7 @@ export class EnemyManager {
     this.alive.push(z);
     if (t.boss) this.boss = z;
     // Spawn tell: a distant groan from the dark — quieter the further out it is.
-    if (this.ctx.rng.chance(0.35)) {
+    if (!quiet && this.ctx.rng.chance(0.35)) {
       this.ctx.events.emit("SFX", { id: "groan", pan: clamp(x / FIELD.wallHalf, -1, 1), gain: distGain(z.z) });
     }
   }

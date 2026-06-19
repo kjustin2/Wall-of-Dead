@@ -2,9 +2,17 @@ import type { Ctx } from "./ctx";
 import { makeLoadout, type Loadout } from "./weapons";
 import { RUN } from "../config";
 import { TRAIT_IDS, type TraitId } from "./traits";
+import { TOTAL_LEVELS } from "./acts";
 
 // Tighter reserves so ammo is a real pressure; the pistol is an infinite sidearm.
-const RESERVES: Record<string, number> = { pistol: 60, smg: 120, shotgun: 30, rifle: 36, lmg: 160 };
+const RESERVES: Record<string, number> = {
+  pistol: 60, smg: 120, shotgun: 30, rifle: 36, lmg: 160,
+  ar: 150, dmr: 48, autoshotgun: 48, minigun: 360, magnum: 36,
+};
+
+/** You can carry at most this many weapons at once (the locked sidearm counts).
+ * Past it, picking up a new gun means dropping one — a real loadout decision. */
+export const MAX_WEAPONS = 5;
 
 /**
  * Persistent run state — everything that must survive across the night/day
@@ -18,7 +26,7 @@ const RESERVES: Record<string, number> = { pistol: 60, smg: 120, shotgun: 30, ri
 export class RunManager {
   night = 1;
   leg = 0;
-  legsTotal = 3;
+  legsTotal = TOTAL_LEVELS;
   wallHp: number = RUN.wallMaxHp;
   /** Per-segment wall HP, persisted across nights so breaches don't auto-heal.
    * Empty = "full" (start of run, before the first night damages anything). */
@@ -42,6 +50,7 @@ export class RunManager {
   start(): void {
     this.night = 1;
     this.leg = 0;
+    this.legsTotal = TOTAL_LEVELS;
     this.wallHp = RUN.wallMaxHp;
     this.wallSegs = []; // full wall to begin
     this.repairKits = 1;
@@ -80,6 +89,31 @@ export class RunManager {
     }
     this.weapons.push(makeLoadout(id, RESERVES[id] ?? 30));
     this.weaponOwner.push(null);
+  }
+
+  /** True once the armory is full (a new find now forces a swap decision). */
+  atWeaponCap(): boolean {
+    return this.weapons.length >= MAX_WEAPONS;
+  }
+
+  /** Slots that can be dropped to make room (everything but the locked sidearm). */
+  droppableIndices(): number[] {
+    const out: number[] = [];
+    for (let i = 0; i < this.weapons.length; i++) if (!this.weapons[i].def.sidearm) out.push(i);
+    return out;
+  }
+
+  /** Drop weapon slot i (freeing any ally holding it). Keeps weaponIndex valid. */
+  dropWeapon(i: number): void {
+    if (i < 0 || i >= this.weapons.length || this.weapons[i].def.sidearm) return;
+    this.weapons.splice(i, 1);
+    this.weaponOwner.splice(i, 1);
+    if (this.weaponIndex >= this.weapons.length) this.weaponIndex = 0;
+    // Land the player on a slot they can actually use.
+    if (!this.canPlayerUse(this.weaponIndex)) {
+      const next = this.weaponOwner.findIndex((o) => o == null);
+      this.weaponIndex = next >= 0 ? next : 0;
+    }
   }
 
   /** Add reserve ammo to every weapon (a supply/ammo crate pickup). */

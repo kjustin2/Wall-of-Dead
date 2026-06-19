@@ -22,14 +22,23 @@ low-poly geometry under **ACES tone mapping + bloom/vignette/grain**, a trauma
 camera, a typed event bus, and a single damage funnel. The old Canvas2D code is
 preserved in git history (commit `8570e94` and earlier).
 
-**Current scope: a polished vertical slice** — Title → **3 Nights / Days** →
-Safe Zone (`run.legsTotal = 3`). Deepened in place (no new modes/acts): night
-tactics (traps `T` / flare `G` / ally focus-fire `C` / choke geometry), hazard
-zombies + telegraphs, a night-3 **Behemoth boss** + dawn surge, a real stealth
-day (takedowns/lures/hiding/extraction, soft-caught), survivor **traits** + a
+**Current scope: a polished 5-act campaign** — Title → **5 Nights / Days** →
+HAVEN (`run.legsTotal = 5`), with a "freedom isn't free" turn at the gate (a
+two-ending choice in `onVictory`). Each act is its own place: `world.ts ZONES`
+holds 5 themed environments (Outer Wall → Refinery → Floodline → Ashfields →
+Haven's Gate), each swapping palette/weather/fog plus one signature feature
+(standing water / ashfall / cold floodlights) over shared geometry via
+`setZone(night)`. Per-night signature threats live in `waveDirector.ts SIGNATURES`
+(1–5); the **Behemoth boss** is the night-5 finale. Other systems: night tactics
+(traps `T` / flare `G` / ally focus-fire `C` / choke geometry), hazard zombies +
+telegraphs + dawn surge; a real stealth day with **per-act environments + a
+population choice** (`scavenge.start({density, env})`, picked via
+`menus.showSupplyChoice`); a **5-weapon cap** (`run.MAX_WEAPONS`) that turns later
+finds into a dusk swap decision (`offerDilemma`); **random inter-night events**
+that can kill allies (`interNightEvent` in `main.ts`); survivor **traits** + a
 dawn **dilemma** + richer endings, difficulty presets, controller, mid-run
-save/resume, adaptive music + weather. The parked full-game expansion (extra
-acts, meta-progression, endless) stays out of scope — see `IMPROVEMENTS.md §6`.
+save/resume, adaptive music + weather. Meta-progression / endless stay out of
+scope — see `IMPROVEMENTS.md §6`.
 
 ### Stack
 
@@ -120,7 +129,7 @@ src/game/
                        rubble; setTotal() redistributes a persisted run.wallHp.
   zombie.ts            EnemyManager + Zombie + TYPES (shambler/runner/brute/
                        spitter/crawler/armored/screamer/exploder/shielded/leaper/
-                       tank + the night-3 behemoth BOSS); merged per-type geometry
+                       tank + the night-5 behemoth BOSS); merged per-type geometry
                        (one draw call) + per-type actor POOL (reinit on reuse);
                        FSM + breach-seeking (weakest segment), runner lunge,
                        vaulting/leaping, screamer buff, shield/exploder/boss-phase
@@ -139,7 +148,8 @@ src/game/
                        hold-E revive when downed.
   waveDirector.ts      One night: dusk→dawn clock + escalating spawn stream +
                        per-night signature threats (brute charge / spitter battery
-                       / night-3 behemoth) + dawn surge. Scales by ctx.tuning.
+                       / howling pack / iron tide / night-5 behemoth) + dawn surge.
+                       Scales by ctx.tuning.
   run.ts               RunManager + persisted run state (weapons, companions +
                        traits, wallHp, leg/night, traps, kits, stats helpers) +
                        serialize()/load() for the mid-run save.

@@ -1,6 +1,7 @@
 import type { Ctx } from "./ctx";
 import { FIELD, RUN } from "../config";
 import { clamp, lerp } from "../core/math";
+import { levelInfo, type CampaignLevel } from "./acts";
 
 interface NightPlan {
   length: number;
@@ -37,7 +38,8 @@ const PLAN: NightPlan = {
   ],
 };
 
-// Each night gets a distinct headline threat so the three nights feel different.
+// Headline threats rotate through the campaign so ordinary levels still have
+// memorable spikes between act bosses.
 interface Signature {
   at: number; // progress to fire
   name: string;
@@ -59,6 +61,35 @@ const SIGNATURES: Record<number, Signature> = {
     sub: "Acid from range — watch the wall",
     run: (ctx) => {
       for (const sx of [-16, 0, 16]) ctx.enemies.spawn("spitter", sx + ctx.rng.range(-3, 3));
+    },
+  },
+  3: {
+    at: 0.45,
+    name: "HOWLING PACK",
+    sub: "A screamer's whipping them into a sprint — drop it fast",
+    run: (ctx) => {
+      ctx.enemies.spawn("screamer", ctx.rng.range(-6, 6));
+      for (let k = 0; k < 5; k++) ctx.enemies.spawn("runner", ctx.rng.range(-18, 18));
+    },
+  },
+  4: {
+    at: 0.45,
+    name: "IRON TIDE",
+    sub: "Armor and shields — flank them or break the line",
+    run: (ctx) => {
+      for (let k = 0; k < 3; k++) ctx.enemies.spawn("armored", ctx.rng.range(-14, 14));
+      for (const sx of [-8, 8]) ctx.enemies.spawn("shielded", sx + ctx.rng.range(-2, 2));
+    },
+  },
+  5: {
+    at: 0.34,
+    name: "THE GATE WON'T HOLD",
+    sub: "Haven's wall is buckling — everything is coming",
+    run: (ctx) => {
+      for (let k = 0; k < 4; k++) {
+        const t = ctx.rng.weighted(["runner", "brute", "armored"], [3, 2, 2]);
+        ctx.enemies.spawn(t, ctx.rng.range(-18, 18));
+      }
     },
   },
 };
@@ -84,14 +115,18 @@ export class WaveDirector {
   private len: number;
   private startI: number;
   private endI: number;
+  private level: CampaignLevel;
 
   constructor(private ctx: Ctx) {
     const n = ctx.run.night;
+    this.level = levelInfo(n);
+    const actStep = this.level.act - 1;
+    const levelStep = this.level.levelInAct - 1;
     const sr = ctx.tuning.spawnRate;
-    this.maxAlive = Math.round((PLAN.maxAlive + (n - 1) * 6) * sr);
-    this.len = PLAN.length + (n - 1) * 8;
-    this.startI = (PLAN.startInterval * Math.pow(0.92, n - 1)) / sr;
-    this.endI = (PLAN.endInterval * Math.pow(0.9, n - 1)) / sr;
+    this.maxAlive = Math.round((PLAN.maxAlive + actStep * 7 + levelStep * 4) * sr);
+    this.len = PLAN.length + actStep * 10 + levelStep * 5;
+    this.startI = (PLAN.startInterval * Math.pow(0.92, actStep + levelStep * 0.65)) / sr;
+    this.endI = (PLAN.endInterval * Math.pow(0.9, actStep + levelStep * 0.7)) / sr;
   }
 
   get progress(): number {
@@ -107,23 +142,24 @@ export class WaveDirector {
 
     // Per-night signature threat (brute charge / spitter battery / etc.).
     // Only while the clock is still running — never as the night is ending.
-    const sig = SIGNATURES[this.ctx.run.night];
+    const sig = SIGNATURES[this.ctx.run.night] ?? SIGNATURES[((this.ctx.run.night - 1) % 5) + 1];
     if (sig && !this.signatureFired && !this.clockDone && this.elapsed < this.len && this.progress > sig.at) {
       this.signatureFired = true;
       sig.run(this.ctx);
       this.ctx.events.emit("NOTICE", { text: sig.name, sub: sig.sub });
     }
 
-    // Night 3 finale: warn that something huge is coming, then spawn the Behemoth
-    // with plenty of time to reach the wall and be fought down (it never flees).
-    if (this.ctx.run.night >= 3 && !this.preBossWarned && !this.bossSpawned && this.progress > 0.36) {
+    // Act finales: warn that something huge is coming, then spawn the boss with
+    // enough time to reach the wall and be fought down.
+    const boss = this.level.boss;
+    if (boss && !this.preBossWarned && !this.bossSpawned && this.progress > boss.warnAt) {
       this.preBossWarned = true;
-      this.ctx.events.emit("NOTICE", { text: "⚠ THE GROUND TREMBLES", sub: "Something massive is dragging itself toward the wall…" });
+      this.ctx.events.emit("NOTICE", { text: "BOSS INBOUND", sub: boss.warning });
     }
-    if (this.ctx.run.night >= 3 && !this.bossSpawned && this.progress > 0.46 && this.elapsed < this.len - 28) {
+    if (boss && !this.bossSpawned && this.progress > boss.at && this.elapsed < this.len - 24) {
       this.bossSpawned = true;
-      this.ctx.enemies.spawn("behemoth", 0, -44);
-      this.ctx.events.emit("MINIBOSS", { name: "THE BEHEMOTH" });
+      this.ctx.enemies.spawn(boss.type, 0, boss.z);
+      this.ctx.events.emit("MINIBOSS", { name: boss.name, sub: boss.intro });
     }
 
     // A clear lead-in before the dawn surge so the player can brace.

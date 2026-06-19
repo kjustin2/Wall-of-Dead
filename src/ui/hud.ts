@@ -2,6 +2,7 @@ import * as THREE from "three";
 import type { Ctx } from "../game/ctx";
 import type { AdrenalineZone } from "../core/events";
 import type { Scavenge } from "../minigames/scavenge";
+import { actLevelLabel, levelInfo } from "../game/acts";
 
 const THREAT_ARROWS = 6;
 
@@ -28,6 +29,7 @@ export class Hud {
         <div class="dawn"><div class="dawn-fill"></div><div class="dawn-moon">🌙</div><span class="dawn-label">NIGHT</span></div>
         <div class="boss-bar"><span class="boss-name">THE BEHEMOTH</span><div class="boss-track"><div class="boss-fill"></div></div></div>
       </div>
+      <div class="level-chip"><span class="level-chip-k">LEVEL</span><span class="level-chip-v"></span><span class="level-chip-s"></span></div>
       <div class="hud-bottom">
         <div class="hud-left">
           <div class="stat"><span class="stat-tag">HEALTH</span><div class="bar bar-hp"><div class="bar-ghost"></div><div class="bar-fill"></div></div></div>
@@ -59,6 +61,7 @@ export class Hud {
       </div>
       <div class="day-prompt"></div>
       <div class="kills">0</div>
+      <div class="streak-badge"><span class="streak-n">0</span><span class="streak-k">CHAIN</span></div>
       <div class="banner"></div>
       <div class="crosshair"><span class="ch-ring"></span><span class="hitmark"></span></div>
       <div class="dmg dmg--left"></div>
@@ -74,6 +77,9 @@ export class Hud {
       bossBar: q(".boss-bar"),
       bossName: q(".boss-name"),
       bossFill: q(".boss-fill"),
+      levelChip: q(".level-chip"),
+      levelChipV: q(".level-chip-v"),
+      levelChipS: q(".level-chip-s"),
       wallStrip: q(".wall-strip"),
       hpFill: q(".bar-hp .bar-fill"),
       hpGhost: q(".bar-hp .bar-ghost"),
@@ -103,6 +109,8 @@ export class Hud {
       dayStatus: q(".day-status"),
       dayPrompt: q(".day-prompt"),
       kills: q(".kills"),
+      streakBadge: q(".streak-badge"),
+      streakN: q(".streak-n"),
       banner: q(".banner"),
       crosshair: q(".crosshair"),
       hitmark: q(".hitmark"),
@@ -118,8 +126,10 @@ export class Hud {
       this.cy = e.clientY;
     });
     this.ctx.events.on("SHOOT", () => this.fireKick());
-    this.ctx.events.on("ZOMBIE_HIT", ({ headshot }) => this.hitmarker(headshot));
+    this.ctx.events.on("ZOMBIE_HIT", ({ headshot, killed, heavy }) => this.hitmarker(headshot, killed, heavy));
+    this.ctx.events.on("ZOMBIE_KILLED", () => this.bumpStreak());
     this.ctx.events.on("PLAYER_HIT", ({ dirX }) => this.damageFlash(dirX));
+    this.ctx.events.on("CRATE_GRABBED", () => this.replay(this.el.dayHud, "day-hud--pickup"));
     // Big-beat additive screen flashes (color-coded by event).
     this.ctx.events.on("WALL_BREACH", () => this.flash("#ff3a26", 0.5));
     this.ctx.events.on("LAST_STAND", () => this.flash("#ffae3a", 0.6));
@@ -155,6 +165,9 @@ export class Hud {
   private cy = window.innerHeight / 2;
   private hpGhostV = 1;
   private lastKills = -1;
+  private streak = 0;
+  private streakT = 0;
+  private lastBossFrac = 0;
 
   /** Brief additive full-screen flash, color-coded by the event. Honors the
    * reduced-flashing accessibility toggle (which sets body.reduced). */
@@ -183,12 +196,21 @@ export class Hud {
     this.el.crosshair.classList.add("crosshair--fire");
   }
 
-  private hitmarker(headshot: boolean): void {
+  private hitmarker(headshot: boolean, killed: boolean, heavy: boolean): void {
     if (this.mode !== "night") return;
     const h = this.el.hitmark;
-    h.className = `hitmark ${headshot ? "hitmark--crit" : ""}`;
+    h.className = `hitmark ${headshot ? "hitmark--crit" : ""} ${killed ? "hitmark--kill" : ""} ${heavy ? "hitmark--heavy" : ""}`;
     void h.offsetWidth;
     h.classList.add("hitmark--show");
+  }
+
+  private bumpStreak(): void {
+    if (this.mode !== "night") return;
+    this.streak++;
+    this.streakT = 2.7;
+    this.el.streakN.textContent = `${this.streak}`;
+    this.el.streakBadge.classList.toggle("streak-badge--big", this.streak >= 10);
+    this.replay(this.el.streakBadge, "streak-badge--pop");
   }
 
   private damageFlash(dirX: number): void {
@@ -212,6 +234,7 @@ export class Hud {
     this.el.dayHud.style.display = day ? "" : "none";
     this.el.dayPrompt.style.display = "none";
     this.el.crosshair.style.display = night ? "" : "none";
+    this.el.levelChip.style.display = night || day ? "" : "none";
     if (!night) for (const a of this.threatArrows) a.style.display = "none";
     if (!night) {
       this.el.repair.style.display = "none";
@@ -222,7 +245,12 @@ export class Hud {
       // Fresh night: reset the reactive HUD trails.
       this.hpGhostV = 1;
       this.lastKills = -1;
+      this.streak = 0;
+      this.streakT = 0;
+      this.lastBossFrac = 0;
+      this.el.streakBadge.classList.remove("streak-badge--show", "streak-badge--big");
     }
+    if (!night) this.el.streakBadge.classList.remove("streak-badge--show", "streak-badge--big");
   }
 
   banner(text: string, sub = ""): void {
@@ -265,6 +293,10 @@ export class Hud {
 
   private updateNight(dt: number): void {
     const c = this.ctx;
+    const level = levelInfo(c.run.night);
+    this.el.levelChipV.textContent = `${actLevelLabel(c.run.night)} - ${level.title}`;
+    this.el.levelChipS.textContent = level.actName;
+    this.el.levelChip.className = `level-chip level-chip--${level.supplyTheme}`;
     const hpFrac = Math.max(0, c.player.hp / c.player.maxHp);
     const wallFrac = c.wall.integrityFrac();
     this.el.hpFill.style.width = `${hpFrac * 100}%`;
@@ -352,14 +384,27 @@ export class Hud {
       if (this.lastKills >= 0) this.replay(this.el.kills, "kills--pop");
       this.lastKills = c.stats.kills;
     }
+    if (this.streakT > 0) {
+      this.streakT -= dt;
+      this.el.streakBadge.classList.add("streak-badge--show");
+      if (this.streakT <= 0) {
+        this.streak = 0;
+        this.el.streakBadge.classList.remove("streak-badge--show", "streak-badge--big");
+      }
+    }
 
     // Boss health bar (night-3 finale). Explicit "block" — "" would fall back to
     // the CSS default of display:none.
     if (c.enemies.bossAlive) {
+      const frac = c.enemies.bossFrac();
       this.el.bossBar.style.display = "block";
-      this.el.bossFill.style.width = `${c.enemies.bossFrac() * 100}%`;
+      this.el.bossName.textContent = c.enemies.bossName();
+      this.el.bossFill.style.width = `${frac * 100}%`;
+      if (this.lastBossFrac > 0 && frac < this.lastBossFrac - 0.002) this.replay(this.el.bossBar, "boss-bar--hurt");
+      this.lastBossFrac = frac;
     } else {
       this.el.bossBar.style.display = "none";
+      this.lastBossFrac = 0;
     }
 
     this.updateWallStrip();
@@ -435,6 +480,12 @@ export class Hud {
   private updateDay(): void {
     if (!this.scav) return;
     const s = this.scav;
+    const level = levelInfo(this.ctx.run.night);
+    this.el.levelChipV.textContent = `${actLevelLabel(this.ctx.run.night)} - SUPPLY`;
+    this.el.levelChipS.textContent = s.envName;
+    this.el.levelChip.className = `level-chip level-chip--${level.supplyTheme}`;
+    this.el.dayHud.classList.toggle("day-hud--spotted", s.spotted);
+    this.el.dayHud.classList.toggle("day-hud--exit", s.extractOpen);
     const low = s.timeLeft < 12;
     this.el.dayCrates.textContent = `SUPPLIES ${s.got}/${s.total}   ·   ${Math.max(0, Math.ceil(s.timeLeft))}s`;
     const f = Math.max(0, s.timeLeft) / s.maxTime;
@@ -442,9 +493,13 @@ export class Hud {
     this.el.dayCrates.style.color = s.spotted || low ? "#ff5a3c" : "#ffce7a";
     this.el.stamina.style.width = `${s.stamina * 100}%`;
 
-    // Light state
-    this.el.dayStatus.textContent = s.lightOn ? "🔦 LIGHT ON" : "🌑 LIGHT OFF";
-    this.el.dayStatus.style.color = s.lightOn ? "#9dd0ff" : "#6a7a8a";
+    const hidden = s.promptText === "HIDDEN";
+    let status = s.lightOn ? "LIGHT ON" : "LIGHT OFF";
+    if (s.spotted) status = "SPOTTED - BREAK LINE";
+    else if (s.extractOpen) status = "EXIT OPEN";
+    else if (hidden) status = "HIDDEN";
+    this.el.dayStatus.textContent = status;
+    this.el.dayStatus.className = `day-status ${s.spotted ? "day-status--danger" : s.extractOpen ? "day-status--exit" : hidden ? "day-status--hidden" : s.lightOn ? "day-status--on" : "day-status--off"}`;
 
     // Contextual prompt (hidden / reach the exit)
     if (s.promptText) {

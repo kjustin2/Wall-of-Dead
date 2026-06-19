@@ -120,6 +120,11 @@ app.whenReady().then(async () => {
       await sleep(1400);
       const ns = await win.webContents.executeJavaScript(`window.__wod.state()`);
       if (ns !== "night") errors.push("FLOW: expected night after cutscene, got " + ns);
+      const nightLabel = await js(`(()=>{const b=document.querySelector('.banner-main'); return b ? b.textContent : '';})()`);
+      if (!nightLabel.includes("LEVEL 1-1")) errors.push("LABEL: opening banner should show LEVEL 1-1, got " + nightLabel);
+      if (nightLabel.includes("/")) errors.push("LABEL: opening banner still shows campaign total (" + nightLabel + ")");
+      const levelChip = await js(`(()=>{const c=document.querySelector('.level-chip-v'); return c ? c.textContent : '';})()`);
+      if (!levelChip.includes("LEVEL 1-1")) errors.push("POLISH: level chip missing opening level (" + levelChip + ")");
       // Save & resume: a checkpoint is written when the night begins.
       const saved = await win.webContents.executeJavaScript(`!!localStorage.getItem('wod-save')`);
       if (!saved) errors.push("SAVE: no checkpoint after the night began");
@@ -197,10 +202,26 @@ app.whenReady().then(async () => {
       if (!(killsAfter - killsBefore >= 2)) {
         errors.push("EXPLODER: chain kills not credited (kills +" + (killsAfter - killsBefore) + ")");
       }
+      const chainBadge = await js(`document.querySelector('.streak-badge')?.classList.contains('streak-badge--show')`);
+      if (!chainBadge) errors.push("POLISH: chain badge did not appear after confirmed kills");
 
-      // Loop the night -> day -> continue cycle until the safe zone (multi-night).
+      // Model showcase: a lit row of varied zombies right at the wall so the
+      // enhanced silhouettes (armor, maws, sacs, etc.) are actually visible.
+      await js(`(()=>{ const e=window.__wod.ctx.enemies; e.clear();
+        const types=['shambler','runner','brute','spitter','armored','screamer','exploder','leaper','tank'];
+        for(let i=0;i<types.length;i++) e.spawn(types[i], -18+i*4.4, -7);
+        window.__wod.ctx.world.setDawn(0.6);
+      })()`);
+      await sleep(700);
+      await shot(win, "03e-zombie-models.png");
+      await js(`window.__wod.ctx.enemies.clear(); window.__wod.ctx.world.setDawn(0.05);`);
+
+      // Loop the night -> day -> continue cycle until the safe zone (full campaign).
+      const totalLegs = await js(`window.__wod.campaignTotal()`);
       let finalState = "";
-      for (let leg = 0; leg < 5; leg++) {
+      let endingSeen = false;
+      let swapSeen = false;
+      for (let leg = 0; leg < totalLegs; leg++) {
         await win.webContents.executeJavaScript(`window.__wod.forceDawn();`);
         await sleep(1700);
         if (leg === 0) {
@@ -231,7 +252,15 @@ app.whenReady().then(async () => {
           `(()=>{const b=document.querySelector('.act-start'); if(b){b.click(); return true;} return false;})()`
         );
         if (!started) errors.push("FLOW: no Supply Run button on report (leg " + leg + ")");
-        await sleep(1200);
+        await sleep(450);
+        // New: a population choice (loot vs. risk) precedes the run — pick "medium".
+        if (leg === 0) {
+          const hasChoice = await js(`!!document.querySelector('.act-supply-1')`);
+          if (!hasChoice) errors.push("SUPPLY: no population choice screen before the run");
+          else await shot(win, "06a-supply-choice.png");
+        }
+        await js(`(()=>{const b=document.querySelector('.act-supply-1'); if(b) b.click();})()`);
+        await sleep(900);
         if (leg === 0) {
           // Exercise the stealth verbs (toggle flashlight) while backing to the
           // safe entrance edge, away from the guards deeper in the lot — caught now
@@ -255,11 +284,18 @@ app.whenReady().then(async () => {
           `(()=>{const b=document.querySelector('.act-cont'); if(b) b.click();})()`
         );
         await sleep(700);
-        // A dawn dilemma may appear before the next night — pick the first option.
+        // A dawn dilemma — or, on the final leg, the Haven "freedom isn't free"
+        // ending choice — may appear. Capture its title, then pick the first option.
+        const dTitle = await js(`(()=>{const t=document.querySelector('.screen--report .panel-title'); return t? t.textContent : '';})()`);
+        if (dTitle && dTitle.indexOf("HAVEN") >= 0) endingSeen = true;
+        if (dTitle && dTitle.indexOf("ARMORY FULL") >= 0) swapSeen = true;
         const dilemma = await win.webContents.executeJavaScript(
           `(()=>{const b=document.querySelector('.act-choice-0'); if(b){b.click(); return true;} return false;})()`
         );
         if (leg === 0 && !dilemma) errors.push("STAKES: no dawn dilemma after the first day");
+        // Weapon cap: a found weapon at the cap becomes a swap, never a 6th gun.
+        const wc = await js(`window.__wod.ctx.run.weapons.length`);
+        if (wc > 5) errors.push("CAP: armory exceeded 5 weapons (" + wc + " on leg " + leg + ")");
         await sleep(700);
         // Then the road-map interstitial (story + advancing convoy).
         const road = await win.webContents.executeJavaScript(`!!document.querySelector('.screen--road')`);
@@ -268,17 +304,20 @@ app.whenReady().then(async () => {
         await win.webContents.executeJavaScript(`(()=>{const b=document.querySelector('.screen--road .act-cont'); if(b) b.click();})()`);
         await sleep(1400);
         finalState = await win.webContents.executeJavaScript(`window.__wod.state()`);
-        // The next leg re-themes the environment (per-night zone). Capture night 2
-        // so a zone-retint regression is visible in the shots.
-        if (leg === 0 && finalState === "night") {
+        // Each leg re-themes the environment (per-night zone + its signature
+        // feature: refinery smog / floodwater / ashfall / Haven floodlights).
+        // Capture every later night so a zone-retint regression shows in the shots.
+        if (finalState === "night" && leg < 4) {
           await win.webContents.executeJavaScript(`window.__wod.setNightProgress(0.4)`);
           await sleep(500);
-          await shot(win, "03d-night2-zone.png");
+          await shot(win, "03z-night" + (leg + 2) + "-zone.png");
         }
         if (finalState === "victory") break;
       }
       await shot(win, "08-victory.png");
       if (finalState !== "victory") errors.push("FLOW: expected victory, got " + finalState);
+      if (!endingSeen) errors.push("ENDING: Haven's-gate ending choice never appeared");
+      if (!swapSeen) errors.push("CAP: a found weapon at the cap never forced a swap decision");
       const clearedOnWin = await win.webContents.executeJavaScript(`!localStorage.getItem('wod-save')`);
       if (!clearedOnWin) errors.push("SAVE: checkpoint not cleared on victory");
       console.log("  final state:", finalState);
@@ -290,7 +329,9 @@ app.whenReady().then(async () => {
       await sleep(1200);
       await js(`window.__wod.forceDawn();`);
       await sleep(1600);
-      await js(`(()=>{const b=document.querySelector('.act-start'); if(b) b.click();})()`); // start supply run
+      await js(`(()=>{const b=document.querySelector('.act-start'); if(b) b.click();})()`); // report → supply choice
+      await sleep(450);
+      await js(`(()=>{const b=document.querySelector('.act-supply-1'); if(b) b.click();})()`); // pick population → run
       await sleep(1200);
       if (!(await js(`window.__wod.scavengeShown()`))) errors.push("EDGE: supply run not shown during day");
       await js(`window.dispatchEvent(new KeyboardEvent('keydown',{code:'Escape'}))`); // pause
@@ -315,6 +356,88 @@ app.whenReady().then(async () => {
       } else {
         errors.push("DEFEAT: could not reach night to test the death path");
       }
+
+      // ---- Extra coverage for the campaign systems (run on a fresh throwaway run) ----
+      await js(`window.__wod.startRun()`);
+      await sleep(700);
+      await js(`window.dispatchEvent(new KeyboardEvent('keydown',{code:'Escape'}))`); // skip story → night
+      await sleep(1300);
+      const probe = await js(`window.__wod.state()`);
+      if (probe === "night") {
+        // (a) Every weapon — including the new later-act finds — selects + fires
+        // tracers through the real bullet/combat path without error.
+        await js(`(()=>{ const r=window.__wod.ctx.run; ['rifle','ar','dmr','autoshotgun','minigun','magnum','lmg'].forEach(id=>r.grantWeapon(id)); })()`);
+        await js(`(()=>{ const e=window.__wod.ctx.enemies; e.clear(); for(let i=0;i<7;i++) e.spawn('shambler', -12+i*4, -34); })()`);
+        const fired = await js(`(()=>{ const w=window.__wod.ctx; let n=0;
+          for(let i=0;i<w.run.weapons.length;i++){ const def=w.run.weapons[i].def;
+            for(const dx of [-0.12,0,0.12]) w.bullets.spawn(0, w.player.z, dx, -1, def, def.damage, true);
+            n++; }
+          return n; })()`);
+        if (!(fired >= 8)) errors.push("WEAPONS: expected 8+ distinct weapons to fire, fired " + fired);
+        await sleep(380);
+        await shot(win, "11-new-weapons.png");
+      } else {
+        errors.push("WEAPONS: could not reach a night for the weapon-fire test (got " + probe + ")");
+      }
+
+      // (b) The supply-run population choice changes BOTH the haul and the look
+      // (open outskirts vs. a dense route), and every act has its own skin.
+      await js(`window.__wod.ctx.run.night = 1`);
+      await js(`window.__wod.startSupply('low')`);
+      await sleep(550);
+      const lowTotal = await js(`window.__wod.scavengeTotal()`);
+      const lowEnv = await js(`window.__wod.envName()`);
+      const supplyChip = await js(`(()=>{const c=document.querySelector('.level-chip-v'); return c ? c.textContent : '';})()`);
+      if (!supplyChip.includes("SUPPLY")) errors.push("POLISH: supply run did not update level chip (" + supplyChip + ")");
+      await shot(win, "12a-supply-outskirts.png");
+      await js(`window.__wod.startSupply('med')`);
+      await sleep(550);
+      await shot(win, "12b-supply-blocks.png");
+      await js(`window.__wod.startSupply('high')`);
+      await sleep(550);
+      const highTotal = await js(`window.__wod.scavengeTotal()`);
+      const highEnv = await js(`window.__wod.envName()`);
+      await shot(win, "12c-supply-crowded.png");
+      if (!(highTotal > lowTotal)) errors.push("DENSITY: high-pop haul (" + highTotal + ") not richer than low (" + lowTotal + ")");
+      if (!lowEnv.includes("QUIET")) errors.push("DENSITY: low route mislabeled (" + lowEnv + ")");
+      if (!highEnv.includes("CROWDED")) errors.push("DENSITY: high route mislabeled (" + highEnv + ")");
+      if (!highEnv.includes("OUTER ROAD")) errors.push("ACT SKIN: act 1 supply run mislabeled (" + highEnv + ")");
+
+      await js(`window.__wod.ctx.run.night = 4; window.__wod.startSupply('med')`);
+      await sleep(550);
+      const floodEnv = await js(`window.__wod.envName()`);
+      await shot(win, "12d-supply-floodline.png");
+      if (!floodEnv.includes("FLOODLINE")) errors.push("ACT SKIN: act 2 supply run mislabeled (" + floodEnv + ")");
+
+      await js(`window.__wod.ctx.run.night = 7; window.__wod.startSupply('med')`);
+      await sleep(550);
+      const havenEnv = await js(`window.__wod.envName()`);
+      await shot(win, "12e-supply-haven.png");
+      if (!havenEnv.includes("HAVEN")) errors.push("ACT SKIN: act 3 supply run mislabeled (" + havenEnv + ")");
+
+      // (c) Inter-night events: with a full roster, repeated marches both claim
+      // allies (random ally-death) and sometimes pay off — both branches run.
+      await js(`(()=>{ const r=window.__wod.ctx.run; r.companions=['Mara','Pike','Dunn']; r.companionTraits={Mara:'gunner',Pike:'marksman',Dunn:'medic'}; r.night=4; })()`);
+      const ev = await js(`(()=>{ let deaths=0, lines=0;
+        for(let i=0;i<60 && window.__wod.ctx.run.companions.length>0;i++){
+          const before=window.__wod.ctx.run.companions.length;
+          const line=window.__wod.interNightEvent();
+          if(line) lines++;
+          if(window.__wod.ctx.run.companions.length<before) deaths++;
+        }
+        return {deaths,lines}; })()`);
+      if (!(ev.deaths >= 1)) errors.push("EVENT: inter-night ally-death never fired across 60 marches");
+      if (!(ev.lines >= 1)) errors.push("EVENT: inter-night events produced no narrative lines");
+
+      // (d) The "leave" Haven ending — the branch the main run didn't take.
+      await js(`window.__wod.forceVictory()`);
+      await sleep(400);
+      const choiceN = await js(`document.querySelectorAll('.act-choice').length`);
+      if (choiceN < 2) errors.push("ENDING: Haven gate did not offer two endings (" + choiceN + ")");
+      await js(`(()=>{const b=document.querySelector('.act-choice-1'); if(b) b.click();})()`); // walk back into the dark
+      await sleep(500);
+      if (!(await js(`!!document.querySelector('.screen--victory')`))) errors.push("ENDING: leave-ending did not reach the victory screen");
+      await shot(win, "13-ending-leave.png");
     } catch (e) {
       errors.push("EXCEPTION: " + (e && e.message ? e.message : String(e)));
     }

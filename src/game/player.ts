@@ -259,51 +259,121 @@ export class Player {
     this.aimMarker.visible = b;
   }
 
-  /** Build a distinct silhouette for the held weapon (rebuilt on swap). */
+  /** Build a distinct, detailed silhouette for the held weapon (rebuilt on swap).
+   * Every weapon id in WEAPONS has its own model — no generic fallback. */
   private buildGunModel(id: string): void {
     if (id === this.gunId) return;
     this.gunId = id;
     for (let i = this.gunGroup.children.length - 1; i >= 0; i--) {
       this.gunGroup.remove(this.gunGroup.children[i]);
     }
-    const metal = new THREE.MeshStandardMaterial({ color: 0x141619, roughness: 0.55, metalness: 0.55, flatShading: true });
+    const metal = new THREE.MeshStandardMaterial({ color: 0x16191d, roughness: 0.5, metalness: 0.6, flatShading: true });
+    const poly = new THREE.MeshStandardMaterial({ color: 0x101214, roughness: 0.9, metalness: 0.15, flatShading: true });
     const wood = new THREE.MeshStandardMaterial({ color: 0x3a2a1a, roughness: 1, flatShading: true });
-    const add = (geo: THREE.BufferGeometry, mat: THREE.Material, x: number, y: number, z: number) => {
+    const brass = new THREE.MeshStandardMaterial({ color: 0x9a7a30, roughness: 0.4, metalness: 0.7, flatShading: true });
+    const sightMat = new THREE.MeshStandardMaterial({ color: 0x113, emissive: new THREE.Color(0x66ddff), emissiveIntensity: 1 });
+    const X = 0.12;
+    const add = (geo: THREE.BufferGeometry, mat: THREE.Material, x: number, y: number, z: number, rx = 0, rz = 0) => {
       const m = new THREE.Mesh(geo, mat);
-      m.position.set(x, y, z);
+      m.position.set(X + x, y, z);
+      if (rx) m.rotation.x = rx;
+      if (rz) m.rotation.z = rz;
       this.gunGroup.add(m);
       return m;
     };
     const box = (w: number, h: number, d: number) => new THREE.BoxGeometry(w, h, d);
-    const X = 0.12;
+    // Barrel/tube aligned down the gun's forward (-Z) axis.
+    const tube = (r: number, len: number, x: number, y: number, z: number, mat: THREE.Material = metal) =>
+      add(new THREE.CylinderGeometry(r, r, len, 10), mat, x, y, z, Math.PI / 2);
+    const sight = (z: number, y = 0.13) => add(box(0.03, 0.05, 0.03), sightMat, 0, y, z);
+
     switch (id) {
       case "pistol":
-        add(box(0.12, 0.18, 0.42), metal, X, 0.02, -0.42);
-        add(box(0.1, 0.22, 0.12), metal, X, -0.16, -0.22); // grip
+        add(box(0.11, 0.17, 0.46), metal, 0, 0.02, -0.4); // slide
+        add(box(0.09, 0.05, 0.5), poly, 0, -0.07, -0.42); // frame/rail
+        add(box(0.1, 0.24, 0.13), poly, 0, -0.18, -0.2, 0, 0.18); // grip
+        add(box(0.07, 0.08, 0.1), poly, 0, -0.06, -0.12); // trigger guard
+        sight(-0.6, 0.12);
+        break;
+      case "magnum":
+        add(box(0.12, 0.16, 0.34), metal, 0, 0.03, -0.34); // frame
+        tube(0.06, 0.7, 0, 0.05, -0.62); // long barrel
+        add(new THREE.CylinderGeometry(0.11, 0.11, 0.18, 8), metal, 0, 0.0, -0.26, Math.PI / 2); // cylinder/drum
+        add(box(0.1, 0.26, 0.14), wood, 0, -0.18, -0.16, 0, 0.22); // wood grip
+        sight(-0.95, 0.14);
         break;
       case "smg":
-        add(box(0.14, 0.18, 0.7), metal, X, 0.02, -0.5);
-        add(box(0.1, 0.28, 0.12), metal, X, -0.18, -0.3); // mag
-        add(box(0.1, 0.2, 0.14), metal, X, -0.14, -0.06); // grip
+        add(box(0.13, 0.18, 0.64), poly, 0, 0.02, -0.46); // receiver
+        tube(0.045, 0.4, 0, 0.04, -0.82); // barrel
+        add(box(0.1, 0.3, 0.12), metal, 0, -0.2, -0.28, 0, 0.12); // angled mag
+        add(box(0.1, 0.2, 0.14), poly, 0, -0.13, -0.04); // grip
+        add(box(0.08, 0.14, 0.1), poly, 0, -0.06, -0.62); // foregrip
+        add(box(0.1, 0.1, 0.3), metal, 0, 0.03, 0.18); // wire stock base
+        sight(-0.66);
+        break;
+      case "ar":
+        add(box(0.12, 0.17, 0.9), poly, 0, 0.02, -0.55); // receiver/handguard
+        tube(0.04, 0.55, 0, 0.04, -1.0); // barrel
+        add(new THREE.CylinderGeometry(0.06, 0.06, 0.14, 8), metal, 0, 0.04, -1.28, Math.PI / 2); // flash hider
+        add(box(0.11, 0.34, 0.13), metal, 0, -0.22, -0.34, 0, 0.28); // curved STANAG mag (angled)
+        add(box(0.1, 0.2, 0.14), poly, 0, -0.13, -0.02); // grip
+        add(box(0.12, 0.16, 0.34), poly, 0, 0.0, 0.22); // stock
+        add(box(0.05, 0.09, 0.26), metal, 0, 0.16, -0.5); // carry-handle optic
+        sight(-0.7, 0.17);
+        break;
+      case "dmr":
+        add(box(0.12, 0.16, 1.0), metal, 0, 0.02, -0.62); // long receiver
+        tube(0.04, 0.7, 0, 0.04, -1.12); // long barrel
+        add(box(0.12, 0.18, 0.4), wood, 0, -0.02, 0.06); // wood stock
+        add(box(0.1, 0.22, 0.12), wood, 0, -0.16, -0.18, 0, 0.2); // grip
+        // big scope: two tube sections on a riser
+        add(box(0.05, 0.08, 0.5), metal, 0, 0.14, -0.5); // riser rail
+        tube(0.07, 0.46, 0, 0.23, -0.52); // scope body
+        add(new THREE.CylinderGeometry(0.09, 0.09, 0.1, 10), metal, 0, 0.23, -0.78, Math.PI / 2); // objective bell
         break;
       case "shotgun":
-        add(box(0.16, 0.18, 1.0), metal, X, 0.02, -0.62);
-        add(box(0.14, 0.12, 0.5), wood, X, -0.12, -0.4); // pump
-        add(box(0.13, 0.16, 0.34), wood, X, -0.02, 0.02); // stock
+        add(box(0.15, 0.18, 0.96), metal, 0, 0.02, -0.6); // receiver
+        tube(0.055, 0.7, 0, 0.07, -0.78); // barrel
+        tube(0.05, 0.6, 0, -0.06, -0.74); // mag tube under barrel
+        add(box(0.13, 0.12, 0.46), wood, 0, -0.1, -0.42); // pump
+        add(box(0.13, 0.18, 0.4), wood, 0, -0.02, 0.06); // wood stock
+        sight(-1.0, 0.14);
         break;
-      case "rifle":
-        add(box(0.14, 0.16, 1.2), metal, X, 0.02, -0.72);
-        add(box(0.1, 0.1, 0.3), metal, X, 0.14, -0.55); // scope
-        add(box(0.12, 0.16, 0.36), wood, X, -0.02, 0.04); // stock
+      case "autoshotgun":
+        add(box(0.16, 0.2, 0.7), poly, 0, 0.02, -0.5); // boxy receiver
+        tube(0.06, 0.5, 0, 0.06, -0.84); // barrel
+        add(new THREE.CylinderGeometry(0.18, 0.18, 0.16, 12), metal, 0, -0.16, -0.26, Math.PI / 2); // drum mag
+        add(box(0.1, 0.2, 0.14), poly, 0, -0.13, -0.02); // grip
+        add(box(0.12, 0.18, 0.34), poly, 0, 0.0, 0.2); // stock
+        sight(-0.66, 0.16);
         break;
       case "lmg":
-        add(box(0.2, 0.22, 1.25), metal, X, 0.02, -0.7);
-        add(box(0.24, 0.3, 0.34), metal, X, -0.14, -0.4); // box mag
-        add(box(0.06, 0.06, 0.5), metal, X, -0.16, -1.0); // bipod-ish barrel
-        add(box(0.14, 0.18, 0.36), metal, X, -0.02, 0.06); // stock
+        add(box(0.2, 0.22, 1.1), metal, 0, 0.02, -0.62); // heavy receiver
+        tube(0.06, 0.8, 0, 0.05, -1.05); // long barrel
+        add(box(0.26, 0.32, 0.36), metal, 0, -0.16, -0.36); // box mag
+        add(box(0.14, 0.05, 0.24), brass, -0.06, -0.28, -0.3); // hanging ammo belt
+        add(box(0.12, 0.2, 0.14), poly, 0, -0.13, -0.02); // grip
+        add(box(0.16, 0.18, 0.36), poly, 0, 0.0, 0.22); // stock
+        // bipod legs splayed under the barrel
+        add(box(0.03, 0.34, 0.03), metal, -0.08, -0.2, -1.0, 0, 0.5);
+        add(box(0.03, 0.34, 0.03), metal, 0.08, -0.2, -1.0, 0, -0.5);
+        sight(-0.7, 0.18);
         break;
+      case "minigun": {
+        add(box(0.26, 0.28, 0.62), metal, 0, 0.0, -0.4); // big body/housing
+        // rotary barrel cluster: six tubes in a ring
+        for (let k = 0; k < 6; k++) {
+          const a = (k / 6) * Math.PI * 2;
+          tube(0.035, 0.95, Math.cos(a) * 0.08, Math.sin(a) * 0.08, -0.95);
+        }
+        add(new THREE.CylinderGeometry(0.13, 0.13, 0.12, 12), metal, 0, 0.0, -1.42, Math.PI / 2); // muzzle ring
+        add(box(0.18, 0.26, 0.3), poly, 0, -0.04, 0.12); // ammo feed box
+        add(box(0.09, 0.22, 0.13), poly, 0, -0.18, -0.06, 0, 0.1); // grip
+        sight(-0.66, 0.2);
+        break;
+      }
       default:
-        add(box(0.14, 0.16, 0.8), metal, X, 0.02, -0.55);
+        add(box(0.14, 0.16, 0.8), metal, 0, 0.02, -0.55);
         break;
     }
   }

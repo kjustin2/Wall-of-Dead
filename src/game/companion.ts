@@ -32,14 +32,16 @@ class Companion {
   private marker = new THREE.Group();
   private hpFill: THREE.Sprite;
   private hpBg: THREE.Sprite;
-  private meleeLabel: THREE.Sprite;
+  private meleeLabel: THREE.Sprite; // gun assigned but empty → "OUT OF AMMO"
+  private noGunLabel: THREE.Sprite; // no weapon assigned at all → "NEEDS A GUN"
   private nameLabel!: THREE.Sprite;
   private t = 0;
   private barkTimer = 5;
   private reviveP = 0;
   private revivedThisFrame = false;
+  private markersVisible = true;
   private aimRig = new THREE.Group();
-  private gun: THREE.Mesh;
+  private gun: THREE.Group;
 
   constructor(public name: string, public x: number, scene: THREE.Scene, public trait?: TraitId) {
     this.group.position.set(x, FIELD.rampartHeight, FIELD.rampartZ + 0.4);
@@ -52,11 +54,24 @@ class Companion {
     torso.castShadow = true;
     const chest = new THREE.Mesh(new THREE.BoxGeometry(0.68, 0.5, 0.46), vest);
     chest.position.y = 1.02;
+    const neck = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.16, 0.2), skin);
+    neck.position.y = 1.42;
+    this.group.add(neck);
     const head = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.38, 0.36), skin);
     head.position.y = 1.62;
     head.castShadow = true;
     const cap = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.18, 0.42), vest);
     cap.position.y = 1.84;
+    const brim = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.05, 0.16), vest);
+    brim.position.set(0, 1.78, -0.26);
+    this.group.add(brim);
+    // A dark visor across the brow.
+    const visor = new THREE.Mesh(
+      new THREE.BoxGeometry(0.34, 0.08, 0.1),
+      new THREE.MeshStandardMaterial({ color: 0x0d1014, roughness: 0.4, metalness: 0.4, emissive: new THREE.Color(0x16323a), emissiveIntensity: 0.5 })
+    );
+    visor.position.set(0, 1.66, 0.2);
+    this.group.add(visor);
     for (const lx of [-0.16, 0.16]) {
       const leg = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.8, 0.22), vest);
       leg.position.set(lx, 0.4, 0);
@@ -104,12 +119,31 @@ class Companion {
 
     this.aimRig.position.y = 1.25;
     this.aimRig.rotation.y = Math.PI;
-    this.gun = new THREE.Mesh(
-      new THREE.BoxGeometry(0.13, 0.14, 0.9),
-      new THREE.MeshStandardMaterial({ color: 0x141619, roughness: 0.6, metalness: 0.5 })
-    );
-    this.gun.position.set(0.1, 0, 0.5);
+    // A proper little carbine instead of a plain box: receiver + barrel + mag +
+    // stock, plus gloved arms reaching to hold it (they yaw with the aim rig).
+    const gunMat = new THREE.MeshStandardMaterial({ color: 0x141619, roughness: 0.6, metalness: 0.5, flatShading: true });
+    const gun = new THREE.Group();
+    const receiver = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.14, 0.62), gunMat);
+    receiver.position.z = 0.42;
+    const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.035, 0.5, 8), gunMat);
+    barrel.rotation.x = Math.PI / 2;
+    barrel.position.z = 0.88;
+    const mag = new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.24, 0.1), gunMat);
+    mag.position.set(0, -0.17, 0.3);
+    const stock = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.13, 0.24), gunMat);
+    stock.position.z = 0.04;
+    gun.add(receiver, barrel, mag, stock);
+    gun.position.set(0.1, 0, 0.0);
+    this.gun = gun;
     this.aimRig.add(this.gun);
+    const handMat = new THREE.MeshStandardMaterial({ color: 0x101316, roughness: 1, flatShading: true });
+    const armR = new THREE.Mesh(new THREE.BoxGeometry(0.13, 0.13, 0.5), coat);
+    armR.position.set(0.16, -0.05, 0.34);
+    const armL = new THREE.Mesh(new THREE.BoxGeometry(0.11, 0.11, 0.42), coat);
+    armL.position.set(0.04, -0.06, 0.56);
+    const handR = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.12, 0.12), handMat);
+    handR.position.set(0.12, -0.04, 0.58);
+    this.aimRig.add(armR, armL, handR);
     this.group.add(this.aimRig);
 
     this.muzzle = new THREE.PointLight(0xffd27a, 0, 8, 2);
@@ -126,11 +160,17 @@ class Companion {
     const label = makeLabel(`${name}  ·  ${tLabel}`, trait ? TRAITS[trait].color : "#9dffd0");
     label.position.y = 3.05;
     this.nameLabel = label;
-    this.meleeLabel = makeLabel("⚠ NEEDS A GUN", "#ff9a5a");
-    this.meleeLabel.position.y = 3.05; // same slot as the nameplate — they swap, never overlap
+    // Two status nameplates that share the nameplate slot (only one ever shows):
+    // an assigned gun that's run dry vs. an ally with no gun at all.
+    this.meleeLabel = makeLabel("⚠ OUT OF AMMO", "#ffcf6a");
+    this.meleeLabel.position.y = 3.05;
     this.meleeLabel.scale.set(3.2, 0.8, 1);
     this.meleeLabel.visible = false;
-    this.marker.add(glow, chevron, label, this.meleeLabel);
+    this.noGunLabel = makeLabel("⚠ NEEDS A GUN", "#ff9a5a");
+    this.noGunLabel.position.y = 3.05;
+    this.noGunLabel.scale.set(3.2, 0.8, 1);
+    this.noGunLabel.visible = false;
+    this.marker.add(glow, chevron, label, this.meleeLabel, this.noGunLabel);
     this.group.add(this.marker);
 
     // Mini health bar (billboarded)
@@ -164,16 +204,16 @@ class Companion {
   /** Toggle the floating UI markers (nameplate, chevron, glow, melee/hp) — kept
    * off during cutscenes/reports so they don't intrude on those screens. */
   showMarkers(b: boolean): void {
+    this.markersVisible = b;
     this.marker.visible = b;
-    this.hpBg.visible = b && this.hpBg.visible;
-    this.hpFill.visible = b && this.hpFill.visible;
+    this.setBar();
   }
 
   private setBar(): void {
     const frac = Math.max(0, this.hp / this.maxHp);
     this.hpFill.scale.x = 1.2 * frac;
     (this.hpFill.material as THREE.SpriteMaterial).color.setHSL(frac * 0.33, 0.7, 0.5);
-    const show = !this.down && frac < 0.999;
+    const show = this.markersVisible && !this.down && frac < 0.999;
     this.hpBg.visible = show;
     this.hpFill.visible = show;
   }
@@ -184,12 +224,15 @@ class Companion {
     this.marker.position.y = Math.sin(this.t * 3) * 0.12;
     this.marker.rotation.y = this.t * 0.8;
     this.setBar();
-    // "MELEE" indicator when this ally has no usable weapon
+    // Status nameplate: a dry assigned gun reads "OUT OF AMMO"; an ally with no
+    // gun reads "NEEDS A GUN". The name and these share one slot — only one shows.
     const wiNow = ctx.run.allyWeaponIndex(this.name);
     const loNow = wiNow >= 0 ? ctx.run.weapons[wiNow] : null;
-    this.meleeLabel.visible = !this.down && (!loNow || (loNow.ammo <= 0 && loNow.reserve <= 0));
-    // Name and "MELEE" share one slot — only ever one of them is shown.
-    this.nameLabel.visible = !this.meleeLabel.visible;
+    const outOfAmmo = !this.down && !!loNow && loNow.ammo <= 0 && loNow.reserve <= 0;
+    const needsGun = !this.down && !loNow;
+    this.meleeLabel.visible = outOfAmmo;
+    this.noGunLabel.visible = needsGun;
+    this.nameLabel.visible = !outOfAmmo && !needsGun;
     if (this.down) {
       // Revive progress bleeds back down if you stop holding E (don't bank it).
       if (!this.revivedThisFrame) this.reviveP = Math.max(0, this.reviveP - dt * 0.6);
@@ -206,7 +249,7 @@ class Companion {
     }
 
     this.barkTimer -= dt;
-    if (this.barkTimer <= 0) {
+    if (this.markersVisible && this.barkTimer <= 0) {
       this.barkTimer = 6 + ctx.rng.next() * 8;
       ctx.floaters.spawn(this.x, 3.4, this.group.position.z, ctx.rng.pick(BARKS), "heal");
     }

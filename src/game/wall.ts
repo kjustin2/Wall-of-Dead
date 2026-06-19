@@ -88,6 +88,56 @@ export class Wall {
     plank.rotation.z = this.rng.range(-0.04, 0.04);
     g.add(plank);
 
+    // Corrugated steel backing panel on the defender's side — the braced inner
+    // face you fire over.
+    const panel = new THREE.Mesh(
+      new THREE.BoxGeometry(SEG_W - 0.4, H + 0.1, 0.12),
+      new THREE.MeshStandardMaterial({ color: 0x2a2f34, roughness: 0.7, metalness: 0.45, flatShading: true })
+    );
+    panel.position.set(0, (H + 0.1) / 2, FIELD.wallThickness * 0.5 + 0.07);
+    panel.castShadow = true;
+    panel.receiveShadow = true;
+    g.add(panel);
+    // Riveted vertical ribs on the panel.
+    for (const rx of [-0.34, 0, 0.34]) {
+      const rib = new THREE.Mesh(new THREE.BoxGeometry(0.06, H, 0.05), panel.material as THREE.Material);
+      rib.position.set(rx * (SEG_W - 1), (H + 0.1) / 2, FIELD.wallThickness * 0.5 + 0.14);
+      g.add(rib);
+    }
+    // Hazard stripe along the base front (field side).
+    const stripe = new THREE.Mesh(
+      new THREE.BoxGeometry(SEG_W - 0.3, 0.16, 0.05),
+      new THREE.MeshStandardMaterial({ color: 0xb8a02a, roughness: 0.8, emissive: new THREE.Color(0x261f05) })
+    );
+    stripe.position.set(0, 0.34, -FIELD.wallThickness * 0.5 - 0.03);
+    g.add(stripe);
+    // A diagonal timber brace propping the inner face.
+    const brace = new THREE.Mesh(
+      new THREE.BoxGeometry(0.14, 1.5, 0.14),
+      new THREE.MeshStandardMaterial({ color: C_WOOD, roughness: 1, flatShading: true })
+    );
+    brace.position.set(SEG_W * 0.28, 0.82, FIELD.wallThickness * 0.5 + 0.18);
+    brace.rotation.z = 0.7;
+    g.add(brace);
+    // Alternating foot buttress: a stack of tyres or a chemical drum.
+    if (i % 2 === 0) {
+      const tireMat = new THREE.MeshStandardMaterial({ color: 0x0c0c0e, roughness: 1 });
+      for (let k = 0; k < 3; k++) {
+        const tire = new THREE.Mesh(new THREE.CylinderGeometry(0.34, 0.34, 0.2, 12), tireMat);
+        tire.position.set(-SEG_W * 0.34, 0.16 + k * 0.18, -FIELD.wallThickness * 0.5 - 0.22);
+        tire.castShadow = true;
+        g.add(tire);
+      }
+    } else {
+      const drum = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.32, 0.32, 1.0, 12),
+        new THREE.MeshStandardMaterial({ color: 0x3a4a2a, roughness: 1, flatShading: true })
+      );
+      drum.position.set(-SEG_W * 0.34, 0.5, -FIELD.wallThickness * 0.5 - 0.24);
+      drum.castShadow = true;
+      g.add(drum);
+    }
+
     this.segGroup.push(g);
     this.group.add(g);
     this.hp[i] = MAX_PER;
@@ -111,13 +161,22 @@ export class Wall {
       wire.position.set(0, H + 0.55 + k * 0.22, FIELD.wallZ + (k === 0 ? -0.2 : 0.2));
       this.group.add(wire);
     }
-    // A few barbs/coils suggested with small tilted boxes.
-    const barbMat = wireMat;
-    for (let i = 0; i < 24; i++) {
-      const barb = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.3, 0.04), barbMat);
-      barb.position.set(this.rng.range(-FIELD.wallHalf, FIELD.wallHalf), H + 0.62, FIELD.wallZ);
-      barb.rotation.z = this.rng.range(-0.8, 0.8);
-      this.group.add(barb);
+    // Concertina coils running the length of the top — proper barbed-wire read.
+    const coilGeo = new THREE.TorusGeometry(0.22, 0.028, 5, 9);
+    const N = 22;
+    for (let i = 0; i < N; i++) {
+      const coil = new THREE.Mesh(coilGeo, wireMat);
+      coil.position.set(-FIELD.wallHalf + (i + 0.5) * ((FIELD.wallHalf * 2) / N), H + 0.62, FIELD.wallZ);
+      coil.rotation.y = Math.PI / 2;
+      coil.rotation.x = this.rng.range(-0.25, 0.25);
+      this.group.add(coil);
+      // a couple of sharp barbs jutting off each coil
+      for (let b = 0; b < 2; b++) {
+        const barb = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.16, 0.03), wireMat);
+        barb.position.set(coil.position.x, H + 0.62 + this.rng.range(-0.12, 0.12), FIELD.wallZ + this.rng.range(-0.18, 0.18));
+        barb.rotation.z = this.rng.range(-0.9, 0.9);
+        this.group.add(barb);
+      }
     }
   }
 

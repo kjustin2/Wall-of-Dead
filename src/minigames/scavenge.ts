@@ -1,8 +1,9 @@
 import * as THREE from "three";
 import type { Ctx } from "../game/ctx";
-import { makeGlow, makeLabel, concreteTexture, stencilTexture } from "../render/textures";
+import { makeGlow, makeLabel, concreteTexture, stencilTexture, glowTexture } from "../render/textures";
 import { clamp } from "../core/math";
 import { TRAITS } from "../game/traits";
+import { levelInfo, type SupplyTheme } from "../game/acts";
 
 const SURVIVOR_NAMES = ["Cole", "Reyes", "Tess", "Vance", "Okafor", "Lin", "Brenner"];
 
@@ -10,9 +11,171 @@ const DURATION = 62;
 const AREA = { minX: -40, maxX: 40, minZ: -66, maxZ: -3 };
 const SNEAK = 6.4;
 const SPRINT = 12;
-const CRATES = 8; // supply crates that count toward the run rating
-const KIT_CRATES = 2; // bonus wall-repair-kit pickups
+const CRATES = 8; // default supply crates (per-run count comes from DENSITY)
 const AV_R = 0.6;
+
+/** Where you choose to scavenge. The choice drives BOTH the danger/loot AND the
+ * look of the map, so it matches its label: a crowded district is a dense, neon-
+ * lit maze with the richest (and most-guarded) haul; the quiet outskirts are an
+ * open, scrubby, near-empty edge of town — lean pickings, but far safer. */
+export type Density = "low" | "med" | "high";
+interface DensityCfg {
+  name: string; // shown in the day banner
+  guardMul: number; // scales the patrol count
+  crates: number; // supply crates to find (also the run-rating denominator)
+  gold: number; // how many of those are rich "ammo cache" crates
+  kits: number; // bonus repair-kit pickups
+  // --- environment skin ---
+  floor: number; // floor tint
+  wall: number; // cover-wall tint
+  cap: number; // wall-cap tint
+  fog: number; // scene fog density
+  layouts: number[]; // which MAPS layouts this archetype draws from
+  lanes: boolean; // painted lot/lane lines (urban only)
+  rubble: number;
+  barrels: number;
+  planks: number;
+  blood: number;
+  redLights: number; // flickering emergency lights (urban)
+  neon: number; // hazard neon signs (urban)
+  graffiti: number; // floor stencils
+  glints: number; // broken-glass sparkles
+  trees: number; // dead scrub trees (outskirts)
+  buildings: number; // backdrop building silhouettes (urban)
+}
+const DENSITY: Record<Density, DensityCfg> = {
+  high: {
+    name: "CROWDED DISTRICT", guardMul: 1.6, crates: 12, gold: 4, kits: 3,
+    floor: 0x2b323a, wall: 0x2a2f35, cap: 0x3a4048, fog: 0.05, layouts: [1, 3, 4],
+    lanes: true, rubble: 24, barrels: 10, planks: 12, blood: 11, redLights: 4, neon: 3, graffiti: 5, glints: 24, trees: 0, buildings: 16,
+  },
+  med: {
+    name: "PICKED-OVER BLOCKS", guardMul: 1.0, crates: 8, gold: 2, kits: 2,
+    floor: 0x2a2d2a, wall: 0x2c3026, cap: 0x3a4030, fog: 0.04, layouts: [0, 2],
+    lanes: true, rubble: 14, barrels: 6, planks: 8, blood: 7, redLights: 2, neon: 1, graffiti: 3, glints: 14, trees: 3, buildings: 8,
+  },
+  low: {
+    name: "QUIET OUTSKIRTS", guardMul: 0.6, crates: 5, gold: 1, kits: 1,
+    floor: 0x2b2a1d, wall: 0x33301f, cap: 0x403924, fog: 0.03, layouts: [5, 6],
+    lanes: false, rubble: 9, barrels: 3, planks: 4, blood: 3, redLights: 0, neon: 0, graffiti: 1, glints: 6, trees: 9, buildings: 0,
+  },
+};
+
+interface ActSkin {
+  route: string;
+  floor: number;
+  wall: number;
+  cap: number;
+  accent: number;
+  guard: number;
+  crate: number;
+  gold: number;
+  kit: number;
+  backdrop: number;
+  window: number;
+  fogMul: number;
+  layouts: Record<Density, number[]>;
+  lanes?: boolean;
+  rubbleMul: number;
+  barrelMul: number;
+  neonMul: number;
+  redMul: number;
+  glintMul: number;
+}
+
+const ACT_SKINS: Record<SupplyTheme, ActSkin> = {
+  outer: {
+    route: "OUTER ROAD",
+    floor: 0x332f2b,
+    wall: 0x35302b,
+    cap: 0x514137,
+    accent: 0xff5a2c,
+    guard: 0xffb24a,
+    crate: 0x5a3f25,
+    gold: 0xc58a22,
+    kit: 0x2c5260,
+    backdrop: 0x12100f,
+    window: 0xb15a24,
+    fogMul: 1,
+    layouts: { high: [1, 3, 4], med: [0, 2], low: [5, 6] },
+    lanes: true,
+    rubbleMul: 1.15,
+    barrelMul: 1.2,
+    neonMul: 0.7,
+    redMul: 1,
+    glintMul: 1,
+  },
+  flood: {
+    route: "FLOODLINE",
+    floor: 0x18313a,
+    wall: 0x203a42,
+    cap: 0x315866,
+    accent: 0x73dfff,
+    guard: 0x78e2ff,
+    crate: 0x214752,
+    gold: 0x8aa84a,
+    kit: 0x2a6478,
+    backdrop: 0x0b161b,
+    window: 0x4bb6ca,
+    fogMul: 1.24,
+    layouts: { high: [3, 4], med: [2, 4], low: [5] },
+    lanes: false,
+    rubbleMul: 0.85,
+    barrelMul: 0.65,
+    neonMul: 0.55,
+    redMul: 0.65,
+    glintMul: 1.8,
+  },
+  haven: {
+    route: "HAVEN PERIMETER",
+    floor: 0x34383d,
+    wall: 0x343d46,
+    cap: 0x64707c,
+    accent: 0xcfe9ff,
+    guard: 0xff4030,
+    crate: 0x36414a,
+    gold: 0xb8a35a,
+    kit: 0x33576a,
+    backdrop: 0x11171e,
+    window: 0xbfdfff,
+    fogMul: 0.82,
+    layouts: { high: [1, 3], med: [0, 4], low: [6] },
+    lanes: true,
+    rubbleMul: 0.7,
+    barrelMul: 0.45,
+    neonMul: 0.2,
+    redMul: 1.4,
+    glintMul: 1.25,
+  },
+};
+
+const RUN_LABEL: Record<Density, string> = {
+  high: "CROWDED",
+  med: "SALVAGE",
+  low: "QUIET",
+};
+
+function mixColor(a: number, b: number, t: number): number {
+  return new THREE.Color(a).lerp(new THREE.Color(b), t).getHex();
+}
+
+function themedDensity(base: DensityCfg, skin: ActSkin, density: Density): DensityCfg {
+  return {
+    ...base,
+    name: `${skin.route} - ${RUN_LABEL[density]}`,
+    floor: mixColor(base.floor, skin.floor, 0.62),
+    wall: mixColor(base.wall, skin.wall, 0.6),
+    cap: mixColor(base.cap, skin.cap, 0.6),
+    fog: base.fog * skin.fogMul,
+    layouts: skin.layouts[density],
+    lanes: skin.lanes ?? base.lanes,
+    rubble: Math.max(2, Math.round(base.rubble * skin.rubbleMul)),
+    barrels: Math.max(0, Math.round(base.barrels * skin.barrelMul)),
+    redLights: Math.max(0, Math.round(base.redLights * skin.redMul)),
+    neon: Math.max(0, Math.round(base.neon * skin.neonMul)),
+    glints: Math.max(0, Math.round(base.glints * skin.glintMul)),
+  };
+}
 const VISION_RANGE = 15;
 const CONE_HALF = 0.52; // radians, half-angle of a guard's sight cone
 const NOISE_SPRINT = 12; // a sprinting avatar is heard within this radius
@@ -92,7 +255,6 @@ interface HideZone {
   z: number;
 }
 
-const AMBER = 0xffb24a;
 const THREAT = 0xff4030;
 
 // Several maze-ish layouts (corners to break line of sight); one is picked per
@@ -148,6 +310,60 @@ const MAPS: Wall[][] = [
     { x: 12, z: -24, w: 2.4, d: 4.6, car: true },
     { x: -16, z: -36, w: 4.6, d: 2.4, car: true },
     { x: 22, z: -56, w: 2.4, d: 4.6, car: true },
+  ],
+  // 3 — central spine with side rooms (forces commit down one flank)
+  [
+    { x: 0, z: -14, w: 1.4, d: 18 },
+    { x: 0, z: -38, w: 1.4, d: 20 },
+    { x: -12, z: -22, w: 22, d: 1.4 },
+    { x: 12, z: -22, w: 22, d: 1.4 },
+    { x: -22, z: -32, w: 1.4, d: 22 },
+    { x: 22, z: -32, w: 1.4, d: 22 },
+    { x: -12, z: -46, w: 20, d: 1.4 },
+    { x: 14, z: -46, w: 20, d: 1.4 },
+    { x: -6, z: -58, w: 1.4, d: 14 },
+    { x: 8, z: -58, w: 18, d: 1.4 },
+    { x: -18, z: -54, w: 2.4, d: 4.6, car: true },
+    { x: 16, z: -16, w: 4.6, d: 2.4, car: true },
+    { x: 4, z: -50, w: 2.4, d: 4.6, car: true },
+  ],
+  // 4 — broken ring road with a choked center (loops + dead-ends)
+  [
+    { x: -16, z: -14, w: 22, d: 1.4 },
+    { x: 16, z: -14, w: 18, d: 1.4 },
+    { x: -26, z: -26, w: 1.4, d: 26 },
+    { x: 26, z: -26, w: 1.4, d: 26 },
+    { x: -6, z: -28, w: 14, d: 1.4 },
+    { x: 10, z: -34, w: 14, d: 1.4 },
+    { x: -14, z: -40, w: 1.4, d: 16 },
+    { x: 4, z: -44, w: 1.4, d: 18 },
+    { x: -20, z: -52, w: 18, d: 1.4 },
+    { x: 18, z: -52, w: 18, d: 1.4 },
+    { x: -2, z: -60, w: 24, d: 1.4 },
+    { x: 20, z: -30, w: 2.4, d: 4.6, car: true },
+    { x: -10, z: -48, w: 4.6, d: 2.4, car: true },
+    { x: 12, z: -58, w: 2.4, d: 4.6, car: true },
+  ],
+  // 5 — outskirts: open ground, a handful of scattered low cover (long sightlines)
+  [
+    { x: -18, z: -22, w: 6, d: 1.4 },
+    { x: 14, z: -18, w: 1.4, d: 7 },
+    { x: 2, z: -34, w: 8, d: 1.4 },
+    { x: -24, z: -44, w: 1.4, d: 8 },
+    { x: 20, z: -46, w: 7, d: 1.4 },
+    { x: -8, z: -54, w: 1.4, d: 6 },
+    { x: -4, z: -28, w: 2.4, d: 4.6, car: true },
+    { x: 10, z: -50, w: 4.6, d: 2.4, car: true },
+  ],
+  // 6 — outskirts: a lone barn-ish block + a broken fence line, mostly open
+  [
+    { x: -10, z: -26, w: 10, d: 1.4 },
+    { x: -15, z: -32, w: 1.4, d: 12 },
+    { x: -5, z: -38, w: 10, d: 1.4 },
+    { x: 18, z: -30, w: 1.4, d: 10 },
+    { x: 8, z: -52, w: 9, d: 1.4 },
+    { x: 24, z: -50, w: 2.4, d: 4.6, car: true },
+    { x: -20, z: -52, w: 4.6, d: 2.4, car: true },
   ],
 ];
 
@@ -282,6 +498,17 @@ export class Scavenge {
   private nearest = new THREE.Vector3();
   private walls: Wall[] = MAPS[0]; // active layout (chosen per run)
   private wallGroup = new THREE.Group();
+  private floorMat!: THREE.MeshStandardMaterial;
+  private laneGroup = new THREE.Group(); // painted lot lines (urban only)
+  private dressGroup = new THREE.Group(); // per-run rubble/barrels/signs/etc.
+  private backdropGroup = new THREE.Group(); // per-run buildings / scrub trees
+  // Per-run environment skin (set in start() from the chosen density archetype).
+  private envWall = 0x2a2f35;
+  private envCap = 0x3a4048;
+  private envFog = 0.038;
+  private skinId: SupplyTheme = "outer";
+  /** Name of the current environment — shown in the day banner. */
+  envName = "PICKED-OVER BLOCKS";
   private spitGeo = new THREE.SphereGeometry(0.22, 8, 6);
   private spitMat = new THREE.MeshBasicMaterial({ color: 0x9bff4a, fog: false });
   private spitPool: THREE.Mesh[] = [];
@@ -296,12 +523,13 @@ export class Scavenge {
     this.avatar.add(makeGlow(0x6fc3ff, 2.4, 0.5));
     this.group.add(this.avatar);
 
+    this.group.add(this.backdropGroup, this.dressGroup);
     this.buildFloor();
     this.buildWalls();
     this.buildBoundary();
-    this.buildSetDressing();
-    this.buildScaryExtras();
     this.buildHideAndExtract();
+    // Rubble/signage/buildings/trees are rebuilt per run in start() so the map
+    // matches the chosen district (crowded urban vs. open outskirts).
 
     // Sight-cone sector geometry (points +Z; rotated to each guard's facing).
     const shape = new THREE.Shape();
@@ -342,21 +570,20 @@ export class Scavenge {
   private buildFloor(): void {
     const tex = concreteTexture();
     tex.repeat.set(11, 9);
-    const floor = new THREE.Mesh(
-      new THREE.PlaneGeometry(96, 76),
-      new THREE.MeshStandardMaterial({ color: 0x2b323a, map: tex, roughness: 0.85, metalness: 0.08 })
-    );
+    this.floorMat = new THREE.MeshStandardMaterial({ color: 0x2b323a, map: tex, roughness: 0.85, metalness: 0.08 });
+    const floor = new THREE.Mesh(new THREE.PlaneGeometry(96, 76), this.floorMat);
     floor.rotation.x = -Math.PI / 2;
     floor.position.set(0, 0.01, (AREA.minZ + AREA.maxZ) / 2);
     floor.receiveShadow = true;
     this.group.add(floor);
-    // Faded yellow parking/lane lines.
+    // Faded yellow parking/lane lines — toggled off in the rural outskirts.
+    this.group.add(this.laneGroup);
     const lineMat = new THREE.MeshBasicMaterial({ color: 0x6a5a22, transparent: true, opacity: 0.35, depthWrite: false });
     for (let i = 0; i < 6; i++) {
       const line = new THREE.Mesh(new THREE.PlaneGeometry(0.3, 9), lineMat);
       line.rotation.x = -Math.PI / 2;
       line.position.set(-30 + i * 12, 0.03, -20);
-      this.group.add(line);
+      this.laneGroup.add(line);
     }
   }
 
@@ -364,8 +591,8 @@ export class Scavenge {
     // Rebuildable: clear any prior layout's meshes, then build the active one.
     this.wallGroup.clear();
     if (!this.wallGroup.parent) this.group.add(this.wallGroup);
-    const concrete = new THREE.MeshStandardMaterial({ color: 0x2a2f35, roughness: 1, flatShading: true });
-    const cap = new THREE.MeshStandardMaterial({ color: 0x3a4048, roughness: 1, flatShading: true });
+    const concrete = new THREE.MeshStandardMaterial({ color: this.envWall, roughness: 1, flatShading: true });
+    const cap = new THREE.MeshStandardMaterial({ color: this.envCap, roughness: 1, flatShading: true });
     const rust = new THREE.MeshStandardMaterial({ color: 0x3a2a22, roughness: 1, flatShading: true });
     const metal = new THREE.MeshStandardMaterial({ color: 0x20242a, roughness: 0.8, metalness: 0.3, flatShading: true });
     const tire = new THREE.MeshStandardMaterial({ color: 0x0c0c0e, roughness: 1 });
@@ -401,67 +628,303 @@ export class Scavenge {
     }
   }
 
-  /** Decorative clutter to make the dark map intense: rubble, barrels, debris,
-   * blood, and flickering red emergency lights. No collision — placed for mood. */
-  private buildSetDressing(): void {
+  /** Free a rebuildable group's children (geometry + materials + maps) so the
+   * per-run dressing/backdrop don't leak across runs. */
+  private clearGroup(g: THREE.Group): void {
+    const sharedGlow = glowTexture();
+    g.traverse((o) => {
+      const m = o as THREE.Mesh & { material?: THREE.Material | THREE.Material[]; isMesh?: boolean };
+      if (!m.isMesh) return;
+      m.geometry?.dispose?.();
+      const mat = m.material;
+      const free = (x: THREE.Material) => {
+        const map = (x as THREE.Material & { map?: THREE.Texture | null }).map;
+        if (map && map !== sharedGlow) map.dispose();
+        x.dispose();
+      };
+      if (Array.isArray(mat)) mat.forEach(free);
+      else if (mat) free(mat);
+    });
+    g.clear();
+  }
+
+  /** Per-run mood layer, scaled to the chosen district: rubble, barrels, debris,
+   * blood, flickering emergency lights, graffiti, neon, fog, cables, glass. A
+   * crowded district is dense and lit; the quiet outskirts are bare. */
+  private buildDressing(cfg: DensityCfg): void {
+    this.clearGroup(this.dressGroup);
+    this.redLights = [];
+    this.signs = [];
     const rng = this.ctx.rng;
+    const G = this.dressGroup;
+    const skin = ACT_SKINS[this.skinId];
     const dark = new THREE.MeshStandardMaterial({ color: 0x14181c, roughness: 1, flatShading: true });
     const rust = new THREE.MeshStandardMaterial({ color: 0x3a2a22, roughness: 1, flatShading: true });
     const wood = new THREE.MeshStandardMaterial({ color: 0x2e2316, roughness: 1, flatShading: true });
     const bloodMat = new THREE.MeshBasicMaterial({ color: 0x3a0608, transparent: true, opacity: 0.5, depthWrite: false });
 
-    const spot = () => {
-      for (let i = 0; i < 20; i++) {
+    const spot = (pad = 1.4) => {
+      for (let i = 0; i < 24; i++) {
         const x = rng.range(AREA.minX + 2, AREA.maxX - 2);
         const z = rng.range(AREA.minZ + 2, AREA.maxZ - 2);
-        if (!this.inWall(x, z, 1.4)) return { x, z };
+        if (!this.inWall(x, z, pad)) return { x, z };
       }
       return { x: 0, z: -20 };
     };
 
-    // Rubble piles
-    for (let i = 0; i < 16; i++) {
+    for (let i = 0; i < cfg.rubble; i++) {
       const s = rng.range(0.4, 1.2);
       const r = new THREE.Mesh(new THREE.DodecahedronGeometry(s, 0), dark);
       const p = spot();
       r.position.set(p.x, s * 0.3, p.z);
       r.scale.y = 0.5;
       r.rotation.set(rng.range(0, 3), rng.range(0, 3), rng.range(0, 3));
-      this.group.add(r);
+      G.add(r);
     }
-    // Barrels + scattered debris
-    for (let i = 0; i < 7; i++) {
+    for (let i = 0; i < cfg.barrels; i++) {
       const p = spot();
       const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.45, 0.45, 1.1, 10), rust);
       barrel.position.set(p.x, 0.55, p.z);
       barrel.rotation.z = rng.chance(0.3) ? Math.PI / 2 : 0;
       barrel.castShadow = true;
-      this.group.add(barrel);
+      G.add(barrel);
     }
-    for (let i = 0; i < 8; i++) {
+    for (let i = 0; i < cfg.planks; i++) {
       const p = spot();
       const plank = new THREE.Mesh(new THREE.BoxGeometry(rng.range(0.8, 1.6), 0.1, 0.22), wood);
       plank.position.set(p.x, 0.06, p.z);
       plank.rotation.y = rng.range(0, Math.PI);
-      this.group.add(plank);
+      G.add(plank);
     }
-    // Blood pools
-    for (let i = 0; i < 8; i++) {
+    for (let i = 0; i < cfg.blood; i++) {
       const p = spot();
       const blood = new THREE.Mesh(new THREE.CircleGeometry(rng.range(0.6, 1.4), 12), bloodMat);
       blood.rotation.x = -Math.PI / 2;
       blood.position.set(p.x, 0.03, p.z);
-      this.group.add(blood);
+      G.add(blood);
     }
-    // Flickering red emergency lights
-    for (let i = 0; i < 3; i++) {
+    for (let i = 0; i < cfg.redLights; i++) {
       const p = spot();
-      const light = new THREE.PointLight(0xff2820, 0, 18, 2);
+      const light = new THREE.PointLight(skin.accent, 0, 18, 2);
       light.position.set(p.x, 4, p.z);
-      const glow = makeGlow(0xff3a30, 2.6, 0.5);
+      const glow = makeGlow(skin.accent, 2.6, 0.5);
       glow.position.set(p.x, 4, p.z);
-      this.group.add(light, glow);
+      G.add(light, glow);
       this.redLights.push({ light, glow, phase: rng.range(0, 6) });
+    }
+
+    // Stencilled graffiti on the ground.
+    const words = this.skinId === "outer"
+      ? ["ROAD CLOSED", "TURN BACK", "FUEL", "DEAD ZONE", "HELP US"]
+      : this.skinId === "flood"
+        ? ["HIGH WATER", "PUMPS DEAD", "NO WAKE", "FLOOD LINE", "HELP US"]
+        : ["SCREENING", "NO ENTRY", "GATE CHECK", "STAY IN LINE", "HAVEN"];
+    for (let i = 0; i < cfg.graffiti; i++) {
+      const p = spot(1.6);
+      const tex = stencilTexture(rng.pick(words), i === 0 ? `#${skin.accent.toString(16).padStart(6, "0")}` : "#7a8a3a");
+      const mat = new THREE.MeshBasicMaterial({ map: tex, transparent: true, opacity: 0.5, depthWrite: false });
+      const tag = new THREE.Mesh(new THREE.PlaneGeometry(5, 2.5), mat);
+      tag.rotation.x = -Math.PI / 2;
+      tag.rotation.z = rng.range(0, Math.PI);
+      tag.position.set(p.x, 0.04, p.z);
+      G.add(tag);
+    }
+    // Flickering neon hazard signs mounted high.
+    for (let i = 0; i < cfg.neon; i++) {
+      const p = spot(1.6);
+      const color = i % 2 === 0 ? skin.accent : skin.guard;
+      const mat = new THREE.MeshBasicMaterial({ color, fog: false, transparent: true, opacity: 0.9 });
+      const sign = new THREE.Mesh(new THREE.PlaneGeometry(3.2, 0.9), mat);
+      sign.position.set(p.x, 3.4, p.z);
+      sign.rotation.y = rng.range(-0.5, 0.5);
+      const glow = makeGlow(color, 4, 0.6);
+      glow.position.copy(sign.position);
+      G.add(sign, glow);
+      this.signs.push({ mat, glow, phase: rng.range(0, 6) });
+    }
+    // Drifting low fog cards (a little, everywhere).
+    const fogTex = makeGlow(0xffffff, 1).material.map;
+    for (let i = 0; i < 6; i++) {
+      const p = spot();
+      const fmat = new THREE.MeshBasicMaterial({ map: fogTex, color: skin.wall, transparent: true, opacity: 0.14, depthWrite: false });
+      const fog = new THREE.Mesh(new THREE.PlaneGeometry(20, 20), fmat);
+      fog.rotation.x = -Math.PI / 2;
+      fog.position.set(p.x, rng.range(0.3, 1.0), p.z);
+      G.add(fog);
+    }
+    // Glints of broken glass.
+    for (let i = 0; i < cfg.glints; i++) {
+      const p = spot();
+      const glint = makeGlow(skin.accent, rng.range(0.2, 0.5), rng.range(0.2, 0.5));
+      glint.position.set(p.x + rng.range(-2, 2), 0.06, p.z + rng.range(-2, 2));
+      G.add(glint);
+    }
+
+    if (this.skinId === "outer") {
+      const stripeMat = new THREE.MeshBasicMaterial({ color: 0xffb24a, transparent: true, opacity: 0.32, depthWrite: false, fog: false });
+      for (const x of [-13, 13]) {
+        const stripe = new THREE.Mesh(new THREE.PlaneGeometry(0.28, 60), stripeMat);
+        stripe.rotation.x = -Math.PI / 2;
+        stripe.position.set(x, 0.056, -36);
+        G.add(stripe);
+      }
+      const flareMat = new THREE.MeshBasicMaterial({ color: skin.accent, fog: false });
+      for (const x of [-24, 0, 24]) {
+        const flare = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 1.2, 8), flareMat);
+        flare.rotation.z = Math.PI / 2;
+        flare.position.set(x + rng.range(-3, 3), 0.12, rng.range(-58, -18));
+        const glow = makeGlow(skin.accent, 4.2, 0.55);
+        glow.position.copy(flare.position);
+        glow.position.y = 0.5;
+        G.add(flare, glow);
+      }
+      const barricadeMat = new THREE.MeshStandardMaterial({ color: 0x3a2618, roughness: 1, flatShading: true });
+      for (const z of [-20, -47]) {
+        const rail = new THREE.Mesh(new THREE.BoxGeometry(7, 0.35, 0.35), barricadeMat);
+        rail.position.set(rng.range(-30, 30), 0.95, z + rng.range(-4, 4));
+        rail.rotation.y = rng.range(-0.4, 0.4);
+        G.add(rail);
+      }
+    } else if (this.skinId === "flood") {
+      const water = new THREE.Mesh(
+        new THREE.PlaneGeometry(88, 68),
+        new THREE.MeshStandardMaterial({
+          color: skin.floor,
+          transparent: true,
+          opacity: 0.48,
+          roughness: 0.16,
+          metalness: 0.55,
+          depthWrite: false,
+        })
+      );
+      water.rotation.x = -Math.PI / 2;
+      water.position.set(0, 0.045, -34);
+      G.add(water);
+      const rippleMat = new THREE.MeshBasicMaterial({ color: skin.accent, transparent: true, opacity: 0.18, depthWrite: false, blending: THREE.AdditiveBlending, fog: false });
+      for (let i = 0; i < 8; i++) {
+        const r = new THREE.Mesh(new THREE.RingGeometry(rng.range(0.8, 1.4), rng.range(1.8, 3.3), 20), rippleMat);
+        const p = spot();
+        r.rotation.x = -Math.PI / 2;
+        r.position.set(p.x, 0.065, p.z);
+        G.add(r);
+      }
+      const postMat = new THREE.MeshStandardMaterial({ color: 0x162126, roughness: 1, flatShading: true });
+      for (let i = 0; i < 8; i++) {
+        const p = spot();
+        const h = rng.range(0.7, 1.8);
+        const post = new THREE.Mesh(new THREE.BoxGeometry(0.25, h, 0.25), postMat);
+        post.position.set(p.x, h / 2, p.z);
+        post.rotation.z = rng.range(-0.25, 0.25);
+        G.add(post);
+      }
+      const wreckMat = new THREE.MeshStandardMaterial({ color: 0x102b34, roughness: 0.8, metalness: 0.2, flatShading: true });
+      for (let i = 0; i < 3; i++) {
+        const p = spot(2);
+        const wreck = new THREE.Mesh(new THREE.BoxGeometry(3.2, 0.35, 1.4), wreckMat);
+        wreck.position.set(p.x, 0.2, p.z);
+        wreck.rotation.y = rng.range(0, Math.PI);
+        G.add(wreck);
+      }
+    } else {
+      const lineMat = new THREE.MeshBasicMaterial({ color: skin.accent, transparent: true, opacity: 0.42, depthWrite: false });
+      for (const z of [-14, -36, -58]) {
+        const line = new THREE.Mesh(new THREE.PlaneGeometry(72, 0.22), lineMat);
+        line.rotation.x = -Math.PI / 2;
+        line.position.set(0, 0.055, z);
+        G.add(line);
+      }
+      const gateMat = new THREE.MeshStandardMaterial({ color: 0x2d3740, roughness: 0.9, metalness: 0.2, flatShading: true });
+      for (const x of [-18, 18]) {
+        const booth = new THREE.Mesh(new THREE.BoxGeometry(3.4, 2.4, 2.6), gateMat);
+        booth.position.set(x, 1.2, -18);
+        G.add(booth);
+        const arm = new THREE.Mesh(new THREE.BoxGeometry(9, 0.18, 0.18), gateMat);
+        arm.position.set(x > 0 ? x - 5 : x + 5, 1.45, -18);
+        arm.rotation.y = x > 0 ? 0.25 : -0.25;
+        G.add(arm);
+      }
+      const poleMat = new THREE.MeshStandardMaterial({ color: 0x303840, roughness: 1, flatShading: true });
+      for (const x of [-34, 34]) {
+        const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.2, 6, 6), poleMat);
+        pole.position.set(x, 3, -36);
+        const lamp = new THREE.PointLight(skin.accent, 5, 30, 2);
+        lamp.position.set(x, 6.2, -34);
+        const glow = makeGlow(skin.accent, 5.2, 0.45);
+        glow.position.copy(lamp.position);
+        G.add(pole, lamp, glow);
+      }
+    }
+  }
+
+  /** Per-run backdrop silhouettes: a ring of tall buildings hemming in a crowded
+   * district, or scattered dead scrub trees out in the open outskirts. */
+  private buildBackdrop(cfg: DensityCfg): void {
+    this.clearGroup(this.backdropGroup);
+    const rng = this.ctx.rng;
+    const B = this.backdropGroup;
+    const skin = ACT_SKINS[this.skinId];
+
+    // Buildings: tall dark blocks just outside the play area (urban skyline).
+    if (cfg.buildings > 0) {
+      const near = new THREE.MeshStandardMaterial({ color: skin.backdrop, roughness: 1, flatShading: true });
+      const winMat = new THREE.MeshBasicMaterial({ color: skin.window, fog: true });
+      for (let i = 0; i < cfg.buildings; i++) {
+        const edge = i % 4; // 0 left,1 right,2 back,3 back
+        const h = rng.range(10, 26);
+        const w = rng.range(6, 12);
+        let x: number, z: number;
+        if (edge === 0) { x = AREA.minX - rng.range(3, 16); z = rng.range(AREA.minZ - 6, AREA.maxZ); }
+        else if (edge === 1) { x = AREA.maxX + rng.range(3, 16); z = rng.range(AREA.minZ - 6, AREA.maxZ); }
+        else { x = rng.range(AREA.minX, AREA.maxX); z = AREA.minZ - rng.range(6, 24); }
+        const b = new THREE.Mesh(new THREE.BoxGeometry(w, h, 6), near);
+        b.position.set(x, h / 2, z);
+        B.add(b);
+        // a scatter of lit windows on the inward face
+        if (rng.chance(0.7)) {
+          const cols = Math.max(2, Math.floor(w / 3));
+          const rowsW = Math.max(3, Math.floor(h / 5));
+          for (let c = 0; c < cols; c++) {
+            for (let r = 0; r < rowsW; r++) {
+              if (!rng.chance(0.18)) continue;
+              const win = new THREE.Mesh(new THREE.PlaneGeometry(0.9, 1.4), winMat);
+              win.position.set(x + (c / (cols - 1) - 0.5) * (w - 1.5), 2 + (r / (rowsW - 1)) * (h - 4), z + (z < (AREA.minZ + AREA.maxZ) / 2 ? 3.1 : -3.1));
+              B.add(win);
+            }
+          }
+        }
+      }
+    }
+
+    // Dead scrub trees scattered across the open outskirts.
+    if (cfg.trees > 0) {
+      const bark = new THREE.MeshStandardMaterial({ color: 0x1a160f, roughness: 1, flatShading: true });
+      for (let i = 0; i < cfg.trees; i++) {
+        let p = { x: 0, z: -20 };
+        for (let k = 0; k < 16; k++) {
+          const x = rng.range(AREA.minX + 2, AREA.maxX - 2);
+          const z = rng.range(AREA.minZ + 2, AREA.maxZ - 2);
+          if (!this.inWall(x, z, 1.6)) { p = { x, z }; break; }
+        }
+        const tree = new THREE.Group();
+        const hgt = rng.range(2.4, 4.2);
+        const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.22, hgt, 6), bark);
+        trunk.position.y = hgt / 2;
+        trunk.castShadow = true;
+        tree.add(trunk);
+        const branches = 3 + Math.floor(rng.range(0, 3));
+        for (let b = 0; b < branches; b++) {
+          const bl = rng.range(0.7, 1.6);
+          const branch = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.09, bl, 5), bark);
+          branch.position.y = hgt * rng.range(0.5, 0.95);
+          branch.rotation.z = rng.range(-1.2, 1.2);
+          branch.rotation.y = rng.range(0, Math.PI);
+          branch.translateY(bl * 0.4);
+          tree.add(branch);
+        }
+        tree.position.set(p.x, 0, p.z);
+        tree.rotation.y = rng.range(0, Math.PI);
+        B.add(tree);
+      }
     }
   }
 
@@ -506,83 +969,6 @@ export class Scavenge {
     this.extractMarker.position.set(this.extractZone.x, 0, this.extractZone.z);
     this.extractMarker.visible = false;
     this.group.add(this.extractMarker);
-  }
-
-  /** Mood layer: floor graffiti, a flickering neon hazard sign, drifting fog,
-   * hanging cables, and glints of broken glass. */
-  private buildScaryExtras(): void {
-    const rng = this.ctx.rng;
-    const spot = () => {
-      for (let i = 0; i < 16; i++) {
-        const x = rng.range(AREA.minX + 3, AREA.maxX - 3);
-        const z = rng.range(AREA.minZ + 3, AREA.maxZ - 3);
-        if (!this.inWall(x, z, 1.6)) return { x, z };
-      }
-      return { x: 0, z: -24 };
-    };
-
-    // Stencilled graffiti on the floor.
-    const words = ["RUN", "NO EXIT", "QUARANTINE", "TURN BACK", "DEAD ZONE", "HELP US"];
-    for (let i = 0; i < 4; i++) {
-      const p = spot();
-      const tex = stencilTexture(rng.pick(words), i === 0 ? "#c23a2a" : "#7a8a3a");
-      const mat = new THREE.MeshBasicMaterial({ map: tex, transparent: true, opacity: 0.5, depthWrite: false });
-      const tag = new THREE.Mesh(new THREE.PlaneGeometry(5, 2.5), mat);
-      tag.rotation.x = -Math.PI / 2;
-      tag.rotation.z = rng.range(0, Math.PI);
-      tag.position.set(p.x, 0.04, p.z);
-      this.group.add(tag);
-    }
-
-    // A couple of flickering neon hazard signs mounted high.
-    for (let i = 0; i < 2; i++) {
-      const p = spot();
-      const mat = new THREE.MeshBasicMaterial({ color: i === 0 ? 0xff3a2a : 0x3affc0, fog: false, transparent: true, opacity: 0.9 });
-      const sign = new THREE.Mesh(new THREE.PlaneGeometry(3.2, 0.9), mat);
-      sign.position.set(p.x, 3.4, p.z);
-      sign.rotation.y = rng.range(-0.5, 0.5);
-      const glow = makeGlow(i === 0 ? 0xff5a3a : 0x5affd0, 4, 0.6);
-      glow.position.copy(sign.position);
-      this.group.add(sign, glow);
-      this.signs.push({ mat, glow, phase: rng.range(0, 6) });
-    }
-
-    // Drifting low fog cards.
-    const fogTex = makeGlow(0xffffff, 1).material.map;
-    for (let i = 0; i < 7; i++) {
-      const p = spot();
-      const fmat = new THREE.MeshBasicMaterial({ map: fogTex, color: 0x2a3540, transparent: true, opacity: 0.14, depthWrite: false });
-      const fog = new THREE.Mesh(new THREE.PlaneGeometry(20, 20), fmat);
-      fog.rotation.x = -Math.PI / 2;
-      fog.position.set(p.x, rng.range(0.3, 1.0), p.z);
-      this.group.add(fog);
-    }
-
-    // Hanging cables strung across the lot.
-    const cableMat = new THREE.LineBasicMaterial({ color: 0x05080a, transparent: true, opacity: 0.6, fog: true });
-    for (let i = 0; i < 4; i++) {
-      const ax = rng.range(AREA.minX + 4, AREA.maxX - 4);
-      const az = rng.range(AREA.minZ + 6, AREA.maxZ - 6);
-      const pts: THREE.Vector3[] = [];
-      const len = rng.range(8, 16);
-      const dir = rng.range(0, Math.PI);
-      for (let k = 0; k <= 8; k++) {
-        const t = k / 8;
-        const sag = Math.sin(t * Math.PI) * 1.6;
-        pts.push(new THREE.Vector3(ax + Math.cos(dir) * (t - 0.5) * len, 3.6 - sag, az + Math.sin(dir) * (t - 0.5) * len));
-      }
-      const line = new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), cableMat);
-      line.frustumCulled = false;
-      this.group.add(line);
-    }
-
-    // Glints of broken glass scattered on the ground (cheap additive sprites).
-    for (let i = 0; i < 18; i++) {
-      const p = spot();
-      const glint = makeGlow(0xbfe0ff, rng.range(0.2, 0.5), rng.range(0.2, 0.5));
-      glint.position.set(p.x + rng.range(-2, 2), 0.06, p.z + rng.range(-2, 2));
-      this.group.add(glint);
-    }
   }
 
   private buildBoundary(): void {
@@ -630,11 +1016,12 @@ export class Scavenge {
 
   private makeCrate(x: number, z: number, gold: boolean, kit: boolean): Crate {
     const g = new THREE.Group();
-    const beacon = kit ? 0x5fd8ff : gold ? 0xffd84a : AMBER;
-    const tint = kit ? 0x244a5a : gold ? 0xb8881e : 0x5a4a2a;
+    const skin = ACT_SKINS[this.skinId];
+    const beacon = kit ? skin.kit : gold ? skin.gold : skin.accent;
+    const tint = kit ? skin.kit : gold ? skin.gold : skin.crate;
     const box = new THREE.Mesh(
       new THREE.BoxGeometry(0.95, 0.72, 0.72),
-      new THREE.MeshStandardMaterial({ color: tint, roughness: 0.85, emissive: new THREE.Color(kit ? 0x06303a : gold ? 0x4a3000 : 0x221a08), flatShading: true })
+      new THREE.MeshStandardMaterial({ color: tint, roughness: 0.85, emissive: new THREE.Color(tint).multiplyScalar(0.28), flatShading: true })
     );
     box.position.y = 0.4;
     box.castShadow = true;
@@ -650,7 +1037,7 @@ export class Scavenge {
       g.add(c1, c2);
     } else {
       // Ammo crate — brass rounds standing on top
-      const brass = new THREE.MeshStandardMaterial({ color: 0xdca94a, roughness: 0.4, metalness: 0.5, emissive: new THREE.Color(0x3a2a08) });
+      const brass = new THREE.MeshStandardMaterial({ color: gold ? skin.gold : 0xdca94a, roughness: 0.4, metalness: 0.5, emissive: new THREE.Color(gold ? skin.gold : 0x3a2a08).multiplyScalar(0.28) });
       const n = gold ? 5 : 3;
       for (let i = 0; i < n; i++) {
         const b = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, 0.34, 8), brass);
@@ -691,6 +1078,7 @@ export class Scavenge {
   private makeGuard(type: GType, center?: { x: number; z: number }): Guard {
     const g = new THREE.Group();
     const cfg = GUARD_CFG[type];
+    const skin = ACT_SKINS[this.skinId];
     const flesh = new THREE.MeshStandardMaterial({ color: cfg.flesh, roughness: 1, flatShading: true });
     const coat = new THREE.MeshStandardMaterial({ color: cfg.coat, roughness: 1, flatShading: true });
     // Body parts go in a scaled sub-group so the sight cone stays full-size.
@@ -729,19 +1117,19 @@ export class Scavenge {
       leg.position.set(lx, type === "runner" ? 0.48 : 0.4, 0);
       body.add(leg);
     }
-    const eyeMat = new THREE.MeshBasicMaterial({ color: AMBER, fog: false });
+    const eyeMat = new THREE.MeshBasicMaterial({ color: skin.guard, fog: false });
     for (const ex of [-0.1, 0.1]) {
       const eye = new THREE.Mesh(new THREE.SphereGeometry(0.07, 6, 6), eyeMat);
       eye.position.set(ex, type === "runner" ? 1.65 : 1.53, type === "runner" ? 0.3 : 0.46);
       body.add(eye);
     }
-    const eyeGlow = makeGlow(AMBER, 0.9, 0.5);
+    const eyeGlow = makeGlow(skin.guard, 0.9, 0.5);
     eyeGlow.position.set(0, 1.52, 0.5);
     body.add(eyeGlow);
     body.scale.setScalar(cfg.scale);
     g.add(body);
     const coneMat = new THREE.MeshBasicMaterial({
-      color: AMBER,
+      color: skin.guard,
       transparent: true,
       opacity: 0.16,
       depthWrite: false,
@@ -779,11 +1167,22 @@ export class Scavenge {
     };
   }
 
-  start(): void {
+  start(opts?: { density?: Density }): void {
+    const density = opts?.density ?? "med";
+    const curLevel = levelInfo(this.ctx.run.night);
+    this.skinId = curLevel.supplyTheme;
+    const skin = ACT_SKINS[this.skinId];
+    const dcfg = themedDensity(DENSITY[density], skin, density);
+    this.envName = dcfg.name;
+    this.envWall = dcfg.wall;
+    this.envCap = dcfg.cap;
+    this.envFog = dcfg.fog;
+
     this.active = true;
     this.done = false;
     this.got = 0;
     this.timeLeft = DURATION;
+    this.total = dcfg.crates;
     this.stamina = 1;
     this.exhausted = false;
     this.spotted = false;
@@ -799,39 +1198,55 @@ export class Scavenge {
     this.ctx.world.setDawn(0.08); // dark + moody, but still navigable
     // Thicker fog + a dimmer, tighter flashlight = scarier.
     this.fogPrev = this.ctx.stage.fog.density;
-    this.ctx.stage.fog.density = 0.038;
+    this.ctx.stage.fog.density = this.envFog;
     this.light.distance = 23;
     this.light.intensity = this.lightDefault;
 
-    // Pick a random map layout for this run and (re)build its walls.
-    this.walls = MAPS[Math.floor(this.ctx.rng.next() * MAPS.length)];
+    // Apply the environment skin (floor + lane lines), then pick a layout that
+    // matches the district and (re)build its walls, dressing, and backdrop.
+    this.floorMat.color.setHex(dcfg.floor);
+    this.laneGroup.visible = dcfg.lanes;
+    const pool = dcfg.layouts;
+    this.walls = MAPS[pool[Math.floor(this.ctx.rng.next() * pool.length)]];
     this.buildWalls();
+    this.buildDressing(dcfg);
+    this.buildBackdrop(dcfg);
     this.clearSpits();
 
+    // Crates: count + gold-cache ratio scale with the population you picked.
     for (const c of this.crates) this.group.remove(c.group);
     this.crates = [];
-    for (let i = 0; i < CRATES; i++) {
+    for (let i = 0; i < dcfg.crates; i++) {
       const s = this.freeSpot(AREA.minZ + 3, AREA.maxZ - 10);
-      this.crates.push(this.makeCrate(s.x, s.z, i < 2, false));
+      this.crates.push(this.makeCrate(s.x, s.z, i < dcfg.gold, false));
     }
-    for (let i = 0; i < KIT_CRATES; i++) {
+    for (let i = 0; i < dcfg.kits; i++) {
       const s = this.freeSpot(AREA.minZ + 3, AREA.maxZ - 14);
       this.crates.push(this.makeCrate(s.x, s.z, false, true));
     }
 
-    // A survivor deep in the map, heavily guarded.
-    if (this.survivor) this.group.remove(this.survivor.group);
-    const sv = this.freeSpot(AREA.minZ + 4, AREA.minZ + 20);
-    this.survivor = this.makeSurvivor(sv.x, sv.z);
+    const night = this.ctx.run.night;
+    const pressure = curLevel.act * 1.2 + curLevel.levelInAct;
 
-    // Guard mix scales with the night: more guards, and more runners/spitters,
-    // so later supply runs are tougher.
+    // Survivors are rare to find now (allies should accrue slowly): never on the
+    // first night, never once the squad is full, and only sometimes otherwise.
+    if (this.survivor) {
+      this.group.remove(this.survivor.group);
+      this.survivor = null;
+    }
+    let sv: { x: number; z: number } | null = null;
+    if (night >= 2 && this.ctx.run.companions.length < 4 && this.ctx.rng.chance(0.4)) {
+      sv = this.freeSpot(AREA.minZ + 4, AREA.minZ + 20);
+      this.survivor = this.makeSurvivor(sv.x, sv.z);
+    }
+
+    // Guard mix scales with the night AND the chosen population: more guards, and
+    // more runners/spitters, so a crowded district is a real gamble.
     for (const g of this.guards) this.group.remove(g.group);
     this.guards = [];
-    const night = this.ctx.run.night;
-    const patrols = 4 + night; // 5 / 6 / 7
-    const spitterChance = 0.1 + night * 0.1;
-    const runnerChance = 0.22 + night * 0.08;
+    const patrols = Math.max(2, Math.round((4 + pressure) * dcfg.guardMul));
+    const spitterChance = Math.min(0.42, 0.08 + pressure * 0.055);
+    const runnerChance = Math.min(0.52, 0.2 + pressure * 0.045);
     const rollType = (): GType => {
       const r = this.ctx.rng.next();
       if (r < spitterChance) return "spitter";
@@ -839,9 +1254,11 @@ export class Scavenge {
       return "shambler";
     };
     for (let i = 0; i < patrols; i++) this.guards.push(this.makeGuard(rollType()));
-    // Three defenders around the survivor (a spitter joins from night 2).
-    const defenders: GType[] = night >= 2 ? ["shambler", "runner", "spitter"] : ["shambler", "shambler", "runner"];
-    for (const t of defenders) this.guards.push(this.makeGuard(t, sv));
+    // A cluster of defenders only when there's actually a survivor to guard.
+    if (sv) {
+      const defenders: GType[] = night >= 2 ? ["shambler", "runner", "spitter"] : ["shambler", "shambler", "runner"];
+      for (const t of defenders) this.guards.push(this.makeGuard(t, sv));
+    }
     for (const g of this.guards) g.group.position.set(g.x, 0, g.z);
 
     this.ctx.cam.mode = "topdown";
@@ -961,23 +1378,25 @@ export class Scavenge {
       c.got = true;
       c.group.visible = false;
       if (c.kit) {
+        const skin = ACT_SKINS[this.skinId];
         this.ctx.run.repairKits++;
         this.ctx.floaters.spawn(c.x, 1.6, c.z, "+REPAIR KIT", "crit");
-        this.ctx.fx.burst(c.x, 1.0, c.z, 18, 0x5fd8ff, { speed: 8, up: 6, life: 0.6, size: 7 });
+        this.ctx.fx.burst(c.x, 1.0, c.z, 18, skin.kit, { speed: 8, up: 6, life: 0.6, size: 7 });
         this.ctx.events.emit("SFX", { id: "pickup" });
         continue;
       }
+      const skin = ACT_SKINS[this.skinId];
       this.got++;
       if (c.gold) {
         // (cratesGrabbed is tallied once from `got` in finish() — don't add here
         // too, or gold crates get double-counted on the ending screen.)
         this.ctx.run.addAmmo(80); // ammo cache
         this.ctx.floaters.spawn(c.x, 1.6, c.z, "+AMMO CACHE", "crit");
-        this.ctx.fx.burst(c.x, 1.0, c.z, 22, 0xffd84a, { speed: 8, up: 6, life: 0.6, size: 7 });
+        this.ctx.fx.burst(c.x, 1.0, c.z, 22, skin.gold, { speed: 8, up: 6, life: 0.6, size: 7 });
       } else {
         this.ctx.run.addAmmo(35);
         this.ctx.floaters.spawn(c.x, 1.5, c.z, "+AMMO", "heal");
-        this.ctx.fx.burst(c.x, 0.9, c.z, 12, AMBER, { speed: 6, up: 5, life: 0.5 });
+        this.ctx.fx.burst(c.x, 0.9, c.z, 12, skin.accent, { speed: 6, up: 5, life: 0.5 });
       }
       this.ctx.events.emit("CRATE_GRABBED", { got: this.got, total: this.total });
       this.ctx.events.emit("SFX", { id: "pickup" });
@@ -1155,9 +1574,10 @@ export class Scavenge {
     const hunting = g.state === "chase";
     const cd = this.coneDist(g.x, g.z, g.facing);
     g.cone.scale.set(1, 1, cd / VISION_RANGE);
-    g.coneMat.color.set(hunting ? THREAT : AMBER);
+    const skin = ACT_SKINS[this.skinId];
+    g.coneMat.color.set(hunting ? THREAT : skin.guard);
     g.coneMat.opacity = hunting ? 0.28 : 0.14;
-    g.eyeMat.color.set(hunting ? THREAT : AMBER);
+    g.eyeMat.color.set(hunting ? THREAT : skin.guard);
   }
 
   /** A spitter lobs an acid bolt that leads the avatar. Hitting you ends the run. */
@@ -1271,8 +1691,13 @@ export class Scavenge {
   }
 
   /** Object count in the run scene — a coarse regression guard that the floor,
-   * walls, dressing, guards and crates all built. */
+   * walls, dressing, backdrop, guards and crates all built. */
   get objectCount(): number {
-    return this.group.children.length;
+    return (
+      this.group.children.length +
+      this.dressGroup.children.length +
+      this.backdropGroup.children.length +
+      this.wallGroup.children.length
+    );
   }
 }

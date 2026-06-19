@@ -13,6 +13,10 @@ const EMBERS = 150;
  * and the weather, so each night reads as a distinct place. `name` shows on the
  * road map + the night banner.
  */
+/** A signature visual feature toggled per act so the campaign reads as three
+ * places, not just one dark map with different text. */
+export type ZoneFeature = "outer" | "flood" | "haven";
+
 export interface Zone {
   name: string;
   skyTopNight: number;
@@ -26,6 +30,10 @@ export interface Zone {
   window: number;
   ember: number;
   storm: boolean;
+  /** Night-fog density multiplier (>1 = thicker, murkier; <1 = clearer). */
+  fogScale: number;
+  /** A standout per-zone feature (standing water / ashfall / cold floodlights). */
+  feature: ZoneFeature;
 }
 
 /** The themed name of a leg (1-based night), for the road map + night banner. */
@@ -35,46 +43,52 @@ export function zoneName(night: number): string {
 
 export const ZONES: Zone[] = [
   {
-    name: "THE OUTER WALL",
-    skyTopNight: 0x03040a,
-    skyHorizonNight: 0x080a12,
+    name: "THE OUTER ROAD",
+    skyTopNight: 0x04050a,
+    skyHorizonNight: 0x120b08,
     skyTopDawn: 0x243049,
     skyHorizonDawn: 0xb5683a,
-    fogNight: 0x080a10,
-    fogDawn: 0x4a3b46,
-    key: 0xaecbe8,
-    ground: 0x0c1014,
-    window: 0x6a4e24,
-    ember: 0xff8a3a,
+    fogNight: 0x0b0908,
+    fogDawn: 0x55382d,
+    key: 0xffc08a,
+    ground: 0x110f0c,
+    window: 0xb05a24,
+    ember: 0xff7a32,
     storm: true,
+    fogScale: 1.08,
+    feature: "outer",
   },
   {
-    name: "THE REFINERY",
-    skyTopNight: 0x04080a,
-    skyHorizonNight: 0x0a1610,
-    skyTopDawn: 0x1e3034,
-    skyHorizonDawn: 0x7a8a3a,
-    fogNight: 0x0a1410,
-    fogDawn: 0x3a4632,
-    key: 0x9ad0b0,
-    ground: 0x0b130f,
-    window: 0x4ea24e,
-    ember: 0x8aff6a,
-    storm: false,
+    name: "THE FLOODLINE",
+    skyTopNight: 0x02060a,
+    skyHorizonNight: 0x06121a,
+    skyTopDawn: 0x1c3a44,
+    skyHorizonDawn: 0x6a9ab0,
+    fogNight: 0x08161c,
+    fogDawn: 0x3a5560,
+    key: 0x9ad8e8,
+    ground: 0x0a161c,
+    window: 0x3a8a9a,
+    ember: 0x6ad8ff,
+    storm: true,
+    fogScale: 1.2,
+    feature: "flood",
   },
   {
-    name: "THE LAST MILE",
-    skyTopNight: 0x0a0608,
-    skyHorizonNight: 0x180a08,
-    skyTopDawn: 0x402838,
-    skyHorizonDawn: 0xd87a3a,
-    fogNight: 0x140a0a,
-    fogDawn: 0x5a3b32,
-    key: 0xe8b0a0,
-    ground: 0x130d0c,
-    window: 0xc25a2a,
-    ember: 0xff6a2a,
+    name: "HAVEN APPROACH",
+    skyTopNight: 0x060a12,
+    skyHorizonNight: 0x0e1a24,
+    skyTopDawn: 0x2a4a5a,
+    skyHorizonDawn: 0xbcdcec,
+    fogNight: 0x0c141c,
+    fogDawn: 0x4a6470,
+    key: 0xcfe6f4,
+    ground: 0x141a20,
+    window: 0x9fd8ff,
+    ember: 0x8fbfe0,
     storm: false,
+    fogScale: 0.9,
+    feature: "haven",
   },
 ];
 
@@ -129,6 +143,19 @@ export class World {
   private groundMat!: THREE.MeshStandardMaterial;
   private winMat!: THREE.MeshBasicMaterial;
   private keyNight = new THREE.Color(0xaecbe8);
+  private fogScale = 1;
+  // Base scene-light levels set by setDawn — the lightning flash adds onto THESE
+  // (absolute), so a flash can't accumulate when setDawn isn't called every frame
+  // (e.g. during the day's supply run, which previously left the lights stuck on).
+  private litHemi = 0.26;
+  private litKey = 0.3;
+  // Per-zone signature features (built once, shown/hidden by setZone).
+  private outerGroup = new THREE.Group();
+  private waterGroup = new THREE.Group();
+  private ashGroup = new THREE.Group();
+  private ash!: THREE.Points;
+  private ashY = new Float32Array(0);
+  private havenGroup = new THREE.Group();
 
   constructor(private stage: Stage) {
     this.group.add(this.field);
@@ -147,6 +174,7 @@ export class World {
     const e = this.buildEmbers();
     this.embers = e.points;
     this.emberVel = e.vel;
+    this.buildZoneFeatures();
     stage.scene.add(this.group);
     this.setDawn(0);
   }
@@ -796,13 +824,151 @@ export class World {
   }
 
   /**
+   * Standout per-zone features, built once and toggled by setZone: a sheet of
+   * standing water for the drowned Floodline, drifting ashfall for the Ashfields,
+   * and cold floodlight pylons for the sterile safe-zone gate. Each is hidden by
+   * default; only one is shown at a time so each act reads as its own place.
+   */
+  private buildZoneFeatures(): void {
+    // --- Outer Road: road markings, flare pools, barricades, and fuel-yard shapes. ---
+    const asphaltStripe = new THREE.MeshBasicMaterial({ color: 0xffb24a, transparent: true, opacity: 0.28, depthWrite: false, fog: true });
+    for (const x of [-13, 13]) {
+      const stripe = new THREE.Mesh(new THREE.PlaneGeometry(0.32, 112), asphaltStripe);
+      stripe.rotation.x = -Math.PI / 2;
+      stripe.position.set(x, 0.052, -58);
+      this.outerGroup.add(stripe);
+    }
+    const flareMat = new THREE.MeshBasicMaterial({ color: 0xff4a24, fog: false });
+    for (const [x, z] of [
+      [-28, -22],
+      [26, -31],
+      [-18, -54],
+      [22, -66],
+    ] as [number, number][]) {
+      const flare = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 1.6, 8), flareMat);
+      flare.rotation.z = Math.PI / 2;
+      flare.position.set(x, 0.16, z);
+      const glow = makeGlow(0xff5a2c, 5.4, 0.42);
+      glow.position.set(x, 0.45, z);
+      this.outerGroup.add(flare, glow);
+    }
+    const barricadeMat = new THREE.MeshStandardMaterial({ color: 0x3a2417, roughness: 1, flatShading: true });
+    const stripeMat = new THREE.MeshBasicMaterial({ color: 0xffb24a, fog: false });
+    for (const [x, z, r] of [
+      [-33, -38, -0.35],
+      [34, -50, 0.28],
+      [-26, -75, 0.18],
+    ] as [number, number, number][]) {
+      const rail = new THREE.Group();
+      const plank = new THREE.Mesh(new THREE.BoxGeometry(6, 0.35, 0.35), barricadeMat);
+      plank.position.y = 1.0;
+      const stripe = new THREE.Mesh(new THREE.BoxGeometry(5.2, 0.07, 0.39), stripeMat);
+      stripe.position.y = 1.22;
+      const legA = new THREE.Mesh(new THREE.BoxGeometry(0.28, 1.2, 0.28), barricadeMat);
+      const legB = legA.clone();
+      legA.position.set(-2.4, 0.45, 0);
+      legB.position.set(2.4, 0.45, 0);
+      rail.add(plank, stripe, legA, legB);
+      rail.position.set(x, 0, z);
+      rail.rotation.y = r;
+      this.outerGroup.add(rail);
+    }
+    const tankMat = new THREE.MeshStandardMaterial({ color: 0x262a2d, roughness: 0.85, metalness: 0.28, flatShading: true });
+    for (const [x, z, s] of [
+      [-46, -88, 1.0],
+      [42, -92, 0.82],
+    ] as [number, number, number][]) {
+      const tank = new THREE.Mesh(new THREE.CylinderGeometry(1.8 * s, 1.8 * s, 11 * s, 14), tankMat);
+      tank.rotation.z = Math.PI / 2;
+      tank.position.set(x, 1.8 * s, z);
+      tank.castShadow = true;
+      this.outerGroup.add(tank);
+    }
+    this.outerGroup.visible = false;
+    this.group.add(this.outerGroup);
+
+    // --- Floodline: a translucent sheet of standing water over the field. ---
+    const waterMat = new THREE.MeshStandardMaterial({
+      color: 0x0a3a44,
+      transparent: true,
+      opacity: 0.55,
+      roughness: 0.18,
+      metalness: 0.6,
+      depthWrite: false,
+    });
+    const sheet = new THREE.Mesh(new THREE.PlaneGeometry(180, 150), waterMat);
+    sheet.rotation.x = -Math.PI / 2;
+    sheet.position.set(0, 0.06, -56);
+    this.waterGroup.add(sheet);
+    // A few brighter ripples so the flat sheet reads as wet, not glass.
+    const rippleMat = new THREE.MeshBasicMaterial({ color: 0x2a8aa0, transparent: true, opacity: 0.18, depthWrite: false, blending: THREE.AdditiveBlending, fog: false });
+    for (let i = 0; i < 7; i++) {
+      const r = new THREE.Mesh(new THREE.RingGeometry(this.rng.range(1, 2), this.rng.range(2.4, 4), 20), rippleMat);
+      r.rotation.x = -Math.PI / 2;
+      r.position.set(this.rng.range(-40, 40), 0.07, this.rng.range(-80, -8));
+      this.waterGroup.add(r);
+    }
+    this.waterGroup.visible = false;
+    this.group.add(this.waterGroup);
+
+    // --- Ashfields: a slow grey ashfall drifting down across the field. ---
+    const N = 220;
+    const pos = new Float32Array(N * 3);
+    this.ashY = new Float32Array(N);
+    for (let i = 0; i < N; i++) {
+      pos[i * 3] = this.rng.range(-50, 50);
+      pos[i * 3 + 1] = this.rng.range(0, 30);
+      pos[i * 3 + 2] = this.rng.range(-78, 6);
+      this.ashY[i] = pos[i * 3 + 1];
+    }
+    const ashGeo = new THREE.BufferGeometry();
+    ashGeo.setAttribute("position", new THREE.BufferAttribute(pos, 3).setUsage(THREE.DynamicDrawUsage));
+    const ash = new THREE.Points(
+      ashGeo,
+      new THREE.PointsMaterial({ color: 0xb0a59a, size: 0.42, map: makeGlow(0xffffff, 1).material.map, transparent: true, opacity: 0.5, depthWrite: false, sizeAttenuation: true, fog: true })
+    );
+    ash.frustumCulled = false;
+    this.ash = ash;
+    this.ashGroup.add(ash);
+    this.ashGroup.visible = false;
+    this.group.add(this.ashGroup);
+
+    // --- Haven's Gate: cold floodlight pylons flanking the wall (the "safe" read). ---
+    const poleMat = new THREE.MeshStandardMaterial({ color: 0x2a3138, roughness: 1, flatShading: true });
+    for (const px of [-22, -8, 8, 22]) {
+      const pylon = new THREE.Group();
+      const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.26, 9, 6), poleMat);
+      pole.position.y = 4.5;
+      const head = new THREE.Mesh(new THREE.BoxGeometry(1.4, 0.5, 0.7), poleMat);
+      head.position.set(0, 9, -0.4);
+      head.rotation.x = 0.5;
+      pylon.add(pole, head);
+      const lamp = new THREE.PointLight(0xcfe6ff, 7, 30, 2);
+      lamp.position.set(0, 9, -1.4);
+      const glow = makeGlow(0xdff0ff, 3.4, 0.85);
+      glow.position.copy(lamp.position);
+      pylon.add(lamp, glow);
+      pylon.position.set(px, 0, -6);
+      this.havenGroup.add(pylon);
+    }
+    this.havenGroup.visible = false;
+    this.group.add(this.havenGroup);
+  }
+
+  /**
    * Re-theme the environment for a given night (1-based). Each leg of the road to
    * the safe zone reads as a distinct place — the cold outer wall, a toxic
-   * refinery, then the ash-choked last mile — by retinting sky/fog/ground/windows
-   * /embers and toggling the storm. Geometry is shared; only colors change.
+   * refinery, a drowned floodline, the ash-choked fields, then the sterile
+   * safe-zone gate — by retinting sky/fog/ground/windows/embers, swapping the
+   * weather, and toggling one signature feature. Geometry is shared.
    */
   setZone(night: number): void {
     const z = ZONES[clamp(night - 1, 0, ZONES.length - 1)];
+    this.fogScale = z.fogScale;
+    this.outerGroup.visible = z.feature === "outer";
+    this.waterGroup.visible = z.feature === "flood";
+    this.ashGroup.visible = z.feature === "haven";
+    this.havenGroup.visible = z.feature === "haven";
     this.skyTopNight.setHex(z.skyTopNight);
     this.skyHorizonNight.setHex(z.skyHorizonNight);
     this.skyTopDawn.setHex(z.skyTopDawn);
@@ -828,11 +994,15 @@ export class World {
       .copy(this.skyHorizonNight)
       .lerp(this.skyHorizonDawn, d);
     this.stage.fog.color.copy(this.fogNight).lerp(this.fogDawn, d);
-    this.stage.fog.density = lerp(0.032, 0.012, d);
+    this.stage.fog.density = lerp(0.032, 0.012, d) * this.fogScale;
     this.stage.scene.background = this.stage.fog.color;
     this.stage.hemiLight.intensity = lerp(0.26, 0.8, d);
     this.stage.keyLight.intensity = lerp(0.3, 1.05, d);
     this.stage.keyLight.color.copy(this.keyNight).lerp(new THREE.Color(0xffd9a8), d);
+    // Remember the resting levels so the lightning flash adds absolutely, not
+    // cumulatively (the supply-run/pause "lights stuck bright" bug).
+    this.litHemi = this.stage.hemiLight.intensity;
+    this.litKey = this.stage.keyLight.intensity;
     (this.stars.material as THREE.PointsMaterial).opacity = lerp(0.5, 0, d);
     const moonGlow = this.moon.children[1] as THREE.Sprite;
     (this.moon.children[0] as THREE.Mesh).visible = d < 0.85;
@@ -859,6 +1029,24 @@ export class World {
     arr.needsUpdate = true;
     // Embers fade as dawn comes.
     (this.embers.material as THREE.PointsMaterial).opacity = lerp(0.6, 0.05, this.dawn);
+
+    // Ashfall (Ashfields only) — slow grey drift downward, recycled at the floor.
+    if (this.ashGroup.visible) {
+      const ap = this.ash.geometry.getAttribute("position") as THREE.BufferAttribute;
+      for (let i = 0; i < this.ashY.length; i++) {
+        let y = this.ashY[i] - (2.6 + (i % 5) * 0.4) * dt;
+        if (y < 0) y += 30;
+        this.ashY[i] = y;
+        ap.setXYZ(i, ap.getX(i) + Math.sin(this.t * 0.6 + i) * 0.18 * dt, y, ap.getZ(i));
+      }
+      ap.needsUpdate = true;
+      (this.ash.material as THREE.PointsMaterial).opacity = lerp(0.5, 0.08, this.dawn);
+    }
+    // Standing water (Floodline only) — a faint shimmer on the sheet.
+    if (this.waterGroup.visible) {
+      const sheet = this.waterGroup.children[0] as THREE.Mesh;
+      (sheet.material as THREE.MeshStandardMaterial).opacity = 0.45 + 0.12 * Math.sin(this.t * 0.8);
+    }
 
     // Barrel fires flicker.
     for (const f of this.flicker) {
@@ -941,8 +1129,10 @@ export class World {
       this.flashT -= dt;
       const f = Math.max(0, this.flashT) / 0.2;
       const boost = f * (0.55 + 0.45 * Math.sin(this.t * 70));
-      this.stage.hemiLight.intensity += boost * 1.8;
-      this.stage.keyLight.intensity += boost * 1.4;
+      // Absolute (base + boost), never += — so a flash during the day (where
+      // setDawn isn't re-applied each frame) decays back instead of sticking on.
+      this.stage.hemiLight.intensity = this.litHemi + boost * 1.8;
+      this.stage.keyLight.intensity = this.litKey + boost * 1.4;
     }
   }
 }
