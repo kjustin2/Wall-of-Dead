@@ -30,7 +30,7 @@ import { Player } from "./game/player";
 import { RunManager } from "./game/run";
 import { WEAPONS } from "./game/weapons";
 import { TRAITS } from "./game/traits";
-import { WaveDirector } from "./game/waveDirector";
+import { WaveDirector, nightStats } from "./game/waveDirector";
 import { actLevelLabel, bossTypeKeys, campaignNodeLabels, levelInfo, nextLevelInfo, TOTAL_LEVELS } from "./game/acts";
 import { TYPES } from "./game/zombie";
 import { Scavenge, type Density } from "./minigames/scavenge";
@@ -110,6 +110,8 @@ let heartbeatTimer = 0;
 let streak = 0;
 let streakTimer = 0;
 let fHeld = false;
+/** Remaining real-seconds of the boss-intro cutscene (camera takeover + lock). */
+let bossCine = 0;
 /** Which Act-5 ending the player chose at Haven's gate (set in onVictory). */
 let endingPick: string[] = ENDING_STAY;
 /** A weapon found at full armory, awaiting the dusk swap decision. */
@@ -240,6 +242,7 @@ function startRun(): void {
   menus.clear();
   clearSave();
   ctx.run.start();
+  pendingWeapon = null;
   ctx.stats = freshStats();
   ctx.player.group.visible = true;
   toCutscene();
@@ -297,6 +300,7 @@ function beginNight(): void {
   ctx.adrenaline.reset();
   ctx.combat.resetForNight();
   director = new WaveDirector(ctx);
+  bossCine = 0;
   ctx.cam.mode = "rampart";
   ctx.cam.target.set(0, 0, ctx.player.z);
   ctx.cam.snap();
@@ -384,7 +388,7 @@ function startDay(): void {
   menus.showSupplyChoice(beginSupplyRun, level.actName, level.supplyTheme);
 }
 
-function beginSupplyRun(density: Density): void {
+function beginSupplyRun(density: Density, weaponOverride?: string | null): void {
   menus.clear();
   ctx.enemies.clear();
   ctx.bullets.clear();
@@ -405,41 +409,64 @@ function beginSupplyRun(density: Density): void {
   ctx.wall.group.visible = false;
   ctx.companions.setVisible(false);
   ctx.world.setFieldClutter(false);
+  // A weapon only turns up if THIS run carries a weapon case (and you go collect
+  // it) — not every run. Pick the next unowned weapon from the upcoming leg's pool
+  // and place a case with a density-scaled chance (rarer once the armory is full).
+  const owned = (id: string) => ctx.run.weapons.some((w) => w.def.id === id);
+  const pool = WEAPON_FINDS[ctx.run.leg + 1] ?? [];
+  const candidate = pool.find((id) => !owned(id)) ?? ALL_FINDABLE.find((id) => !owned(id)) ?? null;
+  const baseChance = density === "high" ? 0.7 : density === "med" ? 0.5 : 0.3;
+  const chance = ctx.run.atWeaponCap() ? baseChance * 0.5 : baseChance;
+  // weaponOverride (tests): null forces NO case, a string forces that case.
+  const weaponInCrate =
+    weaponOverride !== undefined ? weaponOverride ?? undefined : candidate && ctx.rng.chance(chance) ? candidate : undefined;
   // The environment + layout are themed to the district you chose (crowded /
   // picked-over / outskirts), so the map matches its description.
-  scavenge.start({ density });
+  scavenge.start({ density, weaponInCrate });
   state = "day";
   hud.banner(scavenge.envName, "Supply run - sneak the dark - stay out of their sight");
 }
 
-function onDayDone(tier: string, frac: number): void {
+function onDayDone(tier: string, frac: number, weapons: string[]): void {
   scavenge.hide();
   state = "loot";
   ctx.input.enabled = false;
   hud.setMode("hidden");
 
-  // Ammo + repair kits were gathered live in the run; top mags and find a weapon.
+  // Ammo + repair kits were gathered live in the run; top mags.
   ctx.run.refillMags();
   ctx.run.traps += 2;
 
   ctx.run.leg += 1;
 
-  // A weapon turns up in the wreckage. Under the cap it's yours immediately;
-  // at the cap it waits for a swap decision at dusk (see offerDilemma).
+  // A new gun is ONLY the one(s) you actually pulled from a weapon-case crate this
+  // run — never handed out automatically. Under the cap it's granted; at the cap
+  // it becomes a dusk swap decision (see offerDilemma).
   const owned = (id: string) => ctx.run.weapons.some((w) => w.def.id === id);
-  const pool = WEAPON_FINDS[ctx.run.leg] ?? [];
-  let found = pool.find((id) => !owned(id)) ?? null;
-  if (!found && !ctx.run.reachedSafeZone) found = ALL_FINDABLE.find((id) => !owned(id)) ?? null;
+  const fresh = weapons.filter((id) => WEAPONS[id] && !owned(id));
   let foundLine: string;
-  if (found && ctx.run.atWeaponCap()) {
-    pendingWeapon = found;
-    foundLine = `Found a ${WEAPONS[found].name.toUpperCase()} — no room in the armory. Choose at dusk.`;
-  } else if (found) {
-    ctx.run.grantWeapon(found);
-    foundLine = `Found a ${WEAPONS[found].name.toUpperCase()} in the wreckage!`;
+  if (fresh.length === 0) {
+    ctx.run.addAmmo(40);
+    foundLine = "No weapon case out there this time — restocked extra ammo.";
   } else {
-    ctx.run.addAmmo(60);
-    foundLine = "Restocked extra ammo.";
+    const grantedNames: string[] = [];
+    let queuedName: string | null = null;
+    for (const id of fresh) {
+      if (ctx.run.atWeaponCap()) {
+        pendingWeapon = id; // armory full — offered as a swap at dusk
+        queuedName = WEAPONS[id].name.toUpperCase();
+      } else {
+        ctx.run.grantWeapon(id);
+        grantedNames.push(WEAPONS[id].name.toUpperCase());
+      }
+    }
+    const parts: string[] = [];
+    if (grantedNames.length)
+      parts.push(`<span class="loot-weapon">⚔ NEW WEAPON — you recovered a ${grantedNames.join(" + ")}!</span>`);
+    if (queuedName)
+      parts.push(`<span class="loot-weapon">⚔ RARE FIND — a ${queuedName}!</span> The armory's full — choose at dusk whether it earns a slot.`);
+    foundLine = parts.join(" ");
+    ctx.events.emit("SFX", { id: "meter_full" });
   }
 
   const lines = [
@@ -711,7 +738,7 @@ function resume(): void {
 ctx.events.on("PLAYER_DIED", () => {
   if (state === "night") defeat("You fell at the wall.");
 });
-ctx.events.on("DAY_DONE", ({ tier, frac }) => onDayDone(tier, frac));
+ctx.events.on("DAY_DONE", ({ tier, frac, weapons }) => onDayDone(tier, frac, weapons));
 ctx.events.on("WALL_BREACH", () => {
   if (state === "night") hud.banner("BREACH!", "Plug the gap — hold E (needs a kit)");
 });
@@ -723,22 +750,21 @@ ctx.events.on("COMPANION_DOWN", ({ name }) => {
   if (state === "night") hud.banner(`${name} is DOWN`, "Revive with E or lose them at dawn");
 });
 ctx.events.on("MINIBOSS", ({ name, sub }) => {
-  hud.banner(name, sub ?? "It'll smash the wall - hit it hard");
-  ctx.events.emit("SFX", { id: "brute_slam" });
-  ctx.cam.addTrauma(0.4);
-  requestSlowmo(0.5, 0.5);
+  if (state !== "night") return;
+  startBossCinematic(name, sub ?? "It'll smash the wall — hit it hard");
 });
 ctx.events.on("ZOMBIE_KILLED", ({ kind }) => {
   if (state !== "night") return;
   const killedType = TYPES[kind];
   if (killedType?.boss) {
-    // Boss kill-cam: a long dilation + camera punch as the act boss falls.
+    // Boss takedown beat: a long dilation + camera punch + a retracting title
+    // card (no camera takeover — the player keeps fighting the dawn surge).
     requestSlowmo(1.6, 0.22);
     ctx.cam.pulseFov(0.9);
     ctx.cam.addTrauma(0.7);
     ctx.stage.punch(0.6);
     ctx.events.emit("SFX", { id: "boss_roar" });
-    hud.banner(`${killedType.bossTitle ?? kind.toUpperCase()} FALLS`, "Hold to first light");
+    hud.bossKill(killedType.bossTitle ?? kind.toUpperCase());
   }
   streak++;
   streakTimer = 2.6;
@@ -789,6 +815,37 @@ function requestSlowmo(s: number, strength: number): void {
 }
 ctx.events.on("TIME_HITSTOP", ({ s }) => requestHitStop(s));
 ctx.events.on("TIME_SLOWMO", ({ s, strength }) => requestSlowmo(s, strength));
+
+// ------------------------------------------------- boss-intro cinematic
+const BOSS_CINE_DUR = 2.6;
+/** Take over the camera for a short cinematic as an act boss emerges: dolly in on
+ * the looming boss, letterbox + title card, time crawls, controls locked. */
+function startBossCinematic(name: string, sub: string): void {
+  const b = ctx.enemies.boss;
+  const bx = b ? b.x : 0;
+  const bz = b ? b.z : levelInfo(ctx.run.night).boss?.z ?? -44;
+  bossCine = BOSS_CINE_DUR;
+  ctx.cam.beginBossFocus(bx, bz);
+  ctx.input.enabled = false;
+  ctx.grenades.hidePreview();
+  fHeld = false;
+  hud.bossCinematic(name, sub);
+  requestSlowmo(BOSS_CINE_DUR + 0.2, 0.18); // the field crawls during the reveal
+  ctx.cam.addTrauma(0.5);
+  ctx.stage.punch(0.5);
+  ctx.events.emit("SFX", { id: "boss_roar" });
+}
+/** Hand control back to the player and drop the camera onto the rampart. */
+function endBossCinematic(): void {
+  bossCine = 0;
+  hud.endBossCinematic();
+  if (state === "night") {
+    ctx.cam.mode = "rampart";
+    ctx.input.enabled = true;
+    ctx.cam.addTrauma(0.4);
+    ctx.cam.pulseFov(0.5);
+  }
+}
 
 window.addEventListener("keydown", (e) => {
   if (e.code === "Escape") {
@@ -856,6 +913,12 @@ ctx.stage.renderer.setAnimationLoop(() => {
 
   if (state === "night" && director) {
     ctx.stats.time += dt;
+    // Boss-intro cinematic runs on real time so its length is fixed regardless of
+    // the slow-mo it rides on; it hands control back when it elapses.
+    if (bossCine > 0) {
+      bossCine -= realDt;
+      if (bossCine <= 0) endBossCinematic();
+    }
     ctx.input.updateAim(ctx.stage.camera);
     director.update(dt);
     ctx.world.setDawn(Math.min(0.2, director.progress * 0.26));
@@ -936,10 +999,63 @@ Promise.race([ctx.music.preload(), new Promise<void>((r) => window.setTimeout(r,
   toTitle();
 });
 
+// ---------------------------------------------------------------------------
+// Debug scenario registry — cut straight to a specific, screenshot-worthy game
+// state in one call. Used by the automated capture harnesses (qa/) so tests can
+// jump to any moment (a given act's night, a boss fight, a supply run, the dawn
+// dilemma, an ending, defeat) without playing through to it. Harmless in prod.
+// ---------------------------------------------------------------------------
+interface Scenario {
+  desc: string;
+  run: () => void;
+}
+function dbgSpawnMix(types: string[], n = 10): void {
+  for (let i = 0; i < n; i++) ctx.enemies.spawn(types[i % types.length], ctx.rng.range(-20, 20), -26 - (i % 4) * 11);
+}
+function dbgSetProgress(p: number): void {
+  if (director) director.elapsed = director.length * p;
+}
+function dbgStartNight(n: number): void {
+  ctx.run.start();
+  ctx.run.night = n;
+  beginNight();
+}
+function dbgStartSupply(n: number, d: Density): void {
+  ctx.run.start();
+  ctx.run.night = n;
+  beginSupplyRun(d);
+}
+const SCENARIOS: Record<string, Scenario> = {
+  title: { desc: "Title / main menu", run: () => toTitle() },
+  "night-act1": { desc: "Act I night — Outer Road, mid-wave", run: () => { dbgStartNight(1); dbgSetProgress(0.5); dbgSpawnMix(["shambler", "runner", "crawler"]); } },
+  "night-act2": { desc: "Act II night — Floodline, mid-wave", run: () => { dbgStartNight(4); dbgSetProgress(0.5); dbgSpawnMix(["crawler", "leaper", "spitter"]); } },
+  "night-act3": { desc: "Act III night — Haven Approach, mid-wave", run: () => { dbgStartNight(7); dbgSetProgress(0.5); dbgSpawnMix(["armored", "shielded", "screamer", "brute"]); } },
+  "boss-roadblock": { desc: "Act I finale — THE ROADBLOCK", run: () => { dbgStartNight(3); dbgSetProgress(0.5); ctx.enemies.spawn("roadblock", 0, -40); } },
+  "boss-drowned": { desc: "Act II finale — THE DROWNED TITAN", run: () => { dbgStartNight(6); dbgSetProgress(0.5); ctx.enemies.spawn("drowned", 0, -42); } },
+  "boss-behemoth": { desc: "Act III finale — THE BEHEMOTH", run: () => { dbgStartNight(9); dbgSetProgress(0.5); ctx.enemies.spawn("behemoth", 0, -44); } },
+  surge: { desc: "Dawn surge — the horde massing the wall", run: () => { dbgStartNight(5); dbgSetProgress(0.85); dbgSpawnMix(["runner", "shambler", "crawler", "leaper"], 16); } },
+  laststand: { desc: "Adrenaline at surge — Last Stand ready", run: () => { dbgStartNight(2); dbgSetProgress(0.5); dbgSpawnMix(["shambler", "runner"], 8); ctx.adrenaline.gain(100); } },
+  "supply-outer": { desc: "Supply run — Outer Road", run: () => dbgStartSupply(1, "med") },
+  "supply-flood": { desc: "Supply run — Floodline (flooded blocks)", run: () => dbgStartSupply(4, "high") },
+  "supply-haven": { desc: "Supply run — Haven Perimeter (checkpoint)", run: () => dbgStartSupply(7, "med") },
+  "dawn-dilemma": { desc: "Dawn dilemma choice screen", run: () => { ctx.run.start(); ctx.run.night = 2; offerDilemma(() => {}); } },
+  ending: { desc: "Haven's Gate — the two-ending choice", run: () => { ctx.run.start(); ctx.run.night = TOTAL_LEVELS; onVictory(); } },
+  defeat: { desc: "Defeat — the death screen", run: () => { dbgStartNight(1); defeat("The wall was overrun."); } },
+};
+
 // Debug hook for console debugging + headless smoke tests (harmless in prod).
 (window as unknown as Record<string, unknown>).__wod = {
   ctx,
   state: () => state,
+  /** Cut straight to a named scenario (see SCENARIOS). Returns its description. */
+  scenario: (name: string) => {
+    const s = SCENARIOS[name];
+    if (!s) return `unknown scenario: ${name}`;
+    s.run();
+    return s.desc;
+  },
+  /** List every available scenario: [{ name, desc }]. */
+  scenarios: () => Object.entries(SCENARIOS).map(([name, s]) => ({ name, desc: s.desc })),
   startRun,
   startDay,
   forceDawn: () => {
@@ -962,7 +1078,11 @@ Promise.race([ctx.music.preload(), new Promise<void>((r) => window.setTimeout(r,
     for (let i = 0; i < n; i++) ctx.enemies.spawn(type, ctx.rng.range(-20, 20));
   },
   // Test hooks for campaign systems (supply density, inter-night events, ending).
-  startSupply: (d: Density) => beginSupplyRun(d),
+  startSupply: (d: Density, weaponOverride?: string | null) => beginSupplyRun(d, weaponOverride),
   interNightEvent: () => interNightEvent(),
   forceVictory: () => onVictory(),
+  // Balance probe: the pacing plan for any night (1..9) at the current difficulty.
+  nightStats: (n: number) => nightStats(n, ctx.tuning.spawnRate),
+  // Drop the supply-run avatar at a spot (so a capture can frame the lot interior).
+  scavengeTeleport: (x: number, z: number) => scavenge.debugTeleport(x, z),
 };

@@ -46,7 +46,7 @@ export interface EventMap {
   NIGHT_START: { night: number };
   MINIBOSS: { name: string; sub?: string };
   DAWN: Record<string, never>;
-  DAY_DONE: { tier: string; frac: number };
+  DAY_DONE: { tier: string; frac: number; weapons: string[] };
   RUN_VICTORY: Record<string, never>;
   RUN_DEFEAT: { reason: string };
 

@@ -884,30 +884,136 @@ export class World {
       tank.castShadow = true;
       this.outerGroup.add(tank);
     }
+    // Crashed convoy — a jackknifed semi across the far lane with spilled cars,
+    // the Outer Road's signature landmark.
+    const truckMat = new THREE.MeshStandardMaterial({ color: 0x3a2c1c, roughness: 1, flatShading: true });
+    const cabMat = new THREE.MeshStandardMaterial({ color: 0x5a3414, roughness: 1, flatShading: true });
+    const convoy = new THREE.Group();
+    const trailer = new THREE.Mesh(new THREE.BoxGeometry(13, 4, 4.2), truckMat);
+    trailer.position.set(0, 2.0, 0);
+    trailer.rotation.z = 0.16;
+    const cab = new THREE.Mesh(new THREE.BoxGeometry(4.4, 3.4, 4), cabMat);
+    cab.position.set(-8.4, 1.7, 1.0);
+    cab.rotation.z = 0.4;
+    convoy.add(trailer, cab);
+    for (const [cx, cz, ry] of [
+      [6.8, 2.6, 0.5],
+      [3.2, -3.0, -0.7],
+    ] as [number, number, number][]) {
+      const car = new THREE.Mesh(new THREE.BoxGeometry(3.6, 1.3, 1.9), truckMat);
+      car.position.set(cx, 0.65, cz);
+      car.rotation.y = ry;
+      convoy.add(car);
+    }
+    convoy.position.set(-7, 0, -68);
+    convoy.rotation.y = 0.55;
+    convoy.children.forEach((m) => (m.castShadow = true));
+    this.outerGroup.add(convoy);
+    // Headlights still burning on the wreck — two warm beams raking the road.
+    for (const hx of [-2.5, 0.5]) {
+      const hl = makeGlow(0xfff0c8, 4.6, 0.95);
+      hl.position.set(-7 + hx, 1.5, -61);
+      this.outerGroup.add(hl);
+    }
+    // A city burning on the horizon behind the skyline — the road's warm signature.
+    for (const [fx, fy, fz, s] of [
+      [-34, 18, -132, 1.4],
+      [8, 14, -142, 1.0],
+      [44, 16, -130, 0.85],
+    ] as [number, number, number, number][]) {
+      const fire = makeGlow(0xff7026, 30 * s, 0.5);
+      fire.position.set(fx, fy, fz);
+      this.outerGroup.add(fire);
+    }
     this.outerGroup.visible = false;
     this.group.add(this.outerGroup);
 
-    // --- Floodline: a translucent sheet of standing water over the field. ---
+    // --- Floodline: a drowned field. A reflective standing-water sheet, ripples,
+    // half-submerged wrecks, toppled streetlights mirrored in it, and a pump hulk. ---
     const waterMat = new THREE.MeshStandardMaterial({
       color: 0x0a3a44,
       transparent: true,
-      opacity: 0.55,
-      roughness: 0.18,
-      metalness: 0.6,
+      opacity: 0.62,
+      roughness: 0.1,
+      metalness: 0.8,
       depthWrite: false,
     });
-    const sheet = new THREE.Mesh(new THREE.PlaneGeometry(180, 150), waterMat);
+    const sheet = new THREE.Mesh(new THREE.PlaneGeometry(200, 165), waterMat);
     sheet.rotation.x = -Math.PI / 2;
-    sheet.position.set(0, 0.06, -56);
+    sheet.position.set(0, 0.07, -56);
     this.waterGroup.add(sheet);
-    // A few brighter ripples so the flat sheet reads as wet, not glass.
-    const rippleMat = new THREE.MeshBasicMaterial({ color: 0x2a8aa0, transparent: true, opacity: 0.18, depthWrite: false, blending: THREE.AdditiveBlending, fog: false });
-    for (let i = 0; i < 7; i++) {
-      const r = new THREE.Mesh(new THREE.RingGeometry(this.rng.range(1, 2), this.rng.range(2.4, 4), 20), rippleMat);
+    // Brighter ripple rings so the flat sheet reads as wet, alive water.
+    const rippleMat = new THREE.MeshBasicMaterial({ color: 0x3aa6c0, transparent: true, opacity: 0.22, depthWrite: false, blending: THREE.AdditiveBlending, fog: false });
+    for (let i = 0; i < 14; i++) {
+      const r = new THREE.Mesh(new THREE.RingGeometry(this.rng.range(1, 2.4), this.rng.range(2.6, 5), 22), rippleMat);
       r.rotation.x = -Math.PI / 2;
-      r.position.set(this.rng.range(-40, 40), 0.07, this.rng.range(-80, -8));
+      r.position.set(this.rng.range(-44, 44), 0.085, this.rng.range(-82, -6));
       this.waterGroup.add(r);
     }
+    // Half-submerged wrecks — roofs of cars/vans breaking the surface.
+    const wreckMat = new THREE.MeshStandardMaterial({ color: 0x1a2e30, roughness: 1, flatShading: true });
+    for (const [x, z, w, ry] of [
+      [-20, -30, 3.4, 0.4],
+      [16, -44, 3.0, -0.5],
+      [-30, -62, 4.0, 0.2],
+      [9, -70, 3.2, 0.8],
+    ] as [number, number, number, number][]) {
+      const roof = new THREE.Mesh(new THREE.BoxGeometry(w, 0.9, 2.0), wreckMat);
+      roof.position.set(x, 0.42, z);
+      roof.rotation.y = ry;
+      this.waterGroup.add(roof);
+    }
+    // Toppled streetlights leaning into the water, each with a dim drowned glow.
+    const drownPole = new THREE.MeshStandardMaterial({ color: 0x16292e, roughness: 1, flatShading: true });
+    for (const [x, z, tilt] of [
+      [-12, -38, 1.1],
+      [24, -58, -0.9],
+    ] as [number, number, number][]) {
+      const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.2, 8, 6), drownPole);
+      pole.position.set(x, 2.0, z);
+      pole.rotation.z = tilt;
+      const glow = makeGlow(0x3ad0e8, 3.0, 0.4);
+      glow.position.set(x + Math.sin(tilt) * 4, 0.45, z);
+      this.waterGroup.add(pole, glow);
+    }
+    // A drowned pump-station hulk looming on the horizon with a warning beacon.
+    const pumpMat = new THREE.MeshStandardMaterial({ color: 0x12262b, roughness: 1, flatShading: true });
+    const pump = new THREE.Group();
+    const hall = new THREE.Mesh(new THREE.BoxGeometry(16, 9, 10), pumpMat);
+    hall.position.y = 4.5;
+    const stack = new THREE.Mesh(new THREE.CylinderGeometry(1.0, 1.2, 12, 8), pumpMat);
+    stack.position.set(5, 6, -3);
+    const beacon = makeGlow(0xff6a4a, 2.6, 0.7);
+    beacon.position.set(5, 12.6, -3);
+    pump.add(hall, stack, beacon);
+    pump.position.set(-34, 0, -88);
+    hall.castShadow = true;
+    stack.castShadow = true;
+    this.waterGroup.add(pump);
+    // A collapsed overpass spanning the floodline — broken-backed, half-drowned,
+    // its deck lights still glowing cold over the black water. The flood landmark.
+    const bridgeMat = new THREE.MeshStandardMaterial({ color: 0x16282e, roughness: 1, flatShading: true });
+    const bridge = new THREE.Group();
+    const spanL = new THREE.Mesh(new THREE.BoxGeometry(40, 1.8, 8), bridgeMat);
+    spanL.position.set(-26, 6.2, 0);
+    spanL.rotation.z = 0.17;
+    const spanR = new THREE.Mesh(new THREE.BoxGeometry(36, 1.8, 8), bridgeMat);
+    spanR.position.set(28, 4.6, 0);
+    spanR.rotation.z = -0.22;
+    bridge.add(spanL, spanR);
+    for (const px of [-46, -12, 20, 48]) {
+      const pier = new THREE.Mesh(new THREE.BoxGeometry(3.0, 13, 3.0), bridgeMat);
+      pier.position.set(px, 4.5, 0);
+      bridge.add(pier);
+    }
+    for (const lx of [-40, -16, 18, 40]) {
+      const g = makeGlow(0x5fd6ff, 3.2, 0.55);
+      g.position.set(lx, 7.4, 0.4);
+      bridge.add(g);
+    }
+    bridge.position.set(0, 0, -80);
+    bridge.children.forEach((m) => (m.castShadow = m instanceof THREE.Mesh));
+    this.waterGroup.add(bridge);
     this.waterGroup.visible = false;
     this.group.add(this.waterGroup);
 
@@ -933,9 +1039,19 @@ export class World {
     this.ashGroup.visible = false;
     this.group.add(this.ashGroup);
 
-    // --- Haven's Gate: cold floodlight pylons flanking the wall (the "safe" read). ---
+    // --- Haven's Gate: a sterile, fortified checkpoint — cold floodlight pylons,
+    // a chain-link perimeter, concrete barriers, and a looming gate wall behind. ---
     const poleMat = new THREE.MeshStandardMaterial({ color: 0x2a3138, roughness: 1, flatShading: true });
-    for (const px of [-22, -8, 8, 22]) {
+    // Floodlight pylons (only two carry real PointLights for perf; the rest glow).
+    const pylonSpots: [number, number, boolean][] = [
+      [-22, -6, true],
+      [-8, -6, true],
+      [8, -6, true],
+      [22, -6, true],
+      [-30, -20, false],
+      [30, -20, false],
+    ];
+    for (const [px, pz, lit] of pylonSpots) {
       const pylon = new THREE.Group();
       const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.26, 9, 6), poleMat);
       pole.position.y = 4.5;
@@ -943,13 +1059,84 @@ export class World {
       head.position.set(0, 9, -0.4);
       head.rotation.x = 0.5;
       pylon.add(pole, head);
-      const lamp = new THREE.PointLight(0xcfe6ff, 7, 30, 2);
-      lamp.position.set(0, 9, -1.4);
+      if (lit) {
+        const lamp = new THREE.PointLight(0xcfe6ff, 7, 30, 2);
+        lamp.position.set(0, 9, -1.4);
+        pylon.add(lamp);
+      }
       const glow = makeGlow(0xdff0ff, 3.4, 0.85);
-      glow.position.copy(lamp.position);
-      pylon.add(lamp, glow);
-      pylon.position.set(px, 0, -6);
+      glow.position.set(0, 9, -1.4);
+      pylon.add(glow);
+      pylon.position.set(px, 0, pz);
       this.havenGroup.add(pylon);
+    }
+    // Chain-link perimeter fence flanking the approach (posts + bars + mesh plane).
+    const fenceMat = new THREE.MeshStandardMaterial({ color: 0x3a444c, roughness: 1, flatShading: true });
+    const meshMat = new THREE.MeshBasicMaterial({ color: 0x8fb6c8, transparent: true, opacity: 0.12, depthWrite: false, side: THREE.DoubleSide, fog: true });
+    for (const side of [-1, 1] as const) {
+      for (let s = 0; s < 5; s++) {
+        const z = -14 - s * 13;
+        const panel = new THREE.Group();
+        const post = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.12, 3.2, 6), fenceMat);
+        post.position.y = 1.6;
+        const bar = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.1, 12), fenceMat);
+        bar.position.set(0, 3.0, 6);
+        const chain = new THREE.Mesh(new THREE.PlaneGeometry(12, 3.0), meshMat);
+        chain.rotation.y = Math.PI / 2;
+        chain.position.set(0, 1.6, 6);
+        panel.add(post, bar, chain);
+        panel.position.set(side * 30, 0, z);
+        this.havenGroup.add(panel);
+      }
+    }
+    // Concrete jersey-barrier checkpoint line + a looming gate wall behind it.
+    const concreteMat = new THREE.MeshStandardMaterial({ color: 0x4a4f55, roughness: 1, flatShading: true });
+    for (const bx of [-16, -5.5, 5.5, 16]) {
+      const bar = new THREE.Mesh(new THREE.BoxGeometry(6, 1.3, 1.6), concreteMat);
+      bar.position.set(bx, 0.65, -11);
+      bar.castShadow = true;
+      const stripe = new THREE.Mesh(new THREE.BoxGeometry(6.05, 0.3, 0.2), new THREE.MeshBasicMaterial({ color: 0xe8e2d0, fog: false }));
+      stripe.position.set(bx, 1.05, -10.2);
+      this.havenGroup.add(bar, stripe);
+    }
+    const gate = new THREE.Group();
+    const gw = new THREE.Mesh(new THREE.BoxGeometry(70, 16, 3), concreteMat);
+    gw.position.y = 8;
+    for (const tx of [-12, 12]) {
+      const tower = new THREE.Mesh(new THREE.BoxGeometry(7, 22, 6), concreteMat);
+      tower.position.set(tx, 11, -1);
+      gate.add(tower);
+    }
+    gate.add(gw);
+    gate.position.set(0, 0, -96);
+    gate.children.forEach((m) => (m.castShadow = true));
+    this.havenGroup.add(gate);
+    // Lit window grid + red tower beacons make the gate read as a manned
+    // megastructure (the only working lights left on the road).
+    const havenWin = new THREE.MeshBasicMaterial({ color: 0xbfe6ff, fog: false });
+    for (let r = 0; r < 6; r++)
+      for (let c = 0; c < 18; c++) {
+        if (this.rng.chance(0.45)) continue;
+        const win = new THREE.Mesh(new THREE.PlaneGeometry(0.7, 1.0), havenWin);
+        win.position.set(-30 + c * 3.4, 3 + r * 2.2, -94.3);
+        this.havenGroup.add(win);
+      }
+    for (const tx of [-12, 12]) {
+      const redBeacon = makeGlow(0xff3b30, 3.2, 0.9);
+      redBeacon.position.set(tx, 22.4, -95);
+      this.havenGroup.add(redBeacon);
+    }
+    // Sweeping searchlight beams from the gate towers — long cold cones quartering
+    // the sky (the safe zone watching the dark).
+    const beamMat = new THREE.MeshBasicMaterial({ color: 0xdff0ff, transparent: true, opacity: 0.05, depthWrite: false, side: THREE.DoubleSide, blending: THREE.AdditiveBlending, fog: false });
+    for (const [tx, rz] of [
+      [-12, 0.5],
+      [12, -0.5],
+    ] as [number, number][]) {
+      const beam = new THREE.Mesh(new THREE.ConeGeometry(6, 64, 14, 1, true), beamMat);
+      beam.position.set(tx, 22, -92);
+      beam.rotation.set(Math.PI * 0.6, 0, rz);
+      this.havenGroup.add(beam);
     }
     this.havenGroup.visible = false;
     this.group.add(this.havenGroup);

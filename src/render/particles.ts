@@ -169,13 +169,20 @@ export class Particles {
   }
 
   update(dt: number): void {
+    // Only touch live slots. Dead particles already have life=0 on the GPU (zeroed
+    // the frame they died / on clear), so re-writing them every frame is wasted
+    // work — at idle this loop now does effectively nothing.
+    let dirty = false;
     for (let i = 0; i < CAP; i++) {
       let l = this.life[i];
+      if (l <= 0) continue;
+      dirty = true;
+      l -= dt;
       if (l <= 0) {
-        this.lifeAttr.setX(i, 0);
+        this.life[i] = 0;
+        this.lifeAttr.setX(i, 0); // zero once, on death
         continue;
       }
-      l -= dt;
       this.life[i] = l;
       const k = Math.exp(-this.drag[i] * dt);
       this.vx[i] *= k;
@@ -193,10 +200,13 @@ export class Particles {
       this.posAttr.setXYZ(i, this.px[i], this.py[i], this.pz[i]);
       this.lifeAttr.setX(i, Math.max(0, l / this.maxLife[i]));
     }
-    this.posAttr.needsUpdate = true;
-    this.colAttr.needsUpdate = true;
-    this.sizeAttr.needsUpdate = true;
-    this.lifeAttr.needsUpdate = true;
+    // Upload only when a live particle moved/spawned/died this frame.
+    if (dirty) {
+      this.posAttr.needsUpdate = true;
+      this.colAttr.needsUpdate = true;
+      this.sizeAttr.needsUpdate = true;
+      this.lifeAttr.needsUpdate = true;
+    }
   }
 
   clear(): void {

@@ -15,7 +15,13 @@
     "verify": "tsc --noEmit && vite build",
     "smoke": "electron scripts/smoke-electron.cjs",
     "test:play": "npm run build && electron scripts/smoke-electron.cjs",
-    "test:perf": "npm run build && electron scripts/perf-electron.cjs"
+    "test:perf": "npm run build && electron scripts/perf-electron.cjs",
+    "qa:cycle": "node qa/loop.mjs",
+    "qa:capture": "npm run build && electron qa/capture.cjs",
+    "qa:check": "node qa/check.mjs",
+    "qa:maps": "npm run build && electron qa/capture-maps.cjs",
+    "qa:scenarios": "npm run build && electron qa/capture-scenarios.cjs",
+    "qa:perf-supply": "npm run build && electron qa/perf-supply.cjs"
   },
   "dependencies": {
     "@fontsource/oswald": "^5.2.5",

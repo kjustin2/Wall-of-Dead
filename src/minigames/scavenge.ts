@@ -7,10 +7,12 @@ import { levelInfo, type SupplyTheme } from "../game/acts";
 
 const SURVIVOR_NAMES = ["Cole", "Reyes", "Tess", "Vance", "Okafor", "Lin", "Brenner"];
 
-const DURATION = 62;
-const AREA = { minX: -40, maxX: 40, minZ: -66, maxZ: -3 };
-const SNEAK = 6.4;
-const SPRINT = 12;
+const DURATION = 82;
+// A larger play area than the old lot — more district to crawl, longer sightlines
+// broken up by procedural city blocks (see generateWalls).
+const AREA = { minX: -54, maxX: 54, minZ: -88, maxZ: -4 };
+const SNEAK = 7.2;
+const SPRINT = 13.6;
 const CRATES = 8; // default supply crates (per-run count comes from DENSITY)
 const AV_R = 0.6;
 
@@ -86,9 +88,9 @@ interface ActSkin {
 const ACT_SKINS: Record<SupplyTheme, ActSkin> = {
   outer: {
     route: "OUTER ROAD",
-    floor: 0x332f2b,
-    wall: 0x35302b,
-    cap: 0x514137,
+    floor: 0x3a2814,
+    wall: 0x3a2e22,
+    cap: 0x544131,
     accent: 0xff5a2c,
     guard: 0xffb24a,
     crate: 0x5a3f25,
@@ -128,9 +130,9 @@ const ACT_SKINS: Record<SupplyTheme, ActSkin> = {
   },
   haven: {
     route: "HAVEN PERIMETER",
-    floor: 0x34383d,
-    wall: 0x343d46,
-    cap: 0x64707c,
+    floor: 0x2a323b,
+    wall: 0x323b45,
+    cap: 0x68747f,
     accent: 0xcfe9ff,
     guard: 0xff4030,
     crate: 0x36414a,
@@ -205,6 +207,7 @@ interface Crate {
   got: boolean;
   gold: boolean;
   kit: boolean;
+  weapon?: string; // weapon id this crate holds (a rare weapon-case crate), if any
 }
 interface Survivor {
   group: THREE.Group;
@@ -212,7 +215,7 @@ interface Survivor {
   z: number;
   taken: boolean;
 }
-type GType = "shambler" | "runner" | "spitter";
+type GType = "shambler" | "runner" | "spitter" | "brute" | "screamer";
 interface Guard {
   group: THREE.Group;
   cone: THREE.Mesh;
@@ -228,6 +231,8 @@ interface Guard {
   alertT: number;
   speed: number;
   chase: number; // chase speed
+  vision: number; // sight-range multiplier
+  scream: boolean; // alerts the block when it first spots you
   spitCd: number; // spitter: time until next projectile
   stuckT: number;
   px: number;
@@ -245,10 +250,26 @@ interface Spit {
   mesh: THREE.Mesh;
 }
 // Per-type look + movement. Body color is the main read; eyes/cone are state-tinted.
-const GUARD_CFG: Record<GType, { flesh: number; coat: number; scale: number; speed: number; chase: number }> = {
+//   shambler — the baseline patroller.
+//   runner   — small, fast, deadly chase.
+//   spitter  — hangs back and lobs acid.
+//   brute    — huge + slow; a lumbering roadblock with a short cone.
+//   screamer — spots you and shrieks, dragging every nearby guard onto your spot.
+interface GuardCfg {
+  flesh: number;
+  coat: number;
+  scale: number;
+  speed: number;
+  chase: number;
+  vision?: number; // sight-cone range multiplier (default 1)
+  scream?: boolean; // alerts nearby guards to your position on first sight
+}
+const GUARD_CFG: Record<GType, GuardCfg> = {
   shambler: { flesh: 0x35402c, coat: 0x232a1c, scale: 1.0, speed: 3.0, chase: 7.4 },
   runner: { flesh: 0x5a3020, coat: 0x331a12, scale: 0.84, speed: 4.6, chase: 10.5 },
   spitter: { flesh: 0x2f4a26, coat: 0x1c3018, scale: 1.1, speed: 2.3, chase: 5.6 },
+  brute: { flesh: 0x47352a, coat: 0x281a12, scale: 1.5, speed: 1.9, chase: 4.8, vision: 0.82 },
+  screamer: { flesh: 0x53305a, coat: 0x2a1830, scale: 0.95, speed: 3.3, chase: 8.2, vision: 1.18, scream: true },
 };
 interface HideZone {
   x: number;
@@ -507,6 +528,8 @@ export class Scavenge {
   private envCap = 0x3a4048;
   private envFog = 0.038;
   private skinId: SupplyTheme = "outer";
+  /** Weapon ids picked up from weapon-case crates this run (granted at day's end). */
+  private collectedWeapons: string[] = [];
   /** Name of the current environment — shown in the day banner. */
   envName = "PICKED-OVER BLOCKS";
   private spitGeo = new THREE.SphereGeometry(0.22, 8, 6);
@@ -569,9 +592,9 @@ export class Scavenge {
    * lane lines — reads as an urban yard rather than open ground. */
   private buildFloor(): void {
     const tex = concreteTexture();
-    tex.repeat.set(11, 9);
+    tex.repeat.set(15, 13);
     this.floorMat = new THREE.MeshStandardMaterial({ color: 0x2b323a, map: tex, roughness: 0.85, metalness: 0.08 });
-    const floor = new THREE.Mesh(new THREE.PlaneGeometry(96, 76), this.floorMat);
+    const floor = new THREE.Mesh(new THREE.PlaneGeometry(132, 104), this.floorMat);
     floor.rotation.x = -Math.PI / 2;
     floor.position.set(0, 0.01, (AREA.minZ + AREA.maxZ) / 2);
     floor.receiveShadow = true;
@@ -579,17 +602,18 @@ export class Scavenge {
     // Faded yellow parking/lane lines — toggled off in the rural outskirts.
     this.group.add(this.laneGroup);
     const lineMat = new THREE.MeshBasicMaterial({ color: 0x6a5a22, transparent: true, opacity: 0.35, depthWrite: false });
-    for (let i = 0; i < 6; i++) {
-      const line = new THREE.Mesh(new THREE.PlaneGeometry(0.3, 9), lineMat);
+    for (let i = 0; i < 9; i++) {
+      const line = new THREE.Mesh(new THREE.PlaneGeometry(0.3, 12), lineMat);
       line.rotation.x = -Math.PI / 2;
-      line.position.set(-30 + i * 12, 0.03, -20);
+      line.position.set(-48 + i * 12, 0.03, -26);
       this.laneGroup.add(line);
     }
   }
 
   private buildWalls(): void {
-    // Rebuildable: clear any prior layout's meshes, then build the active one.
-    this.wallGroup.clear();
+    // Rebuildable: DISPOSE the prior layout's geometry/materials (not just clear,
+    // or every supply run leaks a whole block layout → GPU memory creep → lag).
+    this.clearGroup(this.wallGroup);
     if (!this.wallGroup.parent) this.group.add(this.wallGroup);
     const concrete = new THREE.MeshStandardMaterial({ color: this.envWall, roughness: 1, flatShading: true });
     const cap = new THREE.MeshStandardMaterial({ color: this.envCap, roughness: 1, flatShading: true });
@@ -626,6 +650,61 @@ export class Scavenge {
         this.wallGroup.add(m, top);
       }
     }
+  }
+
+  /** Procedurally lay out a district of cover: a loose grid of "blocks" (solid
+   * buildings, L-corners, long fences, wrecked cars) separated by open streets,
+   * scaled to fill the larger play area. The entrance strip is always kept clear
+   * so you never spawn boxed in, and blocks are islands (never closed rings), so
+   * every free spot stays reachable. Varies per run and per district. */
+  private generateWalls(cfg: DensityCfg): Wall[] {
+    const rng = this.ctx.rng;
+    const walls: Wall[] = [];
+    const urban = cfg.buildings > 0;
+    let built = urban ? 0.82 : 0.44; // crowded districts pack the blocks
+    if (this.skinId === "flood") built *= 0.82; // more open black water
+    const carBias = this.skinId === "outer" ? 0.12 : 0; // outer road = more wrecks
+
+    const entranceZ = AREA.maxZ - 12; // keep z > this (the spawn/extract strip) clear
+    const minX = AREA.minX + 5;
+    const maxX = AREA.maxX - 5;
+    const minZ = AREA.minZ + 6;
+    const maxZ = entranceZ - 4;
+    const cols = 4;
+    const rows = 5;
+    const cellW = (maxX - minX) / cols;
+    const cellD = (maxZ - minZ) / rows;
+
+    for (let cxI = 0; cxI < cols; cxI++) {
+      for (let czI = 0; czI < rows; czI++) {
+        if (!rng.chance(built)) continue;
+        const ccx = minX + (cxI + 0.5) * cellW + rng.range(-2, 2);
+        const ccz = minZ + (czI + 0.5) * cellD + rng.range(-2, 2);
+        const roll = rng.next() + carBias; // outer road skews toward more wrecks
+        if (roll < 0.4) {
+          // Solid building block — big cover, sized to leave streets around it.
+          const bw = clamp(rng.range(7, 13), 6, cellW - 8);
+          const bd = clamp(rng.range(6, 10), 5, cellD - 4);
+          walls.push({ x: ccx, z: ccz, w: bw, d: bd });
+        } else if (roll < 0.66) {
+          // L-shaped wall corner.
+          const arm = clamp(rng.range(6, 10), 5, Math.min(cellW - 6, cellD - 2));
+          const sx = rng.chance(0.5) ? 1 : -1;
+          const sz = rng.chance(0.5) ? 1 : -1;
+          walls.push({ x: ccx, z: ccz, w: arm, d: 1.4 });
+          walls.push({ x: ccx + (sx * (arm / 2 - 0.7)), z: ccz + (sz * (arm / 2)), w: 1.4, d: arm });
+        } else if (roll < 0.84) {
+          // A long fence / barrier — across or along the street.
+          if (rng.chance(0.5)) walls.push({ x: ccx, z: ccz, w: clamp(rng.range(9, cellW - 2), 6, cellW - 2), d: 1.4 });
+          else walls.push({ x: ccx, z: ccz, w: 1.4, d: clamp(rng.range(7, cellD - 2), 5, cellD - 2) });
+        } else {
+          // A wrecked car as cover/landmark.
+          const along = rng.chance(0.5);
+          walls.push({ x: ccx, z: ccz, w: along ? 4.6 : 2.4, d: along ? 2.4 : 4.6, car: true });
+        }
+      }
+    }
+    return walls;
   }
 
   /** Free a rebuildable group's children (geometry + materials + maps) so the
@@ -785,27 +864,84 @@ export class Scavenge {
         rail.rotation.y = rng.range(-0.4, 0.4);
         G.add(rail);
       }
+      // Warm sodium-lamp pools washing the asphalt — emissive decals (not lights),
+      // so they sell the warm industrial road without breaking the stealth dark.
+      for (const [gx, gz] of [
+        [-22, -28],
+        [20, -42],
+        [-6, -58],
+        [12, -16],
+      ] as [number, number][]) {
+        const pool = makeGlow(0xff8a3a, 8, 0.26);
+        pool.position.set(gx, 0.35, gz);
+        G.add(pool);
+      }
+      // Roadside dressing: stacked tires, a toppled fuel tanker, oil slicks, and
+      // leaning highway signs — a wrecked-highway sense of place.
+      const tireMat = new THREE.MeshStandardMaterial({ color: 0x0e0e10, roughness: 1, flatShading: true });
+      for (let s = 0; s < 3; s++) {
+        const p = spot(1.6);
+        const stack = new THREE.Group();
+        const h = 2 + Math.floor(rng.range(0, 3));
+        for (let i = 0; i < h; i++) {
+          const t = new THREE.Mesh(new THREE.TorusGeometry(0.5, 0.22, 6, 10), tireMat);
+          t.rotation.x = Math.PI / 2;
+          t.position.y = 0.22 + i * 0.34;
+          stack.add(t);
+        }
+        stack.position.set(p.x, 0, p.z);
+        G.add(stack);
+      }
+      const tp = spot(3);
+      const tanker = new THREE.Mesh(new THREE.CylinderGeometry(1.7, 1.7, 8, 14), new THREE.MeshStandardMaterial({ color: 0x6a3a1a, roughness: 0.85, metalness: 0.3, flatShading: true }));
+      tanker.rotation.z = Math.PI / 2;
+      tanker.rotation.y = rng.range(0, 1);
+      tanker.position.set(tp.x, 1.5, tp.z);
+      tanker.castShadow = true;
+      G.add(tanker);
+      const oilMat = new THREE.MeshBasicMaterial({ color: 0x05060a, transparent: true, opacity: 0.55, depthWrite: false });
+      for (let i = 0; i < 4; i++) {
+        const p = spot();
+        const oil = new THREE.Mesh(new THREE.CircleGeometry(rng.range(1.2, 2.6), 14), oilMat);
+        oil.rotation.x = -Math.PI / 2;
+        oil.position.set(p.x, 0.045, p.z);
+        G.add(oil);
+      }
+      for (let i = 0; i < 2; i++) {
+        const p = spot(1.4);
+        const sPost = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.08, 3, 6), barricadeMat);
+        sPost.position.set(p.x, 1.5, p.z);
+        sPost.rotation.z = rng.range(-0.3, 0.3);
+        const sign = new THREE.Mesh(
+          new THREE.PlaneGeometry(2.0, 1.0),
+          new THREE.MeshBasicMaterial({ map: stencilTexture(rng.pick(["DETOUR", "ROAD CLOSED", "REFINERY 4 MI"]), "#ffb24a"), transparent: true, opacity: 0.92, depthWrite: false, side: THREE.DoubleSide })
+        );
+        sign.position.set(p.x, 2.6, p.z);
+        sign.rotation.y = rng.range(-0.5, 0.5);
+        G.add(sPost, sign);
+      }
     } else if (this.skinId === "flood") {
+      // The whole district is under black water — a full-lot reflective sheet so
+      // every step reads as wading the drowned blocks.
       const water = new THREE.Mesh(
-        new THREE.PlaneGeometry(88, 68),
+        new THREE.PlaneGeometry(112, 88),
         new THREE.MeshStandardMaterial({
           color: skin.floor,
           transparent: true,
-          opacity: 0.48,
-          roughness: 0.16,
-          metalness: 0.55,
+          opacity: 0.58,
+          roughness: 0.1,
+          metalness: 0.72,
           depthWrite: false,
         })
       );
       water.rotation.x = -Math.PI / 2;
-      water.position.set(0, 0.045, -34);
+      water.position.set(0, 0.05, -46);
       G.add(water);
-      const rippleMat = new THREE.MeshBasicMaterial({ color: skin.accent, transparent: true, opacity: 0.18, depthWrite: false, blending: THREE.AdditiveBlending, fog: false });
-      for (let i = 0; i < 8; i++) {
-        const r = new THREE.Mesh(new THREE.RingGeometry(rng.range(0.8, 1.4), rng.range(1.8, 3.3), 20), rippleMat);
-        const p = spot();
+      const rippleMat = new THREE.MeshBasicMaterial({ color: skin.accent, transparent: true, opacity: 0.2, depthWrite: false, blending: THREE.AdditiveBlending, fog: false });
+      for (let i = 0; i < 16; i++) {
+        const r = new THREE.Mesh(new THREE.RingGeometry(rng.range(0.8, 1.6), rng.range(2.0, 3.8), 20), rippleMat);
         r.rotation.x = -Math.PI / 2;
-        r.position.set(p.x, 0.065, p.z);
+        r.position.set(rng.range(AREA.minX + 4, AREA.maxX - 4), 0.07, rng.range(AREA.minZ + 4, AREA.maxZ - 4));
         G.add(r);
       }
       const postMat = new THREE.MeshStandardMaterial({ color: 0x162126, roughness: 1, flatShading: true });
@@ -824,6 +960,39 @@ export class Scavenge {
         wreck.position.set(p.x, 0.2, p.z);
         wreck.rotation.y = rng.range(0, Math.PI);
         G.add(wreck);
+      }
+      // Floating debris, a half-sunk dinghy, and reed clusters break up the water.
+      const driftMat = new THREE.MeshStandardMaterial({ color: 0x2a3a3e, roughness: 1, flatShading: true });
+      for (let i = 0; i < 7; i++) {
+        const p = spot();
+        const plank = new THREE.Mesh(new THREE.BoxGeometry(rng.range(1.2, 2.4), 0.16, 0.4), driftMat);
+        plank.position.set(p.x, 0.18, p.z);
+        plank.rotation.y = rng.range(0, Math.PI);
+        G.add(plank);
+      }
+      const barrelMat = new THREE.MeshStandardMaterial({ color: 0x224a44, roughness: 1, metalness: 0.2, flatShading: true });
+      for (let i = 0; i < 4; i++) {
+        const p = spot();
+        const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.45, 0.45, 1.0, 10), barrelMat);
+        barrel.position.set(p.x, 0.25, p.z); // mostly submerged
+        barrel.rotation.x = rng.range(-0.2, 0.2);
+        G.add(barrel);
+      }
+      const dp = spot(2.5);
+      const dinghy = new THREE.Mesh(new THREE.BoxGeometry(4.2, 0.7, 1.7), new THREE.MeshStandardMaterial({ color: 0x3a2a1a, roughness: 1, flatShading: true }));
+      dinghy.position.set(dp.x, 0.35, dp.z);
+      dinghy.rotation.set(0, rng.range(0, Math.PI), 0.12);
+      G.add(dinghy);
+      const reedMat = new THREE.MeshStandardMaterial({ color: 0x2a3a22, roughness: 1, flatShading: true });
+      for (let c = 0; c < 6; c++) {
+        const p = spot();
+        for (let i = 0; i < 5; i++) {
+          const rh = rng.range(1.0, 2.0);
+          const reed = new THREE.Mesh(new THREE.BoxGeometry(0.06, rh, 0.06), reedMat);
+          reed.position.set(p.x + rng.range(-0.7, 0.7), rh / 2, p.z + rng.range(-0.7, 0.7));
+          reed.rotation.z = rng.range(-0.15, 0.15);
+          G.add(reed);
+        }
       }
     } else {
       const lineMat = new THREE.MeshBasicMaterial({ color: skin.accent, transparent: true, opacity: 0.42, depthWrite: false });
@@ -853,6 +1022,89 @@ export class Scavenge {
         glow.position.copy(lamp.position);
         G.add(pole, lamp, glow);
       }
+      // Chain-link perimeter fence hemming the screening yard — the guarded read.
+      const fenceMat = new THREE.MeshStandardMaterial({ color: 0x39434b, roughness: 1, flatShading: true });
+      const chainMat = new THREE.MeshBasicMaterial({ color: 0x8fb6c8, transparent: true, opacity: 0.13, depthWrite: false, side: THREE.DoubleSide, fog: true });
+      for (const side of [-1, 1] as const) {
+        const fence = new THREE.Group();
+        const span = AREA.maxZ - AREA.minZ;
+        const mesh = new THREE.Mesh(new THREE.PlaneGeometry(span, 3.0), chainMat);
+        mesh.rotation.y = Math.PI / 2;
+        mesh.position.y = 1.6;
+        fence.add(mesh);
+        for (let p = 0; p <= 6; p++) {
+          const post = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.12, 3.2, 6), fenceMat);
+          post.position.set(0, 1.6, -span / 2 + (p / 6) * span);
+          fence.add(post);
+        }
+        const topBar = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.1, span), fenceMat);
+        topBar.position.y = 3.0;
+        fence.add(topBar);
+        fence.position.set(side * (AREA.maxX - 2), 0, (AREA.minZ + AREA.maxZ) / 2);
+        G.add(fence);
+      }
+      // Cold floodlight pools washing the screening yard — emissive decals (not
+      // lights), the sterile counterpart to the Outer road's warm sodium pools.
+      for (const [gx, gz] of [
+        [-20, -26],
+        [20, -40],
+        [-6, -56],
+        [12, -16],
+      ] as [number, number][]) {
+        const pool = makeGlow(0x9fd6ff, 9, 0.3);
+        pool.position.set(gx, 0.35, gz);
+        G.add(pool);
+      }
+      // A fortified yard: sandbag bunkers, stacked supply pallets, razor wire on
+      // the barrier line, and a watchtower silhouette at the perimeter.
+      const sandMat = new THREE.MeshStandardMaterial({ color: 0x4a4632, roughness: 1, flatShading: true });
+      for (let b = 0; b < 3; b++) {
+        const p = spot(1.6);
+        const bunker = new THREE.Group();
+        for (let r = 0; r < 2; r++)
+          for (let i = 0; i < 4; i++) {
+            const bag = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.35, 0.5), sandMat);
+            bag.position.set((i - 1.5) * 0.72, 0.18 + r * 0.34, 0);
+            bunker.add(bag);
+          }
+        bunker.position.set(p.x, 0, p.z);
+        bunker.rotation.y = rng.range(0, Math.PI);
+        G.add(bunker);
+      }
+      const palletMat = new THREE.MeshStandardMaterial({ color: 0x5a6470, roughness: 1, flatShading: true });
+      for (let i = 0; i < 4; i++) {
+        const p = spot(1.4);
+        const n = 1 + Math.floor(rng.range(0, 3));
+        for (let k = 0; k < n; k++) {
+          const crate = new THREE.Mesh(new THREE.BoxGeometry(1.1, 0.9, 1.1), palletMat);
+          crate.position.set(p.x, 0.45 + k * 0.92, p.z);
+          crate.castShadow = true;
+          G.add(crate);
+        }
+      }
+      const wireMat = new THREE.MeshBasicMaterial({ color: 0x9fb0bc, fog: false });
+      for (const wx of [-16, -5.5, 5.5, 16]) {
+        const coil = new THREE.Mesh(new THREE.TorusGeometry(0.5, 0.06, 5, 10), wireMat);
+        coil.position.set(wx, 1.5, -11);
+        coil.rotation.x = Math.PI / 2;
+        G.add(coil);
+      }
+      const towerMat = new THREE.MeshStandardMaterial({ color: 0x2a323a, roughness: 1, flatShading: true });
+      const tower = new THREE.Group();
+      for (const lx of [-1.4, 1.4])
+        for (const lz of [-1.4, 1.4]) {
+          const leg = new THREE.Mesh(new THREE.BoxGeometry(0.3, 9, 0.3), towerMat);
+          leg.position.set(lx, 4.5, lz);
+          tower.add(leg);
+        }
+      const cabin = new THREE.Mesh(new THREE.BoxGeometry(4, 2.2, 4), towerMat);
+      cabin.position.y = 9.5;
+      tower.add(cabin);
+      const towerBeacon = makeGlow(0xff5a40, 2.2, 0.75);
+      towerBeacon.position.set(0, 10.6, 0);
+      tower.add(towerBeacon);
+      tower.position.set(rng.chance(0.5) ? -46 : 46, 0, -54);
+      G.add(tower);
     }
   }
 
@@ -933,11 +1185,12 @@ export class Scavenge {
   private buildHideAndExtract(): void {
     const metal = new THREE.MeshStandardMaterial({ color: 0x2a3a2e, roughness: 0.9, flatShading: true });
     const spots: [number, number][] = [
-      [-32, -12],
-      [30, -30],
-      [-4, -38],
-      [22, -56],
-      [-26, -60],
+      [-46, -22],
+      [44, -34],
+      [-8, -48],
+      [36, -70],
+      [-40, -80],
+      [14, -30],
     ];
     for (const [x, z] of spots) {
       this.hideZones.push({ x, z });
@@ -1014,20 +1267,29 @@ export class Scavenge {
     return { x: this.ctx.rng.range(AREA.minX + 3, AREA.maxX - 3), z: this.ctx.rng.range(minZ, maxZ) };
   }
 
-  private makeCrate(x: number, z: number, gold: boolean, kit: boolean): Crate {
+  private makeCrate(x: number, z: number, gold: boolean, kit: boolean, weapon?: string): Crate {
     const g = new THREE.Group();
     const skin = ACT_SKINS[this.skinId];
-    const beacon = kit ? skin.kit : gold ? skin.gold : skin.accent;
-    const tint = kit ? skin.kit : gold ? skin.gold : skin.crate;
+    const WEAPON_COL = 0xff8a2a; // a hot orange "armory case" read
+    const beacon = weapon ? WEAPON_COL : kit ? skin.kit : gold ? skin.gold : skin.accent;
+    const tint = weapon ? 0x2a2622 : kit ? skin.kit : gold ? skin.gold : skin.crate;
     const box = new THREE.Mesh(
-      new THREE.BoxGeometry(0.95, 0.72, 0.72),
-      new THREE.MeshStandardMaterial({ color: tint, roughness: 0.85, emissive: new THREE.Color(tint).multiplyScalar(0.28), flatShading: true })
+      new THREE.BoxGeometry(weapon ? 1.4 : 0.95, weapon ? 0.5 : 0.72, 0.72),
+      new THREE.MeshStandardMaterial({ color: tint, roughness: 0.85, emissive: new THREE.Color(beacon).multiplyScalar(weapon ? 0.18 : 0.28), flatShading: true })
     );
     box.position.y = 0.4;
     box.castShadow = true;
     g.add(box);
 
-    if (kit) {
+    if (weapon) {
+      // Weapon case — a long hard-shell case with a stenciled rifle silhouette on
+      // top and a hot beacon, so a real find reads instantly across the dark lot.
+      const lid = new THREE.Mesh(new THREE.BoxGeometry(1.44, 0.12, 0.76), new THREE.MeshStandardMaterial({ color: 0x3a342e, roughness: 0.8, flatShading: true }));
+      lid.position.y = 0.68;
+      const barrel = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.08, 0.12), new THREE.MeshStandardMaterial({ color: WEAPON_COL, emissive: new THREE.Color(WEAPON_COL), emissiveIntensity: 0.8 }));
+      barrel.position.set(0, 0.76, 0);
+      g.add(lid, barrel);
+    } else if (kit) {
       // Repair kit — a white maintenance cross
       const cm = new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: new THREE.Color(0x88c0ff), emissiveIntensity: 0.9 });
       const c1 = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.1, 0.16), cm);
@@ -1046,10 +1308,10 @@ export class Scavenge {
       }
     }
 
-    g.add(makeGlow(beacon, gold || kit ? 2.2 : 1.7, 0.6));
+    g.add(makeGlow(beacon, weapon ? 3.0 : gold || kit ? 2.2 : 1.7, weapon ? 0.7 : 0.6));
     g.position.set(x, 0, z);
     this.group.add(g);
-    return { group: g, x, z, got: false, gold, kit };
+    return { group: g, x, z, got: false, gold, kit, weapon };
   }
 
   private makeSurvivor(x: number, z: number): Survivor {
@@ -1106,6 +1368,28 @@ export class Scavenge {
       sac.position.set(0, 0.82, 0.32);
       body.add(sac);
     }
+    // Brute: hulking shoulders + a slab of scrap armor across the chest.
+    if (type === "brute") {
+      for (const sx of [-0.5, 0.5]) {
+        const pad = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.36, 0.52), coat);
+        pad.position.set(sx, 1.3, 0);
+        body.add(pad);
+      }
+      const plate = new THREE.Mesh(
+        new THREE.BoxGeometry(0.72, 0.5, 0.16),
+        new THREE.MeshStandardMaterial({ color: 0x2a2622, roughness: 0.8, metalness: 0.3, flatShading: true })
+      );
+      plate.position.set(0, 0.96, 0.3);
+      body.add(plate);
+    }
+    // Screamer: a gaping, glowing maw thrown wide.
+    if (type === "screamer") {
+      const maw = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.32, 0.18), new THREE.MeshBasicMaterial({ color: 0xff5a8a, fog: false }));
+      maw.position.set(0, 1.4, 0.5);
+      body.add(maw);
+      jaw.position.set(0, 1.24, 0.52);
+      jaw.rotation.x = 0.85;
+    }
     for (const ax of [-0.42, 0.42]) {
       const arm = new THREE.Mesh(new THREE.BoxGeometry(0.13, type === "runner" ? 0.78 : 0.9, 0.13), flesh);
       arm.position.set(ax, 0.85, 0.24);
@@ -1137,7 +1421,8 @@ export class Scavenge {
       side: THREE.DoubleSide,
       fog: false,
     });
-    const cone = new THREE.Mesh(this.coneGeo, coneMat);
+    // Cloned (not shared) so the per-run guard disposal can free it safely.
+    const cone = new THREE.Mesh(this.coneGeo.clone(), coneMat);
     cone.position.y = 0.06;
     g.add(cone);
     this.group.add(g);
@@ -1162,13 +1447,15 @@ export class Scavenge {
     return {
       group: g, cone, coneMat, eyeMat, type, x: patrol[0].x, z: patrol[0].z, facing: f0,
       patrol, pIdx: 1, state: "patrol", alertT: 0, speed: cfg.speed, chase: cfg.chase,
+      vision: cfg.vision ?? 1, scream: cfg.scream ?? false,
       spitCd: this.ctx.rng.range(1.2, 2.6), stuckT: 0, px: patrol[0].x, pz: patrol[0].z,
       invX: 0, invZ: 0, dead: false,
     };
   }
 
-  start(opts?: { density?: Density }): void {
+  start(opts?: { density?: Density; weaponInCrate?: string }): void {
     const density = opts?.density ?? "med";
+    this.collectedWeapons = [];
     const curLevel = levelInfo(this.ctx.run.night);
     this.skinId = curLevel.supplyTheme;
     const skin = ACT_SKINS[this.skinId];
@@ -1206,15 +1493,20 @@ export class Scavenge {
     // matches the district and (re)build its walls, dressing, and backdrop.
     this.floorMat.color.setHex(dcfg.floor);
     this.laneGroup.visible = dcfg.lanes;
-    const pool = dcfg.layouts;
-    this.walls = MAPS[pool[Math.floor(this.ctx.rng.next() * pool.length)]];
+    // A fresh procedural block layout each run — larger and more varied than the
+    // old hand-authored lots, with streets between the blocks for stealth routing.
+    this.walls = this.generateWalls(dcfg);
     this.buildWalls();
     this.buildDressing(dcfg);
     this.buildBackdrop(dcfg);
     this.clearSpits();
 
     // Crates: count + gold-cache ratio scale with the population you picked.
-    for (const c of this.crates) this.group.remove(c.group);
+    // Dispose the prior run's crate meshes (not just remove) to avoid a leak.
+    for (const c of this.crates) {
+      this.clearGroup(c.group);
+      this.group.remove(c.group);
+    }
     this.crates = [];
     for (let i = 0; i < dcfg.crates; i++) {
       const s = this.freeSpot(AREA.minZ + 3, AREA.maxZ - 10);
@@ -1224,6 +1516,13 @@ export class Scavenge {
       const s = this.freeSpot(AREA.minZ + 3, AREA.maxZ - 14);
       this.crates.push(this.makeCrate(s.x, s.z, false, true));
     }
+    // A weapon-case crate only when this run actually offers one (decided by
+    // main.ts) — a new gun is earned by FINDING it, not handed out every run.
+    // Placed deep in the lot so it's a real detour past the guards.
+    if (opts?.weaponInCrate) {
+      const s = this.freeSpot(AREA.minZ + 3, AREA.maxZ - 22);
+      this.crates.push(this.makeCrate(s.x, s.z, false, false, opts.weaponInCrate));
+    }
 
     const night = this.ctx.run.night;
     const pressure = curLevel.act * 1.2 + curLevel.levelInAct;
@@ -1231,32 +1530,41 @@ export class Scavenge {
     // Survivors are rare to find now (allies should accrue slowly): never on the
     // first night, never once the squad is full, and only sometimes otherwise.
     if (this.survivor) {
+      this.clearGroup(this.survivor.group);
       this.group.remove(this.survivor.group);
       this.survivor = null;
     }
     let sv: { x: number; z: number } | null = null;
-    if (night >= 2 && this.ctx.run.companions.length < 4 && this.ctx.rng.chance(0.4)) {
-      sv = this.freeSpot(AREA.minZ + 4, AREA.minZ + 20);
+    // Survivors are rare and tied to the district you risk: a crowded block has
+    // more people to pull out (and far more between you and them).
+    const svChance = 0.32 + (density === "high" ? 0.12 : density === "low" ? -0.06 : 0);
+    if (night >= 2 && this.ctx.run.companions.length < 4 && this.ctx.rng.chance(svChance)) {
+      sv = this.freeSpot(AREA.minZ + 4, AREA.minZ + 24);
       this.survivor = this.makeSurvivor(sv.x, sv.z);
     }
 
     // Guard mix scales with the night AND the chosen population: more guards, and
-    // more runners/spitters, so a crowded district is a real gamble.
-    for (const g of this.guards) this.group.remove(g.group);
+    // a richer roster — runners/spitters climb, brutes and screamers start showing
+    // up on the tougher runs — so a crowded district is a real gamble.
+    for (const g of this.guards) {
+      this.clearGroup(g.group); // dispose body geo/mats (cone geo is cloned per guard, safe)
+      this.group.remove(g.group);
+    }
     this.guards = [];
-    const patrols = Math.max(2, Math.round((4 + pressure) * dcfg.guardMul));
-    const spitterChance = Math.min(0.42, 0.08 + pressure * 0.055);
-    const runnerChance = Math.min(0.52, 0.2 + pressure * 0.045);
-    const rollType = (): GType => {
-      const r = this.ctx.rng.next();
-      if (r < spitterChance) return "spitter";
-      if (r < spitterChance + runnerChance) return "runner";
-      return "shambler";
-    };
+    const patrols = Math.max(3, Math.round((5 + pressure) * dcfg.guardMul));
+    const types: GType[] = ["shambler", "runner", "spitter", "brute", "screamer"];
+    const weights = [
+      5,
+      2 + pressure * 0.5,
+      1 + pressure * 0.45,
+      Math.max(0, pressure - 2) * 0.4,
+      Math.max(0, pressure - 1.5) * 0.35,
+    ];
+    const rollType = (): GType => this.ctx.rng.weighted(types, weights) as GType;
     for (let i = 0; i < patrols; i++) this.guards.push(this.makeGuard(rollType()));
     // A cluster of defenders only when there's actually a survivor to guard.
     if (sv) {
-      const defenders: GType[] = night >= 2 ? ["shambler", "runner", "spitter"] : ["shambler", "shambler", "runner"];
+      const defenders: GType[] = night >= 4 ? ["runner", "spitter", "brute"] : night >= 2 ? ["shambler", "runner", "spitter"] : ["shambler", "shambler", "runner"];
       for (const t of defenders) this.guards.push(this.makeGuard(t, sv));
     }
     for (const g of this.guards) g.group.position.set(g.x, 0, g.z);
@@ -1377,6 +1685,15 @@ export class Scavenge {
       if (dx * dx + dz * dz >= 2.4) continue;
       c.got = true;
       c.group.visible = false;
+      if (c.weapon) {
+        // A real find — recorded now, granted (or offered as a dusk swap) at day's
+        // end. Doesn't count toward the supply rating; it's a bonus objective.
+        this.collectedWeapons.push(c.weapon);
+        this.ctx.floaters.spawn(c.x, 1.8, c.z, "⚔ WEAPON RECOVERED", "crit");
+        this.ctx.fx.burst(c.x, 1.0, c.z, 24, 0xff8a2a, { speed: 9, up: 7, life: 0.7, size: 8 });
+        this.ctx.events.emit("SFX", { id: "meter_full" });
+        continue;
+      }
       if (c.kit) {
         const skin = ACT_SKINS[this.skinId];
         this.ctx.run.repairKits++;
@@ -1402,8 +1719,10 @@ export class Scavenge {
       this.ctx.events.emit("SFX", { id: "pickup" });
     }
 
-    // Rescue the survivor (recruit a new ally)
+    // Rescue the survivor (recruit a new ally). Surface a hint unless something
+    // more urgent (hiding / the open exit) already owns the prompt.
     if (this.survivor && !this.survivor.taken) {
+      if (!this.promptText && !this.extractOpen) this.promptText = "⚑ RESCUE THE SURVIVOR — follow the green beacon";
       const dx = this.survivor.x - this.ax;
       const dz = this.survivor.z - this.az;
       if (dx * dx + dz * dz < 3.0) {
@@ -1462,16 +1781,33 @@ export class Scavenge {
     return false;
   }
 
-  /** Distance to the first wall along `facing` (so the cone stops at cover). */
-  private coneDist(gx: number, gz: number, facing: number): number {
-    const bx = gx + Math.sin(facing) * VISION_RANGE;
-    const bz = gz + Math.cos(facing) * VISION_RANGE;
-    let best = VISION_RANGE;
+  /** Distance to the first wall along `facing`, up to `maxR` (so the cone stops at
+   * cover and reflects each guard's own sight range). */
+  private coneDist(gx: number, gz: number, facing: number, maxR: number): number {
+    const bx = gx + Math.sin(facing) * maxR;
+    const bz = gz + Math.cos(facing) * maxR;
+    let best = maxR;
     for (const w of this.walls) {
       const t = segEntryT(gx, gz, bx, bz, w);
-      if (t !== Infinity) best = Math.min(best, t * VISION_RANGE);
+      if (t !== Infinity) best = Math.min(best, t * maxR);
     }
     return Math.max(2, best);
+  }
+
+  /** Screamer shriek: every other live guard nearby breaks toward your position. */
+  private triggerScream(screamer: Guard): void {
+    this.ctx.events.emit("SFX", { id: "scream" });
+    this.ctx.events.emit("NOTICE", { text: "⚠ SCREAMER", sub: "It's calling them onto you — break line!" });
+    this.ctx.stage.punch(0.25);
+    for (const g of this.guards) {
+      if (g === screamer || g.dead || g.state === "chase") continue;
+      if ((g.x - this.ax) ** 2 + (g.z - this.az) ** 2 < 30 * 30) {
+        g.state = "investigate";
+        g.invX = this.ax;
+        g.invZ = this.az;
+        g.alertT = 4;
+      }
+    }
   }
 
   private updateGuard(g: Guard, dt: number): void {
@@ -1485,7 +1821,7 @@ export class Scavenge {
     const dx = this.ax - g.x;
     const dz = this.az - g.z;
     const dist = Math.hypot(dx, dz);
-    const range = this.lightOn ? VISION_RANGE : VISION_RANGE * 0.5;
+    const range = (this.lightOn ? VISION_RANGE : VISION_RANGE * 0.5) * g.vision;
     let sees = false;
     if (dist < range && !this.hidden && this.startGrace <= 0) {
       const toAvatar = Math.atan2(dx, dz);
@@ -1496,6 +1832,8 @@ export class Scavenge {
     }
 
     if (sees) {
+      // Screamer: the moment it first spots you, it shrieks the block onto you.
+      if (g.scream && g.state !== "chase") this.triggerScream(g);
       g.state = "chase";
       g.alertT = 2.5;
     } else if (g.state === "chase") {
@@ -1572,7 +1910,7 @@ export class Scavenge {
     // Cone visual: amber when patrolling, red + brighter when hunting; clipped
     // to the nearest wall so it visibly stops at cover (matches the LoS check).
     const hunting = g.state === "chase";
-    const cd = this.coneDist(g.x, g.z, g.facing);
+    const cd = this.coneDist(g.x, g.z, g.facing, VISION_RANGE * g.vision);
     g.cone.scale.set(1, 1, cd / VISION_RANGE);
     const skin = ACT_SKINS[this.skinId];
     g.coneMat.color.set(hunting ? THREAT : skin.guard);
@@ -1666,18 +2004,27 @@ export class Scavenge {
     this.timeLeft = Math.max(0, this.timeLeft);
     this.ctx.stats.cratesGrabbed += this.got;
     const frac = this.got / this.total;
-    this.ctx.events.emit("DAY_DONE", { tier: tierFromFrac(frac), frac });
+    this.ctx.events.emit("DAY_DONE", { tier: tierFromFrac(frac), frac, weapons: this.collectedWeapons.slice() });
   }
 
   debugComplete(): void {
     if (!this.active) return;
     this.got = this.total;
+    // Also auto-collect any weapon case so the find→grant path stays exercised.
+    for (const c of this.crates) if (c.weapon && !c.got) this.collectedWeapons.push(c.weapon);
     this.finish();
   }
 
   getResult(): { tier: Tier; frac: number } {
     const frac = this.got / this.total;
     return { tier: tierFromFrac(frac), frac };
+  }
+
+  /** Debug: drop the avatar at a spot so a capture can frame the lot interior. */
+  debugTeleport(x: number, z: number): void {
+    this.ax = x;
+    this.az = z;
+    this.avatar.position.set(x, 0, z);
   }
 
   hide(): void {

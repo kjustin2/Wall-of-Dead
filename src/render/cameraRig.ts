@@ -2,7 +2,7 @@ import * as THREE from "three";
 import { clamp, damp, lerp } from "../core/math";
 import { FIELD } from "../config";
 
-export type CamMode = "menu" | "rampart" | "topdown" | "cutscene";
+export type CamMode = "menu" | "rampart" | "topdown" | "cutscene" | "bossfocus";
 
 /**
  * Trauma-based camera. Shake intensity is trauma², so small hits whisper and
@@ -19,6 +19,10 @@ export class CameraRig {
   readonly target = new THREE.Vector3();
   /** Aim X used for a little look-lead on the rampart. */
   aimX = 0;
+  /** Boss-intro cutscene framing target + push-in progress. */
+  readonly focusTarget = new THREE.Vector3();
+  private cineT = 0;
+  private cineSide = 1;
 
   private trauma = 0;
   private kickOffset = new THREE.Vector3();
@@ -58,6 +62,15 @@ export class CameraRig {
     this.smoothedZ = this.target.z;
   }
 
+  /** Begin the boss-intro cutscene: a low hero-angle dolly that pushes in on the
+   * looming boss out in the field. Hard-cuts to the new framing (cinematic). */
+  beginBossFocus(x: number, z: number): void {
+    this.focusTarget.set(x, 0, z);
+    this.cineT = 0;
+    this.cineSide = x <= 0 ? 1 : -1; // sit on the side with the most room
+    this.mode = "bossfocus";
+  }
+
   update(dt: number): void {
     this.t += dt;
 
@@ -84,6 +97,22 @@ export class CameraRig {
       const x = Math.sin(this.t * 0.13) * 17;
       this.camera.position.set(x + sx, 3.8 + Math.sin(this.t * 0.3) * 0.4 + sy, FIELD.rampartZ + 9 + sz);
       this.camera.lookAt(x * 0.25, 1.3, -16);
+      this.fovDecay(dt);
+      return;
+    }
+
+    if (this.mode === "bossfocus") {
+      // Low hero-angle dolly that cranes down and pushes in on the boss as it
+      // emerges from the field fog. Trauma still rattles the frame.
+      this.cineT = Math.min(1, this.cineT + dt / 2.6);
+      const e = 1 - Math.pow(1 - this.cineT, 2); // ease-out push
+      const tx = this.focusTarget.x;
+      const tz = this.focusTarget.z;
+      const camX = tx + this.cineSide * lerp(7, 2.6, e);
+      const camY = lerp(5.4, 3.1, e);
+      const camZ = tz + lerp(13, 7, e); // dolly in from the boss's near side
+      this.camera.position.set(camX + sx, camY + sy, camZ + sz);
+      this.camera.lookAt(tx + sx * 0.5, lerp(3.5, 2.7, e), tz);
       this.fovDecay(dt);
       return;
     }

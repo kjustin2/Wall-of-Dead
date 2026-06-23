@@ -4,7 +4,7 @@ import type { Loadout } from "./weapons";
 import { Deployables } from "./deployables";
 import { makeGlow } from "../render/textures";
 import { FIELD, RUN } from "../config";
-import { clamp } from "../core/math";
+import { clamp, damp } from "../core/math";
 
 const MOVE_SPEED = 9.5;
 const GUN_REACH = 1.3;
@@ -63,6 +63,16 @@ export class Player {
   repairFrac = 0; // 0..1 progress of the current breach repair (for the HUD)
   atBreach = false; // standing at a broken segment (for the HUD prompt)
   private repairT = 0;
+  // Locomotion: hip pivots drive a walk cycle so a strafe reads as steps, not a
+  // hover-slide. The body bobs + leans into travel; the gun rig counter-rolls so
+  // aim stays level.
+  private legL!: THREE.Group;
+  private legR!: THREE.Group;
+  private walkPhase = 0;
+  private walkBlend = 0;
+  private strideNod = 0; // subtle fore/aft torso march while walking
+  private recoil = 0; // 0..1 firing kick on the gun rig
+  private recoilScale = 1;
 
   constructor(private ctx: Ctx, scene: THREE.Scene) {
     const y = FIELD.rampartHeight;
@@ -123,16 +133,29 @@ export class Player {
     const holster = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.3, 0.16), dark);
     holster.position.set(0.34, 0.72, 0.1);
     this.group.add(holster);
+    // Legs hang from hip pivots (with their boot + kneepad) so the whole leg
+    // swings in a walk cycle instead of the body sliding along the wall.
+    const gloveMat = new THREE.MeshStandardMaterial({ color: 0x14181c, roughness: 1, flatShading: true });
+    const legPivots: THREE.Group[] = [];
     for (const lx of [-0.18, 0.18]) {
+      const hip = new THREE.Group();
+      hip.position.set(lx, 0.88, 0); // hip joint
       const leg = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.78, 0.26), dark);
-      leg.position.set(lx, 0.49, 0);
+      leg.position.set(0, -0.39, 0); // top of the thigh sits at the pivot
       leg.castShadow = true;
-      this.group.add(leg);
+      hip.add(leg);
       const boot = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.16, 0.4), dark);
-      boot.position.set(lx, 0.08, 0.06);
+      boot.position.set(0, -0.8, 0.06);
       boot.castShadow = true;
-      this.group.add(boot);
+      hip.add(boot);
+      const knee = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.16, 0.28), gloveMat);
+      knee.position.set(0, -0.22, 0.04);
+      hip.add(knee);
+      this.group.add(hip);
+      legPivots.push(hip);
     }
+    this.legL = legPivots[0];
+    this.legR = legPivots[1];
     // Goggles across the helmet brow
     const goggles = new THREE.Mesh(
       new THREE.BoxGeometry(0.44, 0.1, 0.12),
@@ -173,13 +196,6 @@ export class Player {
     );
     antTip.position.set(0.26, 2.2, 0.43);
     this.group.add(antTip);
-    // Gloves at the gun grip + kneepads.
-    const gloveMat = new THREE.MeshStandardMaterial({ color: 0x14181c, roughness: 1, flatShading: true });
-    for (const lx of [-0.18, 0.18]) {
-      const knee = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.16, 0.28), gloveMat);
-      knee.position.set(lx, 0.66, 0.04);
-      this.group.add(knee);
-    }
 
     // Aim rig — yaws toward the cursor. Holds the rifle, arms, flashlight, muzzle.
     this.aimRig.position.y = 1.4;
@@ -220,7 +236,7 @@ export class Player {
     this.lantern.position.set(0, 1.4, 0.3);
     this.group.add(this.lantern);
 
-    this.muzzleLight = new THREE.PointLight(0xffd27a, 0, 12, 2);
+    this.muzzleLight = new THREE.PointLight(0xffd27a, 0, 10, 2);
     this.muzzleLight.position.set(0.16, 0, -1.1);
     this.aimRig.add(this.muzzleLight);
 
@@ -389,6 +405,15 @@ export class Player {
     this.fireCd = 0;
     this.reloadTimer = 0;
     this.group.position.set(0, FIELD.rampartHeight, this.z);
+    this.group.rotation.set(0, 0, 0);
+    this.walkPhase = 0;
+    this.walkBlend = 0;
+    this.strideNod = 0;
+    this.recoil = 0;
+    this.legL.rotation.set(0, 0, 0);
+    this.legR.rotation.set(0, 0, 0);
+    this.aimRig.rotation.set(0, this.yaw, 0);
+    this.aimRig.position.set(0, 1.4, 0);
   }
 
   hurt(dmg: number): void {
@@ -407,13 +432,35 @@ export class Player {
     if (lo0) this.buildGunModel(lo0.def.id);
 
     // Move along the wall
+    const prevX = this.x;
     if (this.alive) {
       const mv = input.moveX() * MOVE_SPEED * this.ctx.adrenaline.moveMult();
       this.x = clamp(this.x + mv * dt, -FIELD.playerHalf, FIELD.playerHalf);
     }
     this.group.position.x = this.x;
 
-    // Aim the rig at the cursor
+    // Locomotion: a hip-pivoted walk cycle + body bob/lean so a strafe reads as
+    // steps, not a hover-slide. Speed comes from real displacement, so pushing
+    // into the clamp (no motion) settles back to the idle pose.
+    const vx = (this.x - prevX) / Math.max(dt, 1e-4);
+    const speed01 = clamp(Math.abs(vx) / MOVE_SPEED, 0, 1);
+    this.walkBlend = damp(this.walkBlend, speed01 > 0.06 ? 1 : 0, 12, dt);
+    this.walkPhase += (3 + speed01 * 7) * dt;
+    const swing = Math.sin(this.walkPhase) * this.walkBlend;
+    const legAmp = 0.6;
+    this.legL.rotation.x = swing * legAmp;
+    this.legR.rotation.x = -swing * legAmp;
+    this.legL.rotation.z = swing * 0.05;
+    this.legR.rotation.z = swing * 0.05;
+    // Vertical bob at 2x the stride + a breathing idle. The torso stays upright —
+    // a lateral body roll read as a weird shoulder shrug from the rampart camera.
+    const bobWalk = Math.abs(Math.sin(this.walkPhase)) * 0.07 * this.walkBlend;
+    const bobIdle = Math.sin(this.t * 1.9) * 0.012 * (1 - this.walkBlend);
+    this.strideNod = Math.sin(this.walkPhase * 2) * 0.02 * this.walkBlend; // subtle fore/aft march
+    this.group.position.y = FIELD.rampartHeight + bobWalk + bobIdle;
+    this.group.rotation.z = 0;
+
+    // Aim the rig at the cursor.
     const dx = input.aimWorld.x - this.x;
     const dz = input.aimWorld.z - this.z;
     this.yaw = Math.atan2(-dx, -dz);
@@ -427,7 +474,7 @@ export class Player {
     // Flashlight intensity tracks the meter + muzzle flash (kept moderate so the
     // beam reads as a torch, not a blown-out wedge over the field).
     const lightMul = this.ctx.adrenaline.lightMult();
-    this.flashlight.intensity = (7 + this.muzzle * 14) * lightMul;
+    this.flashlight.intensity = (7 + this.muzzle * 5) * lightMul;
     this.flashlight.castShadow = this.ctx.stage.quality !== "low";
     this.lantern.intensity = 1.5 + Math.sin(this.t * 7) * 0.15;
 
@@ -473,26 +520,34 @@ export class Player {
     }
     if (this.alive && !this.repairing) this.handleInput(dt);
 
-    // Muzzle flash decay
+    // Muzzle flash decay — a crisp punch-out (snaps bright then shrinks), kept
+    // deliberately small so it reads as a flash, never a full-screen wash.
     if (this.muzzle > 0) {
       this.muzzle = Math.max(0, this.muzzle - dt * 12);
-      this.muzzleLight.intensity = this.muzzle * 7;
-      this.muzzleGlow.material.opacity = this.muzzle;
+      this.muzzleLight.intensity = this.muzzle * 4.2;
+      this.muzzleGlow.material.opacity = this.muzzle * 0.78;
+      const fs = 1.1 + this.muzzle * 0.7;
+      this.muzzleGlow.scale.set(fs, fs, 1);
     }
 
-    // Melee bash swing: pitch the rifle down-and-forward, lunge, flash, recover.
+    // Gun recoil: the barrel climbs and the rig kicks back, then springs home.
+    // Summed with the melee-bash swing so the two never fight over the aim rig.
+    this.recoil = Math.max(0, this.recoil - dt * 7);
+    const rc = this.recoil * this.recoil; // ease-out — snappy onset, soft return
+    let rigPitch = rc * 0.2 * this.recoilScale; // barrel climbs up
+    let rigPush = rc * 0.22 * this.recoilScale; // rig kicks back toward the body
     if (this.shoveT > 0) {
       this.shoveT -= dt;
       const s = Math.sin(clamp(1 - this.shoveT / SHOVE_TIME, 0, 1) * Math.PI);
-      this.aimRig.rotation.x = -s * 1.2;
-      this.aimRig.position.z = -s * 0.4;
+      rigPitch += -s * 1.2; // bash pitches the rifle down-and-forward
+      rigPush += -s * 0.4;
       this.shoveGlow.material.opacity = s * 0.5;
-      if (this.shoveT <= 0) {
-        this.aimRig.rotation.x = 0;
-        this.aimRig.position.z = 0;
-        this.shoveGlow.material.opacity = 0;
-      }
+      if (this.shoveT <= 0) this.shoveGlow.material.opacity = 0;
     }
+    this.aimRig.rotation.x = rigPitch;
+    this.aimRig.position.z = rigPush;
+    // body english: the walking stride-nod plus the kick absorbed on fire
+    this.group.rotation.x = this.strideNod + rc * 0.05 * this.recoilScale;
 
     // Drive the camera
     this.ctx.cam.target.set(this.x, 0, this.z);
@@ -594,6 +649,9 @@ export class Player {
     this.ctx.fx.burst(mx, FLY_Y, mz, 2, 0x6a6a6a, { speed: 1.5, up: 1.5, life: 0.5, size: 5, drag: 1.2 });
     this.ctx.fx.burst(this.x + 0.3, 1.5, this.z, 1, 0xc9a24a, { speed: 3, up: 2.5, life: 0.8, size: 4, drag: 1 });
     this.muzzle = 1;
+    // Kick the gun rig: heavier guns (more shake) climb + buck harder.
+    this.recoil = clamp(this.recoil + 0.55, 0, 1);
+    this.recoilScale = 0.7 + Math.min(1.3, def.shake * 4);
     this.ctx.cam.addTrauma(def.shake);
     this.ctx.cam.kick(-sx, -sz, def.shake * 8);
     this.ctx.events.emit("SHOOT", { weapon: def.id, x: mx, y: FLY_Y, z: mz });

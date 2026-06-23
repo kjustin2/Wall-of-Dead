@@ -56,13 +56,22 @@ export class Hud {
         <div class="day-crates">SUPPLIES 0/0</div>
         <div class="bar bar-day"><div class="bar-fill"></div></div>
         <div class="stamina"><div class="stamina-fill"></div></div>
-        <div class="day-obj">Grab supplies · rescue survivors · reach the exit · SHIFT sprint (loud!) · F flashlight · don't get caught</div>
+        <div class="day-obj">SHIFT sprint (loud) · F flashlight · tuck into a bin to hide</div>
         <div class="day-status"></div>
       </div>
       <div class="day-prompt"></div>
       <div class="kills">0</div>
       <div class="streak-badge"><span class="streak-n">0</span><span class="streak-k">CHAIN</span></div>
       <div class="banner"></div>
+      <div class="boss-cine">
+        <div class="cine-bar cine-bar--top"></div>
+        <div class="cine-bar cine-bar--bottom"></div>
+        <div class="cine-card">
+          <div class="cine-kicker">⚠ ACT BOSS</div>
+          <div class="cine-name">THE BEHEMOTH</div>
+          <div class="cine-sub"></div>
+        </div>
+      </div>
       <div class="crosshair"><span class="ch-ring"></span><span class="hitmark"></span></div>
       <div class="dmg dmg--left"></div>
       <div class="dmg dmg--right"></div>
@@ -112,6 +121,10 @@ export class Hud {
       streakBadge: q(".streak-badge"),
       streakN: q(".streak-n"),
       banner: q(".banner"),
+      bossCine: q(".boss-cine"),
+      cineKicker: q(".cine-kicker"),
+      cineName: q(".cine-name"),
+      cineSub: q(".cine-sub"),
       crosshair: q(".crosshair"),
       hitmark: q(".hitmark"),
       dmgLeft: q(".dmg--left"),
@@ -168,6 +181,13 @@ export class Hud {
   private streak = 0;
   private streakT = 0;
   private lastBossFrac = 0;
+  // Caches so per-frame HUD text/colors only touch the DOM when they change.
+  private lastWname = "";
+  private lastAmmoMag = "";
+  private lastAmmoRes = "";
+  private lastDawnLabel = "";
+  private lastDayStatus = "";
+  private lastCellFrac: number[] = [];
 
   /** Brief additive full-screen flash, color-coded by the event. Honors the
    * reduced-flashing accessibility toggle (which sets body.reduced). */
@@ -225,6 +245,13 @@ export class Hud {
     // Clear any in-flight banner so it doesn't bleed across a scene change.
     this.el.banner.classList.remove("banner--show");
     this.bannerTimer = 0;
+    // A scene change always tears down a boss cinematic (defeat mid-intro, etc.).
+    window.clearTimeout(this.killHideT);
+    this.cineActive = false;
+    this.el.bossCine.classList.remove("boss-cine--on", "boss-cine--kill");
+    // Drop the per-frame DOM caches so the first frame of the new scene repaints.
+    this.lastWname = this.lastAmmoMag = this.lastAmmoRes = this.lastDawnLabel = this.lastDayStatus = "";
+    this.lastCellFrac.length = 0;
     const night = mode === "night";
     const day = mode === "day";
     this.el.top.style.display = night ? "" : "none";
@@ -259,6 +286,41 @@ export class Hud {
     this.bannerTimer = 2.6;
   }
 
+  private killHideT = 0;
+  private cineActive = false;
+  /** Boss-intro cinematic: letterbox bars slide in + a title card rises. Stays up
+   * until endBossCinematic() (the main loop drives its duration). */
+  bossCinematic(name: string, sub: string): void {
+    window.clearTimeout(this.killHideT);
+    this.cineActive = true;
+    // Clear any in-flight banner so the title card reads clean.
+    this.el.banner.classList.remove("banner--show");
+    this.bannerTimer = 0;
+    this.el.crosshair.style.display = "none";
+    this.el.cineKicker.textContent = "⚠ ACT BOSS";
+    this.el.cineName.textContent = name;
+    this.el.cineSub.textContent = sub;
+    this.el.bossCine.classList.remove("boss-cine--kill");
+    this.el.bossCine.classList.add("boss-cine--on");
+  }
+  endBossCinematic(): void {
+    this.cineActive = false;
+    this.el.bossCine.classList.remove("boss-cine--on");
+  }
+  /** Boss-death beat: the same card, styled as a takedown, auto-retracting (no
+   * camera takeover — the player keeps fighting the surge). */
+  bossKill(title: string): void {
+    this.el.cineKicker.textContent = "ACT BOSS DOWN";
+    this.el.cineName.textContent = `${title} FALLS`;
+    this.el.cineSub.textContent = "Hold the line to first light";
+    this.el.bossCine.classList.add("boss-cine--on", "boss-cine--kill");
+    window.clearTimeout(this.killHideT);
+    this.killHideT = window.setTimeout(
+      () => this.el.bossCine.classList.remove("boss-cine--on", "boss-cine--kill"),
+      1900
+    );
+  }
+
   private lastSlots = "";
   private lastComps = "";
   private buildSlots(): void {
@@ -284,7 +346,8 @@ export class Hud {
 
     if (this.mode === "night") {
       // On gamepad, the ground reticle is the aim — hide the DOM cursor crosshair.
-      this.el.crosshair.style.display = this.ctx.input.padActive ? "none" : "";
+      // Also hidden during a boss cinematic (controls are locked).
+      this.el.crosshair.style.display = this.ctx.input.padActive || this.cineActive ? "none" : "";
       this.el.crosshair.style.left = `${this.cx}px`;
       this.el.crosshair.style.top = `${this.cy}px`;
       this.updateNight(dt);
@@ -353,7 +416,7 @@ export class Hud {
     const lo = c.run.weapons[c.run.weaponIndex];
     if (lo) {
       const empty = lo.ammo === 0 && lo.reserve === 0 && !lo.def.sidearm;
-      this.el.wname.textContent = c.player.overheated
+      const wname = c.player.overheated
         ? `${lo.def.name} — OVERHEATED`
         : empty
           ? "OUT OF AMMO — 1–5 to switch · SPACE to bash"
@@ -362,10 +425,22 @@ export class Hud {
             : c.player.buffed
               ? `${lo.def.name} — ⚡BUFFED`
               : lo.def.name;
-      this.el.wname.classList.toggle("weapon-name--empty", empty || c.player.overheated);
-      this.el.ammoMag.textContent = `${lo.ammo}`;
-      this.el.ammoRes.textContent = lo.def.sidearm ? "/∞" : `/${lo.reserve}`;
-      this.el.ammoMag.classList.toggle("ammo-mag--low", lo.ammo > 0 && lo.ammo / lo.def.mag <= 0.25);
+      if (wname !== this.lastWname) {
+        this.el.wname.textContent = wname;
+        this.el.wname.classList.toggle("weapon-name--empty", empty || c.player.overheated);
+        this.lastWname = wname;
+      }
+      const mag = `${lo.ammo}`;
+      if (mag !== this.lastAmmoMag) {
+        this.el.ammoMag.textContent = mag;
+        this.el.ammoMag.classList.toggle("ammo-mag--low", lo.ammo > 0 && lo.ammo / lo.def.mag <= 0.25);
+        this.lastAmmoMag = mag;
+      }
+      const res = lo.def.sidearm ? "/∞" : `/${lo.reserve}`;
+      if (res !== this.lastAmmoRes) {
+        this.el.ammoRes.textContent = res;
+        this.lastAmmoRes = res;
+      }
     }
     this.buildSlots();
 
@@ -425,10 +500,16 @@ export class Hud {
     for (let i = 0; i < this.wallCells.length; i++) {
       const f = this.segFracs[i] ?? 0;
       const cell = this.wallCells[i];
-      const hue = Math.round(f * 120); // red(0) → green(120)
-      cell.style.background = f <= 0 ? "#1a0c0c" : `hsl(${hue}, 70%, ${20 + f * 22}%)`;
+      // Recolor only when integrity actually shifts (quantized) — avoids 12 HSL
+      // string builds + style writes every frame on a steady wall.
+      const fr = Math.round(f * 60);
+      if (fr !== this.lastCellFrac[i]) {
+        this.lastCellFrac[i] = fr;
+        const hue = Math.round(f * 120); // red(0) → green(120)
+        cell.style.background = f <= 0 ? "#1a0c0c" : `hsl(${hue}, 70%, ${Math.round(20 + f * 22)}%)`;
+        cell.classList.toggle("wall-cell--breach", f <= 0);
+      }
       cell.classList.toggle("wall-cell--hot", this.pressure[i] > 0 && f > 0);
-      cell.classList.toggle("wall-cell--breach", f <= 0);
     }
   }
 
@@ -469,7 +550,11 @@ export class Hud {
     const s = Math.max(0, Math.ceil(secondsLeft));
     const mmss = `${Math.floor(s / 60)}:${(s % 60).toString().padStart(2, "0")}`;
     const phase = p > 0.92 ? "DAWN" : p > 0.82 ? "⚠ SURGE" : p > 0.6 ? "LATE NIGHT" : "NIGHT";
-    this.el.dawnLabel.textContent = `${phase}  ·  DAWN ${mmss}`;
+    const label = `${phase}  ·  DAWN ${mmss}`;
+    if (label !== this.lastDawnLabel) {
+      this.el.dawnLabel.textContent = label;
+      this.lastDawnLabel = label;
+    }
   }
 
   bindScavenge(s: Scavenge): void {
@@ -498,8 +583,11 @@ export class Hud {
     if (s.spotted) status = "SPOTTED - BREAK LINE";
     else if (s.extractOpen) status = "EXIT OPEN";
     else if (hidden) status = "HIDDEN";
-    this.el.dayStatus.textContent = status;
-    this.el.dayStatus.className = `day-status ${s.spotted ? "day-status--danger" : s.extractOpen ? "day-status--exit" : hidden ? "day-status--hidden" : s.lightOn ? "day-status--on" : "day-status--off"}`;
+    if (status !== this.lastDayStatus) {
+      this.el.dayStatus.textContent = status;
+      this.el.dayStatus.className = `day-status ${s.spotted ? "day-status--danger" : s.extractOpen ? "day-status--exit" : hidden ? "day-status--hidden" : s.lightOn ? "day-status--on" : "day-status--off"}`;
+      this.lastDayStatus = status;
+    }
 
     // Contextual prompt (hidden / reach the exit)
     if (s.promptText) {

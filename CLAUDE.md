@@ -1,4 +1,6 @@
-# Wall of Dead — Claude Guide
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 ## Project
 
@@ -22,23 +24,30 @@ low-poly geometry under **ACES tone mapping + bloom/vignette/grain**, a trauma
 camera, a typed event bus, and a single damage funnel. The old Canvas2D code is
 preserved in git history (commit `8570e94` and earlier).
 
-**Current scope: a polished 5-act campaign** — Title → **5 Nights / Days** →
-HAVEN (`run.legsTotal = 5`), with a "freedom isn't free" turn at the gate (a
-two-ending choice in `onVictory`). Each act is its own place: `world.ts ZONES`
-holds 5 themed environments (Outer Wall → Refinery → Floodline → Ashfields →
-Haven's Gate), each swapping palette/weather/fog plus one signature feature
-(standing water / ashfall / cold floodlights) over shared geometry via
-`setZone(night)`. Per-night signature threats live in `waveDirector.ts SIGNATURES`
-(1–5); the **Behemoth boss** is the night-5 finale. Other systems: night tactics
-(traps `T` / flare `G` / ally focus-fire `C` / choke geometry), hazard zombies +
-telegraphs + dawn surge; a real stealth day with **per-act environments + a
-population choice** (`scavenge.start({density, env})`, picked via
-`menus.showSupplyChoice`); a **5-weapon cap** (`run.MAX_WEAPONS`) that turns later
-finds into a dusk swap decision (`offerDilemma`); **random inter-night events**
-that can kill allies (`interNightEvent` in `main.ts`); survivor **traits** + a
-dawn **dilemma** + richer endings, difficulty presets, controller, mid-run
-save/resume, adaptive music + weather. Meta-progression / endless stay out of
-scope — see `IMPROVEMENTS.md §6`.
+**Current scope: a polished 3-act campaign of 9 levels** — Title → **3 acts ×
+3 levels (night + day each)** → HAVEN, with a "freedom isn't free" turn at the
+gate (a two-ending choice in `onVictory`). **The campaign is data-driven by
+`src/game/acts.ts`** — `CAMPAIGN` is the flat list of 9 `CampaignLevel`s (act
+name, title, story/radio/beat copy, `zone`, `supplyTheme`, optional `boss`);
+`run.legsTotal = TOTAL_LEVELS` (9). `levelInfo(level)` is the lookup everything
+reads (HUD, wave director, menus, scavenge). Each act is its own place:
+`world.ts ZONES` holds the **3** themed environments (THE OUTER ROAD → THE
+FLOODLINE → HAVEN APPROACH), each swapping palette/weather/fog plus a signature
+`feature` (`outer` / `flood` / `haven`) over shared geometry via
+`setZone(level.zone)`. Per-level signature threats live in
+`waveDirector.ts SIGNATURES`, **keyed by global level 1–9**; the act-finale
+levels (3, 6, 9) have no signature because their **boss** (THE ROADBLOCK / THE
+DROWNED TITAN / THE BEHEMOTH, defined in `acts.ts` `BossPlan`) is the mid-night
+event. Other systems: night tactics (traps `T` / flare `G` / ally focus-fire `C`
+/ choke geometry), hazard zombies + telegraphs + dawn surge; a real stealth day
+with **per-act environments + a population choice** (`scavenge.start({density})`,
+themed by the level's `supplyTheme` via `scavenge.ts ACT_SKINS`; the act + theme
+are picked via `menus.showSupplyChoice`); a **5-weapon cap** (`MAX_WEAPONS` in
+`run.ts`) that turns later finds into a dusk swap decision (`offerDilemma`);
+**random inter-night events** that can kill allies (`interNightEvent` in
+`main.ts`); survivor **traits** + a dawn **dilemma** + richer endings, difficulty
+presets, controller, mid-run save/resume, adaptive music + weather.
+Meta-progression / endless stay out of scope — see `IMPROVEMENTS.md §6`.
 
 ### Stack
 
@@ -69,6 +78,16 @@ npm run verify           # tsc --noEmit && vite build
 npm run test:play        # = build + electron scripts/smoke-electron.cjs
 npm run smoke            # same, against an existing dist/
 
+# Frame-time / perf probe in the real renderer (scripts/perf-electron.cjs)
+npm run test:perf        # build + electron perf harness
+
+# Closed-loop QA / self-improvement cycle (qa/) — see qa/README.md
+npm run qa:cycle         # build → capture (shots+state) → check goals → report
+npm run qa:maps          # screenshot every act night zone + supply theme and
+                         # assert the map trios are pairwise-distinct (uniqueness)
+npm run qa:scenarios     # cut to every debug SCENARIO (window.__wod.scenario) and
+                         # screenshot it — boss fights, supply runs, endings, etc.
+
 # Desktop app
 npm run standalone       # build + Electron window
 ```
@@ -78,6 +97,15 @@ catches type errors, dead code (`noUnusedLocals/Parameters`), and bundler
 failures fast. `npm run test:play` runs the **real WebGL renderer** and is the
 only thing that catches shader/geometry/runtime-draw bugs. Run `verify` before
 claiming done; run `test:play` whenever you touch anything that draws.
+
+**Closed-loop QA (`qa/`).** A self-iterating improvement loop sits on top of the
+same real-renderer approach: `npm run qa:cycle` builds, drives the full slice,
+and emits objective evidence per cycle — screenshots (with per-pixel luminance
+stats) **and** a structured `snapshots.json` of in-game state — then scores both
+against the goal registry in `qa/goals.mjs` (each goal needs its screenshot
+evidence *and* its state assertion to pass) and writes `qa/cycles/<n>/report.md`.
+Read the report (it embeds the shots + remaining gaps), implement fixes, re-run.
+Add a goal to `qa/goals.mjs` to raise the bar; see `qa/README.md`.
 
 > The Stop hook in `.claude/settings.json` runs `check-imports.mjs` at end of
 > turn — a thin shim that now runs `tsc --noEmit` (the hook + permission predate
@@ -89,7 +117,11 @@ The boot wiring lives in `src/main.ts`: it builds one `Ctx` service bag, wires
 event handlers + the `menu | night | day | report | loot | paused | dead |
 victory` state machine, and runs a dt-capped `setAnimationLoop`. Systems update
 only while playing; world/particles/telegraphs/camera/stage always update +
-render the post composer. `window.__wod = { ctx, … }` exposes debug/smoke hooks.
+render the post composer. `window.__wod = { ctx, … }` exposes debug/smoke hooks,
+including a **scenario registry** (`__wod.scenario(name)` / `__wod.scenarios()`,
+backed by `SCENARIOS` in `main.ts`) that cuts straight to a screenshot-worthy
+state (an act's night, a boss fight, a supply run, the dawn dilemma, an ending,
+defeat) — the basis of the `qa/` capture harnesses.
 
 ```
 src/config.ts          World axes + FIELD geometry (wall/rampart/spawn z), RUN
@@ -146,13 +178,25 @@ src/game/
                        blast + knockback + shockwave). Pooled.
   companion.ts         Rescued-survivor allies: auto-target + auto-fire, banter,
                        hold-E revive when downed.
-  waveDirector.ts      One night: dusk→dawn clock + escalating spawn stream +
-                       per-night signature threats (brute charge / spitter battery
-                       / howling pack / iron tide / night-5 behemoth) + dawn surge.
-                       Scales by ctx.tuning.
+  acts.ts              The campaign DEFINITION: CAMPAIGN (9 CampaignLevels across
+                       3 acts), BossPlan per act-finale, story/radio/beat copy,
+                       and helpers (levelInfo/nextLevelInfo/actLevelLabel/
+                       campaignNodeLabels/bossTypeKeys, ACT_COUNT/TOTAL_LEVELS).
+                       Pure data + lookups — no Three/DOM; read it to change
+                       campaign shape, level order, bosses, or narrative.
+  waveDirector.ts      One level: dusk→dawn clock + escalating spawn stream with
+                       PER-ACT enemy identities (ACT_MIXES: Outer = raw horde /
+                       Floodline = low-fast aquatic + acid / Haven = the iron tide
+                       of armor & shields) so acts escalate in KIND, not just
+                       numbers + per-level signature threats (SIGNATURES keyed by
+                       global level 1–9: first wave / brute charge / things in the
+                       water / spitter battery / howling pack / iron tide) + the
+                       act-finale BOSS (from levelInfo().boss) as the mid-night
+                       event + dawn surge. Scales by ctx.tuning.
   run.ts               RunManager + persisted run state (weapons, companions +
-                       traits, wallHp, leg/night, traps, kits, stats helpers) +
-                       serialize()/load() for the mid-run save.
+                       traits, wallHp, leg/night, legsTotal=TOTAL_LEVELS, traps,
+                       kits, stats helpers) + MAX_WEAPONS + serialize()/load() for
+                       the mid-run save.
 
 src/minigames/
   scavenge.ts          The day "Supply Run": a moody top-down STEALTH crawl —
@@ -178,6 +222,7 @@ src/audio/music.ts     MusicManager — crossfading streamed tracks by cue
                        (menu/night/surge/day/victory/defeat) from public/music.
 
 scripts/smoke-electron.cjs   Real-renderer smoke harness (npm run test:play).
+scripts/perf-electron.cjs    Real-renderer frame-time probe (npm run test:perf).
 electron-main.cjs            Desktop wrapper (loopback HTTP server → dist/).
 check-imports.mjs            Stop-hook shim → tsc --noEmit.
 ```
@@ -251,6 +296,13 @@ check-imports.mjs            Stop-hook shim → tsc --noEmit.
 - **Minigame:** new file in `src/minigames/`; expose `start/update/done` and emit
   `DAY_DONE { tier, frac }`; wire from `main.ts startDay`.
 - **Scene/state:** add to the `GameState` union + a transition fn in `main.ts`.
+- **Campaign level / act / boss:** edit `ACT_DEFS` in `acts.ts` (titles, story
+  copy, `zone`, `supplyTheme`, optional `boss: BossPlan`); `CAMPAIGN`,
+  `TOTAL_LEVELS`, and `run.legsTotal` derive from it automatically. A new `zone`
+  needs a matching entry in `world.ts ZONES`; a new `supplyTheme` needs one in
+  `scavenge.ts ACT_SKINS`; a boss `type` must exist in `zombie.ts TYPES` with
+  `boss`. Mid-night spikes for non-finale levels go in `waveDirector.ts SIGNATURES`
+  (keyed by global level 1–N).
 
 ## Before claiming done
 - [ ] `npm run verify` — tsc strict + vite build, 0 errors.

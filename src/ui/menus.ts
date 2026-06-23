@@ -252,7 +252,7 @@ export class Menus {
     this.paint(`
       <div class="screen screen--help">
         <h2 class="panel-title">HOW TO PLAY</h2>
-        <p class="subtitle">Hold the wall each night until dawn. By day, pick a district and sneak the dark for supplies. Survive three acts of road to reach Haven - the safe zone - and decide what it's worth. You can carry up to five weapons; hand spares to allies on the LOADOUT screen (a weapon they carry, you can't, and vice-versa). Fix breaches at night with repair kits found by day.</p>
+        <p class="subtitle">Hold the wall each night until dawn. By day, sneak the dark for supplies and push toward Haven — the safe zone.</p>
         <div class="help-cols">
           <div class="help-col">
             <h3>NIGHT — DEFEND</h3>
@@ -482,7 +482,7 @@ export class Menus {
       /* ignore */
     }
     const nudge = firstTime
-      ? `<div class="lo-nudge">💡 SHARED ARMORY — a weapon you give an ally is theirs: they use its ammo and you can't carry it (and vice-versa). An unarmed ally falls back to a weak infinite sidearm, so hand your spare to a survivor to cover a second lane. Your own 🔒 sidearm stays with you.</div>`
+      ? `<div class="lo-nudge"><strong>💡 SHARED ARMORY</strong>• Give a spare to an ally — they use it, you can't.<br>• An unarmed ally falls back to a weak sidearm.<br>• Your 🔒 sidearm always stays with you.</div>`
       : "";
     const rows = run.weapons
       .map((w, i) => {
@@ -497,7 +497,7 @@ export class Menus {
     this.paint(`
       <div class="screen screen--loadout">
         <h2 class="panel-title">LOADOUT</h2>
-        <p class="subtitle">Click a weapon to hand it to an ally (or take it back). An ally holding a weapon uses its ammo and falls back to a weak sidearm when empty — you can't use it while they hold it.</p>
+        <p class="subtitle">Click a weapon to hand it to an ally — or take it back.</p>
         ${nudge}
         <div class="loadout">${rows || '<div class="lo-row">No weapons</div>'}</div>
         <div class="menu"><button class="mbtn mbtn--primary act-back">DONE</button></div>
