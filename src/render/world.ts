@@ -925,6 +925,46 @@ export class World {
       fire.position.set(fx, fy, fz);
       this.outerGroup.add(fire);
     }
+    // --- Near-field road detail (right in the main action band): burnt-out car
+    // husks with a smoldering ember glow, stacked tires, close-in road flares, and
+    // a wind-tugged hazard tarp — the wrecked-highway story where you actually fight. ---
+    const huskMat = new THREE.MeshStandardMaterial({ color: 0x1b1512, roughness: 1, flatShading: true });
+    const huskTire = new THREE.MeshStandardMaterial({ color: 0x0c0c0e, roughness: 1, flatShading: true });
+    for (const [hx, hz, hr] of [[-17, -19, 0.5], [16, -33, -0.7], [-23, -45, 0.25]] as [number, number, number][]) {
+      const husk = new THREE.Group();
+      const body = new THREE.Mesh(new THREE.BoxGeometry(2.4, 0.8, 4.4), huskMat);
+      body.position.y = 0.55;
+      body.castShadow = true;
+      const cabin = new THREE.Mesh(new THREE.BoxGeometry(2.1, 0.7, 2.0), huskMat);
+      cabin.position.set(0, 1.15, -0.2);
+      husk.add(body, cabin);
+      const smolder = makeGlow(0xff5a1e, 2.0, 0.5); // a low fire still guttering inside
+      smolder.position.set(0, 0.95, 0.2);
+      husk.add(smolder);
+      husk.position.set(hx, 0, hz);
+      husk.rotation.y = hr;
+      this.outerGroup.add(husk);
+    }
+    for (const [tx, tz] of [[-25, -28], [23, -50], [-11, -37]] as [number, number][]) {
+      const stack = new THREE.Group();
+      const n = 2 + Math.floor(this.rng.range(0, 3));
+      for (let i = 0; i < n; i++) {
+        const tre = new THREE.Mesh(new THREE.TorusGeometry(0.55, 0.24, 6, 10), huskTire);
+        tre.rotation.x = Math.PI / 2;
+        tre.position.y = 0.24 + i * 0.36;
+        stack.add(tre);
+      }
+      stack.position.set(tx, 0, tz);
+      this.outerGroup.add(stack);
+    }
+    for (const [fx, fz] of [[-10, -15], [9, -24]] as [number, number][]) {
+      const flare = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.09, 1.4, 8), new THREE.MeshBasicMaterial({ color: 0xff4a24, fog: false }));
+      flare.rotation.z = Math.PI / 2;
+      flare.position.set(fx, 0.14, fz);
+      const g = makeGlow(0xff6a2c, 3.0, 0.5);
+      g.position.set(fx, 0.42, fz);
+      this.outerGroup.add(flare, g);
+    }
     this.outerGroup.visible = false;
     this.group.add(this.outerGroup);
 
@@ -1014,6 +1054,33 @@ export class World {
     bridge.position.set(0, 0, -80);
     bridge.children.forEach((m) => (m.castShadow = m instanceof THREE.Mesh));
     this.waterGroup.add(bridge);
+    // --- Near-field flood detail: reed clusters breaking the black water, floating
+    // debris drifting on the sheet, and a half-sunk car roof close to the wall —
+    // the drowned blocks made tangible right where you fight. ---
+    const reedMat = new THREE.MeshStandardMaterial({ color: 0x1c3a2a, roughness: 1, flatShading: true });
+    for (const [rx, rz] of [[-22, -16], [20, -22], [-9, -30], [13, -12], [-28, -42], [26, -47]] as [number, number][]) {
+      const clump = new THREE.Group();
+      for (let i = 0; i < 6; i++) {
+        const h = this.rng.range(1.0, 2.2);
+        const reed = new THREE.Mesh(new THREE.BoxGeometry(0.06, h, 0.06), reedMat);
+        reed.position.set(this.rng.range(-0.8, 0.8), h / 2, this.rng.range(-0.8, 0.8));
+        reed.rotation.z = this.rng.range(-0.18, 0.18);
+        clump.add(reed);
+      }
+      clump.position.set(rx, 0, rz);
+      this.waterGroup.add(clump);
+    }
+    const driftMat = new THREE.MeshStandardMaterial({ color: 0x24383a, roughness: 1, flatShading: true });
+    for (const [dx, dz, dw] of [[-6, -20, 2.2], [11, -34, 1.6], [-16, -50, 2.6]] as [number, number, number][]) {
+      const plank = new THREE.Mesh(new THREE.BoxGeometry(dw, 0.16, 0.5), driftMat);
+      plank.position.set(dx, 0.16, dz);
+      plank.rotation.y = this.rng.range(0, Math.PI);
+      this.waterGroup.add(plank);
+    }
+    const sunk = new THREE.Mesh(new THREE.BoxGeometry(3.0, 0.8, 1.9), new THREE.MeshStandardMaterial({ color: 0x16282a, roughness: 1, flatShading: true }));
+    sunk.position.set(18, 0.32, -14);
+    sunk.rotation.y = -0.4;
+    this.waterGroup.add(sunk);
     this.waterGroup.visible = false;
     this.group.add(this.waterGroup);
 
@@ -1138,6 +1205,46 @@ export class World {
       beam.rotation.set(Math.PI * 0.6, 0, rz);
       this.havenGroup.add(beam);
     }
+    // --- Near-field checkpoint detail: sandbag bunkers, razor-wire coils on the
+    // barrier line, and a parked armored truck — the manned, fortified read of a
+    // safe-zone gate right in the action band. ---
+    const sandMat = new THREE.MeshStandardMaterial({ color: 0x46412c, roughness: 1, flatShading: true });
+    for (const [sx, sz, sr] of [[-20, -16, 0.2], [19, -18, -0.3], [-2, -27, 0]] as [number, number, number][]) {
+      const bunker = new THREE.Group();
+      for (let r = 0; r < 2; r++)
+        for (let i = 0; i < 5; i++) {
+          const bag = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.4, 0.55), sandMat);
+          bag.position.set((i - 2) * 0.82, 0.2 + r * 0.4, (r % 2) * 0.12);
+          bag.castShadow = true;
+          bunker.add(bag);
+        }
+      bunker.position.set(sx, 0, sz);
+      bunker.rotation.y = sr;
+      this.havenGroup.add(bunker);
+    }
+    const coilMat = new THREE.MeshBasicMaterial({ color: 0x9fb0bc, fog: true });
+    for (const wx of [-16, -5.5, 5.5, 16]) {
+      const coil = new THREE.Mesh(new THREE.TorusGeometry(0.6, 0.07, 5, 10), coilMat);
+      coil.position.set(wx, 1.5, -11);
+      coil.rotation.x = Math.PI / 2;
+      this.havenGroup.add(coil);
+    }
+    const truck = new THREE.Group();
+    const tBody = new THREE.Mesh(new THREE.BoxGeometry(3.0, 1.6, 6.0), new THREE.MeshStandardMaterial({ color: 0x2e3a30, roughness: 1, flatShading: true }));
+    tBody.position.y = 1.2;
+    const tCab = new THREE.Mesh(new THREE.BoxGeometry(2.8, 1.4, 2.2), new THREE.MeshStandardMaterial({ color: 0x39463a, roughness: 1, flatShading: true }));
+    tCab.position.set(0, 1.5, 2.4);
+    truck.add(tBody, tCab);
+    for (const wx of [-1.4, 1.4]) for (const wz of [-1.8, 0, 1.8]) {
+      const wheel = new THREE.Mesh(new THREE.CylinderGeometry(0.6, 0.6, 0.5, 10), new THREE.MeshStandardMaterial({ color: 0x0c0c0e, roughness: 1 }));
+      wheel.rotation.z = Math.PI / 2;
+      wheel.position.set(wx, 0.5, wz);
+      truck.add(wheel);
+    }
+    truck.position.set(-26, 0, -22);
+    truck.rotation.y = 0.5;
+    truck.children.forEach((m) => { if (m instanceof THREE.Mesh) m.castShadow = true; });
+    this.havenGroup.add(truck);
     this.havenGroup.visible = false;
     this.group.add(this.havenGroup);
   }

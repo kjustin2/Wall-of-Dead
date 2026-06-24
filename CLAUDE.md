@@ -87,6 +87,13 @@ npm run qa:maps          # screenshot every act night zone + supply theme and
                          # assert the map trios are pairwise-distinct (uniqueness)
 npm run qa:scenarios     # cut to every debug SCENARIO (window.__wod.scenario) and
                          # screenshot it — boss fights, supply runs, endings, etc.
+npm run qa:diagnose      # unified visual+perf+bug pass: tiles every scene into ONE
+                         # labelled contact-sheet.png (draw calls/tris per cell),
+                         # runs sceneAudit (NaN/negative-radius geometry, the
+                         # black-screen bug class) + a resident-geometry leak probe,
+                         # and flags perf regressions vs qa/perf-baseline.json.
+                         # → qa/diagnostics/{contact-sheet.png,REPORT.md}
+npm run qa:baseline      # qa:diagnose + (re)write qa/perf-baseline.json
 
 # Desktop app
 npm run standalone       # build + Electron window
@@ -121,7 +128,11 @@ render the post composer. `window.__wod = { ctx, … }` exposes debug/smoke hook
 including a **scenario registry** (`__wod.scenario(name)` / `__wod.scenarios()`,
 backed by `SCENARIOS` in `main.ts`) that cuts straight to a screenshot-worthy
 state (an act's night, a boss fight, a supply run, the dawn dilemma, an ending,
-defeat) — the basis of the `qa/` capture harnesses.
+defeat) — the basis of the `qa/` capture harnesses. It also exposes
+`__wod.renderStats()` (per-frame draw calls / triangles / resident GPU
+resources) and `__wod.sceneAudit()` (scene-graph health: NaN/negative-radius
+geometry + bad transforms + visible-triangle budget), both from
+`src/render/diagnostics.ts` — the measurable basis of `npm run qa:diagnose`.
 
 ```
 src/config.ts          World axes + FIELD geometry (wall/rampart/spawn z), RUN
@@ -148,6 +159,9 @@ src/render/
   textures.ts          Procedural radial-glow sprite + canvas text labels.
   decals.ts            Pooled flat ground splats (blood) that fade.
   floaters.ts          DOM damage numbers projected from 3D points (toggleable).
+  diagnostics.ts       Read-only renderStats()/sceneAudit() over the live renderer
+                       + scene graph (draw calls, tris, NaN/negative-radius bugs);
+                       surfaced on window.__wod, consumed by qa/diagnose.cjs.
 
 src/game/
   ctx.ts               Ctx service-bag type + Stats + freshStats().

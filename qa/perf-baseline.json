@@ -1,0 +1,159 @@
+{
+  "ts": "2026-06-23",
+  "regFactor": 1.25,
+  "scenes": {
+    "title": {
+      "calls": 882,
+      "triangles": 16684,
+      "lines": 506,
+      "points": 2150,
+      "geometries": 602,
+      "textures": 29,
+      "programs": 47
+    },
+    "night-act1": {
+      "calls": 1067,
+      "triangles": 30600,
+      "lines": 506,
+      "points": 2150,
+      "geometries": 628,
+      "textures": 29,
+      "programs": 55
+    },
+    "night-act2": {
+      "calls": 1072,
+      "triangles": 32996,
+      "lines": 506,
+      "points": 2150,
+      "geometries": 657,
+      "textures": 29,
+      "programs": 56
+    },
+    "night-act3": {
+      "calls": 1193,
+      "triangles": 36778,
+      "lines": 186,
+      "points": 2370,
+      "geometries": 773,
+      "textures": 29,
+      "programs": 66
+    },
+    "boss-roadblock": {
+      "calls": 539,
+      "triangles": 14254,
+      "lines": 506,
+      "points": 2150,
+      "geometries": 773,
+      "textures": 29,
+      "programs": 66
+    },
+    "boss-drowned": {
+      "calls": 531,
+      "triangles": 14298,
+      "lines": 506,
+      "points": 2150,
+      "geometries": 754,
+      "textures": 29,
+      "programs": 66
+    },
+    "boss-behemoth": {
+      "calls": 591,
+      "triangles": 13410,
+      "lines": 186,
+      "points": 2370,
+      "geometries": 755,
+      "textures": 29,
+      "programs": 66
+    },
+    "surge": {
+      "calls": 1130,
+      "triangles": 44718,
+      "lines": 506,
+      "points": 2150,
+      "geometries": 774,
+      "textures": 29,
+      "programs": 66
+    },
+    "laststand": {
+      "calls": 1053,
+      "triangles": 28658,
+      "lines": 506,
+      "points": 2150,
+      "geometries": 774,
+      "textures": 29,
+      "programs": 66
+    },
+    "supply-outer": {
+      "calls": 142,
+      "triangles": 2562,
+      "lines": 426,
+      "points": 2150,
+      "geometries": 852,
+      "textures": 30,
+      "programs": 75
+    },
+    "supply-flood": {
+      "calls": 169,
+      "triangles": 3156,
+      "lines": 426,
+      "points": 2150,
+      "geometries": 880,
+      "textures": 30,
+      "programs": 81
+    },
+    "supply-haven": {
+      "calls": 172,
+      "triangles": 3222,
+      "lines": 426,
+      "points": 2150,
+      "geometries": 884,
+      "textures": 32,
+      "programs": 84
+    },
+    "supply-choice": {
+      "calls": 164,
+      "triangles": 3136,
+      "lines": 426,
+      "points": 2150,
+      "geometries": 884,
+      "textures": 32,
+      "programs": 84
+    },
+    "supply-spotted": {
+      "calls": 181,
+      "triangles": 3600,
+      "lines": 426,
+      "points": 2150,
+      "geometries": 907,
+      "textures": 33,
+      "programs": 84
+    },
+    "dawn-dilemma": {
+      "calls": 171,
+      "triangles": 3440,
+      "lines": 426,
+      "points": 2150,
+      "geometries": 907,
+      "textures": 33,
+      "programs": 84
+    },
+    "ending": {
+      "calls": 790,
+      "triangles": 13652,
+      "lines": 426,
+      "points": 2150,
+      "geometries": 1245,
+      "textures": 36,
+      "programs": 85
+    },
+    "defeat": {
+      "calls": 992,
+      "triangles": 18334,
+      "lines": 506,
+      "points": 2150,
+      "geometries": 1245,
+      "textures": 36,
+      "programs": 85
+    }
+  }
+}

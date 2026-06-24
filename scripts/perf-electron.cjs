@@ -53,10 +53,15 @@ app.whenReady().then(async () => {
   const win = new BrowserWindow({
     width: 1600,
     height: 900,
-    show: true,
+    // Created hidden, then shown with showInactive() (below) so the window is
+    // visible to the compositor — the rAF-driven game loop runs at full speed
+    // (a never-shown window throttles requestAnimationFrame) — yet it never takes
+    // OS focus or yanks the cursor away from the editor during a test run.
+    show: false,
     backgroundColor: "#05070a",
     webPreferences: { backgroundThrottling: false, offscreen: false },
   });
+  win.showInactive();
 
   win.webContents.on("console-message", (_e, level, message) => {
     if (level >= 3) errors.push("CONSOLE: " + message);

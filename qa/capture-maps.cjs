@@ -39,7 +39,8 @@ const stats = {}; // name -> {mean,std} luminance signature
 
 app.whenReady().then(async () => {
   const port = await startServer();
-  const win = new BrowserWindow({ width: 1600, height: 900, show: true, backgroundColor: "#05070a", webPreferences: { backgroundThrottling: false, offscreen: false } });
+  const win = new BrowserWindow({ width: 1600, height: 900, show: false, backgroundColor: "#05070a", webPreferences: { backgroundThrottling: false, offscreen: false } });
+  win.showInactive(); // visible to the compositor (no rAF throttle) but never steals OS focus/cursor
   const js = (s) => win.webContents.executeJavaScript(s);
   async function shot(name) {
     const img = await win.webContents.capturePage();

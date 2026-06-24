@@ -241,6 +241,43 @@ export const GOALS = [
       return { pass, detail: `frames=${p.frames} maxGap=${Math.round(num(p.maxGap))}ms over250=${p.over250}` };
     },
   },
+
+  // ---- Scene-graph health (the negative-radius / NaN-geometry bug class) ---
+  {
+    id: "scene-graph-clean",
+    title: "Heaviest frame has no NaN/negative-radius geometry or bad transforms",
+    category: "correctness",
+    logic: (s) => {
+      const p = s.steps?.perf || {};
+      const probs = num(p.sceneProblems);
+      // -1 means the audit hook wasn't reachable (old build) — treat as a fail so
+      // the signal can't silently disappear.
+      const pass = probs === 0;
+      return {
+        pass,
+        detail: probs < 0 ? "sceneAudit() unavailable" : `${probs} scene-graph problem(s), ${p.sceneTris} visible tris`,
+        value: p.problemSample,
+      };
+    },
+  },
+
+  // ---- Render cost is measured + sane (optimization signal) ---------------
+  {
+    id: "render-cost-measured",
+    title: "Worst-case frame reports finite draw calls / triangles (perf is measurable)",
+    category: "perf",
+    logic: (s) => {
+      const r = s.steps?.perf?.render || {};
+      const pass = num(r.calls) > 0 && Number.isFinite(num(r.triangles)) && num(r.programs) > 0;
+      return {
+        pass,
+        detail: pass
+          ? `${r.calls} draws · ${num(r.triangles).toLocaleString()} tris · ${r.geometries} geoms · ${r.programs} programs`
+          : "renderStats() unavailable or zero",
+        value: r,
+      };
+    },
+  },
 ];
 
 export const GOAL_IDS = GOALS.map((g) => g.id);

@@ -67,10 +67,15 @@ app.whenReady().then(async () => {
   const win = new BrowserWindow({
     width: 1600,
     height: 900,
-    show: true,
+    // Created hidden, then shown with showInactive() (below) so the window is
+    // visible to the compositor — the rAF-driven game loop runs at full speed
+    // (a never-shown window throttles requestAnimationFrame) — yet it never takes
+    // OS focus or yanks the cursor away from the editor during a test run.
+    show: false,
     backgroundColor: "#05070a",
     webPreferences: { backgroundThrottling: false, offscreen: false },
   });
+  win.showInactive();
 
   win.webContents.on("console-message", (_e, level, message) => {
     // level 3 = error
@@ -157,6 +162,25 @@ app.whenReady().then(async () => {
       await win.webContents.executeJavaScript(`window.dispatchEvent(new KeyboardEvent('keyup',{code:'Space'}));`);
       await sleep(1400);
       await shot(win, "03-night-action.png");
+
+      // Scene-graph health + render cost at the heaviest night moment. A geometry
+      // with a NaN/negative bounding radius (the class that shipped a black screen
+      // here, that no mocked canvas caught) is a hard failure — not a screenshot
+      // we have to eyeball. renderStats also proves the renderer drew real work.
+      const audit = await js(`window.__wod.sceneAudit()`);
+      if (audit && audit.problems && audit.problems.length) {
+        errors.push(
+          "SCENE: " + audit.problems.length + " scene-graph problem(s): " +
+            audit.problems.slice(0, 4).map((p) => p.kind + " @ " + p.object).join(", ")
+        );
+      }
+      const rstats = await js(`window.__wod.renderStats()`);
+      if (!(rstats && rstats.calls > 0 && Number.isFinite(rstats.triangles))) {
+        errors.push("RENDERSTATS: renderer.info unavailable or zero draw calls");
+      } else {
+        console.log("  renderStats(night):", JSON.stringify(rstats), "| audit tris:", audit && audit.triangles);
+      }
+
       // Mid-night frame (dawn ramp partway up) — this is what the player sees most
       // of the night, and where late-night lighting issues actually show.
       await win.webContents.executeJavaScript(`window.__wod.setNightProgress(0.65)`);
@@ -259,6 +283,14 @@ app.whenReady().then(async () => {
           if (!hasChoice) errors.push("SUPPLY: no population choice screen before the run");
           else await shot(win, "06a-supply-choice.png");
         }
+        // Force this run to carry a weapon case for an unowned gun, so the armory
+        // fills deterministically and a found-at-cap weapon reliably triggers the
+        // ARMORY FULL swap (the organic find is RNG-gated → otherwise flaky).
+        await js(`(()=>{
+          const FIND=["rifle","ar","lmg","dmr","autoshotgun","minigun","magnum"];
+          const owned=new Set(window.__wod.ctx.run.weapons.map(w=>w.def.id));
+          window.__wod.forceNextWeaponCase(FIND.find(id=>!owned.has(id)) || FIND[0]);
+        })()`);
         await js(`(()=>{const b=document.querySelector('.act-supply-1'); if(b) b.click();})()`);
         await sleep(900);
         if (leg === 0) {
@@ -289,6 +321,9 @@ app.whenReady().then(async () => {
         const dTitle = await js(`(()=>{const t=document.querySelector('.screen--report .panel-title'); return t? t.textContent : '';})()`);
         if (dTitle && dTitle.indexOf("HAVEN") >= 0) endingSeen = true;
         if (dTitle && dTitle.indexOf("ARMORY FULL") >= 0) swapSeen = true;
+        // Latch-based fallback: the single DOM read above races with the transient
+        // dilemma paint under load — the game-state latch catches it reliably.
+        if (!swapSeen) swapSeen = await js(`!!(window.__wod.armorySwapOffered && window.__wod.armorySwapOffered())`);
         const dilemma = await win.webContents.executeJavaScript(
           `(()=>{const b=document.querySelector('.act-choice-0'); if(b){b.click(); return true;} return false;})()`
         );

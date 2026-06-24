@@ -25,7 +25,8 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 app.whenReady().then(async () => {
   const port = await startServer();
-  const win = new BrowserWindow({ width: 1600, height: 900, show: true, backgroundColor: "#05070a", webPreferences: { backgroundThrottling: false, offscreen: false } });
+  const win = new BrowserWindow({ width: 1600, height: 900, show: false, backgroundColor: "#05070a", webPreferences: { backgroundThrottling: false, offscreen: false } });
+  win.showInactive(); // visible to the compositor (no rAF throttle) but never steals OS focus/cursor
   const js = (s) => win.webContents.executeJavaScript(s);
   const fire = (code, type) => js(`window.dispatchEvent(new KeyboardEvent(${JSON.stringify(type)},{code:${JSON.stringify(code)}}))`);
   const errors = [];

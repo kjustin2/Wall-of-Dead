@@ -34,6 +34,7 @@ import { WaveDirector, nightStats } from "./game/waveDirector";
 import { actLevelLabel, bossTypeKeys, campaignNodeLabels, levelInfo, nextLevelInfo, TOTAL_LEVELS } from "./game/acts";
 import { TYPES } from "./game/zombie";
 import { Scavenge, type Density } from "./minigames/scavenge";
+import { renderStats, sceneAudit } from "./render/diagnostics";
 import { Hud } from "./ui/hud";
 import { Menus } from "./ui/menus";
 import { freshStats, type Ctx } from "./game/ctx";
@@ -116,6 +117,13 @@ let bossCine = 0;
 let endingPick: string[] = ENDING_STAY;
 /** A weapon found at full armory, awaiting the dusk swap decision. */
 let pendingWeapon: string | null = null;
+/** Latched true once an "ARMORY FULL" swap dilemma has been offered this run — a
+ * race-free signal for the smoke (its single DOM read of the transient dilemma
+ * screen is load-sensitive). Reset at run start. */
+let armorySwapOffered = false;
+/** One-shot debug override: the weapon-case the NEXT supply run will carry (set
+ * by the smoke to make weapon finds deterministic). `undefined` = organic RNG. */
+let dbgNextWeaponCase: string | null | undefined = undefined;
 
 // What turns up in the wreckage after each leg (preferred → fallback to any
 // unowned). The 5-weapon cap turns the later finds into swap decisions.
@@ -243,6 +251,7 @@ function startRun(): void {
   clearSave();
   ctx.run.start();
   pendingWeapon = null;
+  armorySwapOffered = false;
   ctx.stats = freshStats();
   ctx.player.group.visible = true;
   toCutscene();
@@ -418,8 +427,11 @@ function beginSupplyRun(density: Density, weaponOverride?: string | null): void 
   const baseChance = density === "high" ? 0.7 : density === "med" ? 0.5 : 0.3;
   const chance = ctx.run.atWeaponCap() ? baseChance * 0.5 : baseChance;
   // weaponOverride (tests): null forces NO case, a string forces that case.
-  const weaponInCrate =
-    weaponOverride !== undefined ? weaponOverride ?? undefined : candidate && ctx.rng.chance(chance) ? candidate : undefined;
+  // dbgNextWeaponCase is a one-shot override the smoke uses to make weapon finds
+  // deterministic (the organic find is RNG-gated, which made the cap-swap flaky).
+  const override = weaponOverride !== undefined ? weaponOverride : dbgNextWeaponCase;
+  dbgNextWeaponCase = undefined;
+  const weaponInCrate = override !== undefined ? override ?? undefined : candidate && ctx.rng.chance(chance) ? candidate : undefined;
   // The environment + layout are themed to the district you chose (crowded /
   // picked-over / outskirts), so the map matches its description.
   scavenge.start({ density, weaponInCrate });
@@ -552,20 +564,26 @@ function offerDilemma(after: () => void): void {
     const newId = pendingWeapon;
     pendingWeapon = null;
     const newName = WEAPONS[newId].name.toUpperCase();
-    const opts = ctx.run.droppableIndices().map((i) => ({
-      label: `Drop ${ctx.run.weapons[i].def.name}`,
-      detail: `Swap it for the ${newName}.`,
-      onPick: () => {
-        ctx.run.dropWeapon(i);
-        ctx.run.grantWeapon(newId);
-        hud.banner("LOADOUT CHANGED", `Picked up the ${newName}`);
-      },
-    }));
+    const opts: { label: string; detail: string; onPick: () => void; tag?: string; tone?: "risk" | "safe" | "gain" }[] =
+      ctx.run.droppableIndices().map((i) => ({
+        label: `Drop ${ctx.run.weapons[i].def.name}`,
+        detail: `Swap it for the ${newName}.`,
+        tag: "SWAP",
+        tone: "gain",
+        onPick: () => {
+          ctx.run.dropWeapon(i);
+          ctx.run.grantWeapon(newId);
+          hud.banner("LOADOUT CHANGED", `Picked up the ${newName}`);
+        },
+      }));
     opts.push({
       label: `Leave the ${newName}`,
       detail: "Keep your current five. Take the ammo instead (+60).",
+      tag: "+AMMO",
+      tone: "safe",
       onPick: () => ctx.run.addAmmo(60),
     });
+    armorySwapOffered = true; // latch for the smoke (its DOM read of this transient screen races)
     menus.showDilemma("ARMORY FULL", `You found a ${newName}, but you're already carrying five. Something has to go.`, opts, after);
     return;
   }
@@ -582,6 +600,8 @@ function offerDilemma(after: () => void): void {
         {
           label: "Open the gate",
           detail: "Recruit them as an ally (random trait).",
+          tag: "+ALLY",
+          tone: "gain",
           onPick: () => {
             const tr = ctx.run.recruit(strangerName);
             hud.banner(`${strangerName} joins you`, `${TRAITS[tr].label} — "${TRAITS[tr].recruitLine}"`);
@@ -590,6 +610,8 @@ function offerDilemma(after: () => void): void {
         {
           label: "Send them off",
           detail: "Keep the line lean. They leave you their kit (+1 repair kit).",
+          tag: "+KIT",
+          tone: "safe",
           onPick: () => {
             ctx.run.repairKits += 1;
           },
@@ -605,6 +627,8 @@ function offerDilemma(after: () => void): void {
         {
           label: "Crack it open",
           detail: "Gamble: likely +120 ammo… or you lose a repair kit.",
+          tag: "GAMBLE",
+          tone: "risk",
           onPick: () => {
             if (ctx.rng.chance(0.65)) {
               ctx.run.addAmmo(120);
@@ -618,6 +642,8 @@ function offerDilemma(after: () => void): void {
         {
           label: "Leave it",
           detail: "Play it safe. Steady your nerves (+1 repair kit).",
+          tag: "+KIT",
+          tone: "safe",
           onPick: () => {
             ctx.run.repairKits += 1;
           },
@@ -645,6 +671,8 @@ function onVictory(): void {
       {
         label: "Stay inside the wall",
         detail: "Safety, a bunk, a roster of who gets turned away. You're theirs now.",
+        tag: "SAFETY",
+        tone: "safe",
         onPick: () => {
           ctx.music.play("victory");
           endingPick = ENDING_STAY;
@@ -653,6 +681,8 @@ function onVictory(): void {
       {
         label: "Walk back into the dark",
         detail: "No walls, no promises — the open road and the people worth holding it for.",
+        tag: "THE ROAD",
+        tone: "risk",
         onPick: () => {
           ctx.music.play("victory");
           endingPick = ENDING_LEAVE;
@@ -1038,7 +1068,9 @@ const SCENARIOS: Record<string, Scenario> = {
   "supply-outer": { desc: "Supply run — Outer Road", run: () => dbgStartSupply(1, "med") },
   "supply-flood": { desc: "Supply run — Floodline (flooded blocks)", run: () => dbgStartSupply(4, "high") },
   "supply-haven": { desc: "Supply run — Haven Perimeter (checkpoint)", run: () => dbgStartSupply(7, "med") },
-  "dawn-dilemma": { desc: "Dawn dilemma choice screen", run: () => { ctx.run.start(); ctx.run.night = 2; offerDilemma(() => {}); } },
+  "supply-choice": { desc: "Supply choice — where to scavenge (risk/reward cards)", run: () => { ctx.run.start(); ctx.run.night = 1; hud.setMode("hidden"); startDay(); } },
+  "supply-spotted": { desc: "Supply run — spotted (alarm vignette + !/? telegraphs)", run: () => { dbgStartSupply(4, "high"); hud.setMode("day"); scavenge.debugSpotted(); } },
+  "dawn-dilemma": { desc: "Dawn dilemma choice screen", run: () => { ctx.run.start(); ctx.run.night = 2; hud.setMode("hidden"); offerDilemma(() => {}); } },
   ending: { desc: "Haven's Gate — the two-ending choice", run: () => { ctx.run.start(); ctx.run.night = TOTAL_LEVELS; onVictory(); } },
   defeat: { desc: "Defeat — the death screen", run: () => { dbgStartNight(1); defeat("The wall was overrun."); } },
 };
@@ -1063,6 +1095,12 @@ const SCENARIOS: Record<string, Scenario> = {
     ctx.enemies.clear();
   },
   completeDay: () => scavenge.debugComplete(),
+  /** True once a found-at-cap weapon has forced an ARMORY FULL swap this run. */
+  armorySwapOffered: () => armorySwapOffered,
+  /** Force the next supply run to carry a weapon case (deterministic test finds). */
+  forceNextWeaponCase: (id: string | null) => {
+    dbgNextWeaponCase = id;
+  },
   scavengeShown: () => scavenge.visible,
   dayObjectCount: () => scavenge.objectCount,
   scavengeTotal: () => scavenge.total,
@@ -1085,4 +1123,9 @@ const SCENARIOS: Record<string, Scenario> = {
   nightStats: (n: number) => nightStats(n, ctx.tuning.spawnRate),
   // Drop the supply-run avatar at a spot (so a capture can frame the lot interior).
   scavengeTeleport: (x: number, z: number) => scavenge.debugTeleport(x, z),
+  // ---- Diagnostics (render cost + scene-graph health) --------------------
+  /** Per-frame GPU cost: draw calls, triangles, resident geometries/textures. */
+  renderStats: () => renderStats(ctx.stage),
+  /** Scene-graph health walk: NaN/negative-radius geometry, bad transforms, tris. */
+  sceneAudit: () => sceneAudit(ctx.stage),
 };

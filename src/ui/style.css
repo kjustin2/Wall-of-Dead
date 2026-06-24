@@ -517,7 +517,79 @@ body {
 .rebind-head { margin: 12px 0 4px; font-family: var(--display); letter-spacing: 2px; font-size: 11px; color: var(--dim); text-align: center; }
 .mbtn--sm { padding: 4px 12px; font-size: 13px; min-width: 90px; }
 .choice-detail { font-size: 12px; letter-spacing: 1px; color: var(--dim); font-weight: 400; }
-.act-choice { text-align: left; line-height: 1.5; padding: 12px 16px; }
+
+/* -------------------------------------------------- between-night decisions */
+/* A small eyebrow that marks a screen as a real CHOICE (vs. a passive
+   summary), so the player instantly knows this one wants a read. */
+.decision-tag {
+  font-family: var(--display);
+  font-weight: 600;
+  letter-spacing: 4px;
+  font-size: 12px;
+  color: var(--act, var(--gold));
+  text-shadow: 0 0 14px rgb(var(--act-rgb) / 0.4);
+  padding: 4px 14px;
+  border: 1px solid rgb(var(--act-rgb) / 0.4);
+  border-radius: 20px;
+  margin-bottom: 4px;
+  animation: report-in 0.4s ease-out both;
+}
+body.reduced .decision-tag { animation: none; }
+/* Decision options are cards (icon + gauges + one detail line) laid out wide. */
+.menu--cards { width: min(720px, 92vw); }
+.choice-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 7px;
+  text-align: left;
+  line-height: 1.4;
+  padding: 13px 18px;
+  letter-spacing: 1px;
+  opacity: 0;
+  animation: report-in 0.4s ease-out forwards;
+}
+.choice-card:nth-child(1) { animation-delay: 0.06s; }
+.choice-card:nth-child(2) { animation-delay: 0.14s; }
+.choice-card:nth-child(3) { animation-delay: 0.22s; }
+.choice-card:nth-child(n + 4) { animation-delay: 0.3s; }
+body.reduced .choice-card { animation: none; opacity: 1; }
+.choice-head { display: flex; align-items: center; gap: 10px; font-size: 18px; }
+.choice-head b { color: #fff; }
+.choice-icon { font-size: 20px; filter: saturate(0.85); opacity: 0.92; }
+/* Concrete haul payoff next to the label — makes the risk/reward tangible. */
+.choice-haul { font-family: var(--display); font-size: 11px; letter-spacing: 1px; color: var(--gold); opacity: 0.9; white-space: nowrap; }
+/* LOOT / THREAT pip gauges — the risk/reward read at a glance. */
+.gauges { display: flex; gap: 22px; margin: 1px 0; }
+.gauge { display: flex; align-items: center; gap: 7px; }
+.gauge-k { font-family: var(--display); font-size: 10px; letter-spacing: 2px; color: var(--dim); }
+.pips { display: flex; gap: 4px; }
+.pip {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.1);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.12);
+}
+.pip--on.pip--loot { background: var(--gold); box-shadow: 0 0 7px rgba(255, 206, 122, 0.7); }
+.pip--on.pip--threat { background: var(--accent); box-shadow: 0 0 7px rgb(var(--act-rgb) / 0.6); }
+/* A consequence/flag chip pinned to a card's top-right corner. */
+.choice-flag {
+  position: absolute;
+  top: 10px;
+  right: 12px;
+  font-family: var(--display);
+  font-size: 10px;
+  letter-spacing: 2px;
+  padding: 2px 9px;
+  border-radius: 11px;
+  color: #0b0e11;
+  background: var(--gold);
+}
+.choice-flag--risk { background: var(--accent); color: #fff; }
+.choice-flag--safe { background: var(--good); color: #07140c; }
+.choice-flag--gain { background: var(--gold); color: #1a1206; }
 .day-status {
   margin-top: 4px;
   font-family: var(--display);
@@ -551,6 +623,25 @@ body {
   max-width: 92vw;
   text-align: center;
 }
+/* Spotted alarm: an edge-only red vignette that pulses while a chaser sees you.
+   Edge-only (transparent center) so it never washes out the scene — an alert
+   frame, not a flash. */
+.day-alarm {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0;
+}
+/* The expensive layers (full-screen gradient + big inset shadow) only paint while
+   the alarm is ON — an idle, off-screen alarm costs nothing per frame. */
+.day-alarm--on {
+  opacity: 1;
+  background: radial-gradient(ellipse 78% 72% at 50% 50%, transparent 52%, rgba(150, 18, 14, 0.32) 86%, rgba(180, 22, 16, 0.62) 100%);
+  box-shadow: inset 0 0 130px rgba(180, 24, 18, 0.55);
+  animation: alarm-pulse 0.9s ease-in-out infinite;
+}
+@keyframes alarm-pulse { 0%, 100% { opacity: 0.5; } 50% { opacity: 1; } }
+body.reduced .day-alarm--on { animation: none; opacity: 0.7; }
 .stamina {
   width: 200px;
   height: 6px;

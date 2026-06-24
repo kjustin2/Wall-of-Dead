@@ -60,6 +60,7 @@ export class Hud {
         <div class="day-status"></div>
       </div>
       <div class="day-prompt"></div>
+      <div class="day-alarm"></div>
       <div class="kills">0</div>
       <div class="streak-badge"><span class="streak-n">0</span><span class="streak-k">CHAIN</span></div>
       <div class="banner"></div>
@@ -117,6 +118,7 @@ export class Hud {
       stamina: q(".stamina-fill"),
       dayStatus: q(".day-status"),
       dayPrompt: q(".day-prompt"),
+      dayAlarm: q(".day-alarm"),
       kills: q(".kills"),
       streakBadge: q(".streak-badge"),
       streakN: q(".streak-n"),
@@ -260,6 +262,7 @@ export class Hud {
     this.el.kills.style.display = night ? "" : "none";
     this.el.dayHud.style.display = day ? "" : "none";
     this.el.dayPrompt.style.display = "none";
+    this.el.dayAlarm.classList.remove("day-alarm--on");
     this.el.crosshair.style.display = night ? "" : "none";
     this.el.levelChip.style.display = night || day ? "" : "none";
     if (!night) for (const a of this.threatArrows) a.style.display = "none";
@@ -571,6 +574,9 @@ export class Hud {
     this.el.levelChip.className = `level-chip level-chip--${level.supplyTheme}`;
     this.el.dayHud.classList.toggle("day-hud--spotted", s.spotted);
     this.el.dayHud.classList.toggle("day-hud--exit", s.extractOpen);
+    // Restrained alarm frame: a pulsing red screen-edge vignette while a chaser
+    // has eyes on you — reads as "break line" without a full-screen flash.
+    this.el.dayAlarm.classList.toggle("day-alarm--on", s.spotted);
     const low = s.timeLeft < 12;
     this.el.dayCrates.textContent = `SUPPLIES ${s.got}/${s.total}   ·   ${Math.max(0, Math.ceil(s.timeLeft))}s`;
     const f = Math.max(0, s.timeLeft) / s.maxTime;

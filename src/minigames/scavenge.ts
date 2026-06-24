@@ -208,6 +208,8 @@ interface Crate {
   gold: boolean;
   kit: boolean;
   weapon?: string; // weapon id this crate holds (a rare weapon-case crate), if any
+  halo: THREE.Sprite; // the beacon glow (breathes so a find glints in the dark)
+  haloBase: number; // its rest scale
 }
 interface Survivor {
   group: THREE.Group;
@@ -501,9 +503,12 @@ export class Scavenge {
   private extractZone = { x: 0, z: -5 };
   private extractMarker = new THREE.Group();
   private hidden = false;
+  private debugAlert = false; // debug: hold a "spotted" frame for capture
+  private dbgTeleT = 0;
   private lightDefault = 19;
   private avatar = new THREE.Group();
   private light: THREE.SpotLight;
+  private sweep!: THREE.SpotLight; // slow watch-searchlight raking the lot
   private ax = 0;
   private az = -7;
   private crates: Crate[] = [];
@@ -545,6 +550,15 @@ export class Scavenge {
     this.avatar.add(this.light.target);
     this.avatar.add(makeGlow(0x6fc3ff, 2.4, 0.5));
     this.group.add(this.avatar);
+
+    // A slow watch-searchlight raking the lot from high above — the guards' eyes
+    // hunting the dark. It lights real geometry (a grounded moving pool, not a fake
+    // additive blob); top-down framing keeps it a drifting pool, never a wedge. Its
+    // color is re-tinted per district in start().
+    this.sweep = new THREE.SpotLight(0xdfe8ff, 4.2, 80, 0.34, 0.7, 1.1);
+    this.sweep.position.set(0, 28, -30);
+    this.sweep.target.position.set(0, 0, -42);
+    this.group.add(this.sweep, this.sweep.target);
 
     this.group.add(this.backdropGroup, this.dressGroup);
     this.buildFloor();
@@ -711,16 +725,19 @@ export class Scavenge {
    * per-run dressing/backdrop don't leak across runs. */
   private clearGroup(g: THREE.Group): void {
     const sharedGlow = glowTexture();
+    const free = (x: THREE.Material) => {
+      const map = (x as THREE.Material & { map?: THREE.Texture | null }).map;
+      if (map && map !== sharedGlow) map.dispose(); // per-instance maps (labels) freed; shared glow kept
+      x.dispose();
+    };
     g.traverse((o) => {
-      const m = o as THREE.Mesh & { material?: THREE.Material | THREE.Material[]; isMesh?: boolean };
-      if (!m.isMesh) return;
-      m.geometry?.dispose?.();
+      // Free geometry (meshes) + materials/maps for BOTH meshes and sprites — the
+      // beacon halos and survivor labels are Sprites, which the old mesh-only walk
+      // leaked across runs.
+      const m = o as THREE.Mesh & { material?: THREE.Material | THREE.Material[]; isMesh?: boolean; isSprite?: boolean };
+      if (m.isMesh) m.geometry?.dispose?.();
+      if (!m.isMesh && !m.isSprite) return;
       const mat = m.material;
-      const free = (x: THREE.Material) => {
-        const map = (x as THREE.Material & { map?: THREE.Texture | null }).map;
-        if (map && map !== sharedGlow) map.dispose();
-        x.dispose();
-      };
       if (Array.isArray(mat)) mat.forEach(free);
       else if (mat) free(mat);
     });
@@ -1308,10 +1325,22 @@ export class Scavenge {
       }
     }
 
-    g.add(makeGlow(beacon, weapon ? 3.0 : gold || kit ? 2.2 : 1.7, weapon ? 0.7 : 0.6));
+    const haloBase = weapon ? 3.0 : gold || kit ? 2.2 : 1.7;
+    const halo = makeGlow(beacon, haloBase, weapon ? 0.7 : 0.6);
+    halo.position.y = 0.55;
+    g.add(halo);
+    // A slim beacon pillar rising from the crate — a real find glints in the dark
+    // when your light sweeps near. Faint, additive, fog-faded and wall-occluded, so
+    // it rewards getting close instead of giving the whole lot away.
+    const pillar = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.16, 0.16, 4.4, 8, 1, true),
+      new THREE.MeshBasicMaterial({ color: beacon, transparent: true, opacity: weapon ? 0.3 : gold || kit ? 0.2 : 0.13, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide, fog: true })
+    );
+    pillar.position.y = 2.5;
+    g.add(pillar);
     g.position.set(x, 0, z);
     this.group.add(g);
-    return { group: g, x, z, got: false, gold, kit, weapon };
+    return { group: g, x, z, got: false, gold, kit, weapon, halo, haloBase };
   }
 
   private makeSurvivor(x: number, z: number): Survivor {
@@ -1488,6 +1517,10 @@ export class Scavenge {
     this.ctx.stage.fog.density = this.envFog;
     this.light.distance = 23;
     this.light.intensity = this.lightDefault;
+    // Tint the watch-searchlight per district as a FLOODLIGHT hue (never red —
+    // red is the "spotted" alarm color; haven's guard tint is red, so don't reuse
+    // it here): warm sodium on the road, cyan over the flood, cold white at Haven.
+    this.sweep.color.setHex(this.skinId === "flood" ? 0x9fe4ff : this.skinId === "haven" ? 0xdfeaff : 0xffc890);
 
     // Apply the environment skin (floor + lane lines), then pick a layout that
     // matches the district and (re)build its walls, dressing, and backdrop.
@@ -1625,6 +1658,9 @@ export class Scavenge {
       for (const g of this.guards) {
         if (g.dead || g.state === "chase") continue;
         if ((g.x - this.ax) ** 2 + (g.z - this.az) ** 2 < NOISE_SPRINT * NOISE_SPRINT) {
+          // Pop a "?" the first time a guard turns to the noise — a visible "you
+          // were heard" tell that teaches sprinting is loud.
+          if (g.state !== "investigate") this.ctx.floaters.spawn(g.x, 2.4, g.z, "?", "crit");
           g.state = "investigate";
           g.invX = this.ax;
           g.invZ = this.az;
@@ -1650,6 +1686,19 @@ export class Scavenge {
     } else if (!anyChase) {
       this.spotted = false;
     }
+    // Debug: hold the spotted alarm + re-emit the "!"/"?" telegraphs so a capture
+    // can frame the in-run feedback layer (the alarm vignette is driven by this).
+    if (this.debugAlert) {
+      this.spotted = true;
+      this.dbgTeleT -= dt;
+      if (this.dbgTeleT <= 0) {
+        this.dbgTeleT = 0.5;
+        const a = this.guards[0];
+        if (a) this.ctx.floaters.spawn(a.x, 2.4, a.z, "!", "warn");
+        const b = this.guards[1];
+        if (b) this.ctx.floaters.spawn(b.x, 2.4, b.z, "?", "crit");
+      }
+    }
 
     // Ambient dread — distant groans
     this.groanT -= dt;
@@ -1671,6 +1720,15 @@ export class Scavenge {
       s.mat.opacity = lvl;
       s.glow.material.opacity = lvl * 0.7;
     }
+    // Sweeping watch-searchlight — a slow lateral rake across the lot. Animating
+    // the target.position re-aims the SpotLight automatically; the glow trails the
+    // pool where the beam lands.
+    {
+      const sx = Math.sin(this.t * 0.42) * 40;
+      const sz = -44 + Math.cos(this.t * 0.31) * 12;
+      this.sweep.position.set(sx * 0.45, 28, -26);
+      this.sweep.target.position.set(sx, 0, sz);
+    }
     // Time pressure — heartbeat in the final stretch
     if (this.timeLeft < 12 && Math.floor(this.timeLeft) !== Math.floor(this.timeLeft + dt)) {
       this.ctx.events.emit("SFX", { id: "heartbeat" });
@@ -1680,6 +1738,9 @@ export class Scavenge {
     for (const c of this.crates) {
       if (c.got) continue;
       c.group.rotation.y += dt * 0.5;
+      // Gentle beacon breathing — the loot glints in the dark.
+      const pulse = c.haloBase * (0.84 + 0.16 * Math.sin(this.t * 2.4 + c.x));
+      c.halo.scale.set(pulse, pulse, 1);
       const dx = c.x - this.ax;
       const dz = c.z - this.az;
       if (dx * dx + dz * dz >= 2.4) continue;
@@ -1769,6 +1830,7 @@ export class Scavenge {
 
   /** Caught by a chaser — the run ends immediately. */
   private onCaught(): void {
+    if (this.debugAlert) return; // held debug-alert frame never ends the run
     this.ctx.floaters.spawn(this.ax, 2.2, this.az, "CAUGHT!", "warn");
     this.ctx.events.emit("SFX", { id: "player_hurt" });
     this.ctx.cam.addTrauma(0.5);
@@ -1832,8 +1894,12 @@ export class Scavenge {
     }
 
     if (sees) {
-      // Screamer: the moment it first spots you, it shrieks the block onto you.
-      if (g.scream && g.state !== "chase") this.triggerScream(g);
+      // The moment a guard first locks on, pop a "!" above it so the chase has a
+      // visible source in the top-down scrum (a screamer also shrieks the block).
+      if (g.state !== "chase") {
+        this.ctx.floaters.spawn(g.x, 2.4, g.z, "!", "warn");
+        if (g.scream) this.triggerScream(g);
+      }
       g.state = "chase";
       g.alertT = 2.5;
     } else if (g.state === "chase") {
@@ -2005,6 +2071,27 @@ export class Scavenge {
     this.ctx.stats.cratesGrabbed += this.got;
     const frac = this.got / this.total;
     this.ctx.events.emit("DAY_DONE", { tier: tierFromFrac(frac), frac, weapons: this.collectedWeapons.slice() });
+  }
+
+  /** Debug: force a held "spotted" state (alarm vignette + a chasing guard with a
+   * red cone + "!"/"?" telegraphs) so a capture can frame the in-run feedback. */
+  debugSpotted(): void {
+    this.debugAlert = true;
+    this.spotted = true;
+    const a = this.guards[0];
+    if (a) {
+      a.state = "chase";
+      a.alertT = 999;
+      a.x = this.ax + 3.2;
+      a.z = this.az;
+    }
+    const b = this.guards[1];
+    if (b) {
+      b.state = "investigate";
+      b.alertT = 999;
+      b.x = this.ax - 4;
+      b.z = this.az - 2;
+    }
   }
 
   debugComplete(): void {

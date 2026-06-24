@@ -49,7 +49,37 @@ node qa/check.mjs qa/cycles/3       # re-score an existing capture
 npm run qa:maps                     # shoot every act night zone + supply theme,
                                     # assert the map trios are pairwise-distinct
 npm run qa:scenarios                # cut to every debug SCENARIO and shoot it
+
+# unified visual + perf + scene-health diagnostic (see below):
+npm run qa:diagnose                 # contact sheet + render stats + scene audit
+npm run qa:baseline                 # same, but (re)write qa/perf-baseline.json
 ```
+
+## Diagnose — the "look harder" pass (`qa/diagnose.cjs`)
+
+One command that turns the whole scenario set into objective visual + perf +
+bug evidence. It cuts to every debug SCENARIO and, per scene, records a
+screenshot, a 6×4 **luminance grid** (localized-darkness / rendering-hole
+detection), `renderStats()` (draw calls, triangles, resident geometries/
+textures/programs), and `sceneAudit()` (NaN/negative-radius geometry + bad
+transforms + visible-triangle budget). Then it emits:
+
+- **`contact-sheet.png`** — every scene tiled into ONE labelled image, each cell
+  stamped with its draw-call / triangle cost and a status dot (red = scene-graph
+  problem or console error, amber = perf regression or a large black region,
+  green = clean). One `Read` shows Claude the entire visual slice at once.
+- **`REPORT.md` + `diagnostics.json`** — the per-scene table, scene-graph
+  problem detail, heaviest-scene "optimization targets" list, a resident-geometry
+  **leak probe** (re-enters one night 6× and asserts geometry plateaus), and a
+  **perf-regression** check of per-frame draw calls / triangles against the
+  committed `qa/perf-baseline.json` (regenerate with `npm run qa:baseline`).
+
+Exit code: non-zero only on **unambiguous bugs** — console/runtime errors, a
+resident-geometry leak, or a scene-graph problem. Perf regressions are reported
+(amber on the sheet) but don't hard-fail — a draw-call bump can be intended
+content and needs a human/AI call. The same hooks back two QA-loop goals
+(`scene-graph-clean`, `render-cost-measured`) and a hard `sceneAudit` assertion
+in the real-renderer smoke (`scripts/smoke-electron.cjs`).
 
 ## Debug scenario system (cut to a moment)
 
@@ -115,6 +145,8 @@ See `goals.mjs` — the definitive list with both signals per goal. Summary:
 | campaign-victory-endings | victory + two endings | logic + visual |
 | save-integrity | checkpoint written + cleared | logic |
 | perf-no-hitch | no big frame stalls | logic |
+| scene-graph-clean | no NaN/negative-radius geometry, bad transforms | logic |
+| render-cost-measured | draw calls / triangles finite & non-zero (perf measurable) | logic |
 
 A goal is **met** only when its screenshot evidence **and** its logic assertions
 both pass.

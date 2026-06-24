@@ -3,5 +3,9 @@ cycles/
 maps/
 scenarios/
 perf/
+diagnostics/
 progress.json
 LATEST.md
+
+# ...but the perf-baseline IS tracked (it's how regressions are detected).
+!perf-baseline.json

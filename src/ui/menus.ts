@@ -103,6 +103,26 @@ const SUPPLY_CHOICE: Record<SupplyTheme, { intro: string; opts: { d: Density; la
   },
 };
 
+/** Loot-vs-danger weighting per district, drawn as 3-pip gauges on the supply
+ * cards so the risk/reward tradeoff reads at a glance (mirrors DENSITY in
+ * scavenge.ts: crowded = richest haul AND most guards). */
+const SUPPLY_GAUGE: Record<Density, { loot: number; threat: number; icon: string; crates: number; caches: number }> = {
+  // crates/caches mirror DENSITY in scavenge.ts so the card states the real haul.
+  high: { loot: 3, threat: 3, icon: "🏚", crates: 12, caches: 4 },
+  med: { loot: 2, threat: 2, icon: "🧱", crates: 8, caches: 2 },
+  low: { loot: 1, threat: 1, icon: "🌫", crates: 5, caches: 1 },
+};
+
+/** A labelled 3-pip meter (LOOT / THREAT) for a supply card. */
+function gauge(kind: "loot" | "threat", n: number): string {
+  let pips = "";
+  for (let i = 0; i < 3; i++) pips += `<i class="pip${i < n ? ` pip--on pip--${kind}` : ""}"></i>`;
+  return `<span class="gauge"><span class="gauge-k">${kind === "loot" ? "LOOT" : "THREAT"}</span><span class="pips">${pips}</span></span>`;
+}
+
+/** An optional consequence chip on a dilemma option (RISK / SAFE / +AMMO …). */
+type ChoiceTone = "risk" | "safe" | "gain";
+
 /** All full-screen DOM overlays. Each show* method paints #overlay and wires
  * its buttons to the callbacks main.ts passes in. */
 export class Menus {
@@ -579,15 +599,22 @@ export class Menus {
     const themed = SUPPLY_CHOICE[theme];
     opts = themed.opts;
     this.paint(`
-      <div class="screen screen--report screen--supply screen--act-${theme}">
+      <div class="screen screen--report screen--supply screen--decision screen--act-${theme}">
+        <div class="decision-tag">◆ CHOOSE YOUR APPROACH · RISK vs. REWARD</div>
         <h2 class="panel-title">WHERE TO SCAVENGE?</h2>
         <p class="subtitle">${actName}: ${themed.intro}</p>
-        <div class="menu">
+        <div class="menu menu--cards">
           ${opts
-            .map(
-              (o, i) =>
-                `<button class="mbtn ${i === 1 ? "mbtn--primary" : ""} act-supply act-supply-${i}"><b>${o.label}</b><br><span class="choice-detail">${o.detail}</span></button>`
-            )
+            .map((o, i) => {
+              const g = SUPPLY_GAUGE[o.d];
+              const flag = i === 1 ? `<span class="choice-flag">BALANCED</span>` : "";
+              return `<button class="mbtn choice-card ${i === 1 ? "mbtn--primary" : ""} act-supply act-supply-${i}">
+                ${flag}
+                <span class="choice-head"><span class="choice-icon">${g.icon}</span><b>${o.label}</b><span class="choice-haul">≈${g.crates} crates · ${g.caches} cache${g.caches > 1 ? "s" : ""}</span></span>
+                <span class="gauges">${gauge("loot", g.loot)}${gauge("threat", g.threat)}</span>
+                <span class="choice-detail">${o.detail}</span>
+              </button>`;
+            })
             .join("")}
         </div>
       </div>`);
@@ -596,13 +623,28 @@ export class Menus {
 
   /** A dawn dilemma: one choice with a consequence. Each option runs its effect
    * then proceeds. */
-  showDilemma(title: string, sub: string, options: { label: string; detail: string; onPick: () => void }[], after: () => void): void {
+  showDilemma(
+    title: string,
+    sub: string,
+    options: { label: string; detail: string; onPick: () => void; tag?: string; tone?: ChoiceTone }[],
+    after: () => void
+  ): void {
     this.paint(`
-      <div class="screen screen--report">
+      <div class="screen screen--report screen--decision">
+        <div class="decision-tag">◆ A CHOICE · ONE CONSEQUENCE</div>
         <h2 class="panel-title">${title}</h2>
         <p class="subtitle">${sub}</p>
-        <div class="menu">
-          ${options.map((o, i) => `<button class="mbtn ${i === 0 ? "mbtn--primary" : ""} act-choice act-choice-${i}"><b>${o.label}</b><br><span class="choice-detail">${o.detail}</span></button>`).join("")}
+        <div class="menu menu--cards">
+          ${options
+            .map(
+              (o, i) =>
+                `<button class="mbtn choice-card ${i === 0 ? "mbtn--primary" : ""} act-choice act-choice-${i}">
+                  ${o.tag ? `<span class="choice-flag choice-flag--${o.tone ?? "safe"}">${o.tag}</span>` : ""}
+                  <span class="choice-head"><b>${o.label}</b></span>
+                  <span class="choice-detail">${o.detail}</span>
+                </button>`
+            )
+            .join("")}
         </div>
       </div>`);
     options.forEach((o, i) =>

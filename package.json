@@ -21,7 +21,9 @@
     "qa:check": "node qa/check.mjs",
     "qa:maps": "npm run build && electron qa/capture-maps.cjs",
     "qa:scenarios": "npm run build && electron qa/capture-scenarios.cjs",
-    "qa:perf-supply": "npm run build && electron qa/perf-supply.cjs"
+    "qa:perf-supply": "npm run build && electron qa/perf-supply.cjs",
+    "qa:diagnose": "npm run build && electron qa/diagnose.cjs",
+    "qa:baseline": "npm run build && electron qa/diagnose.cjs --baseline"
   },
   "dependencies": {
     "@fontsource/oswald": "^5.2.5",

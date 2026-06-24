@@ -81,10 +81,15 @@ app.whenReady().then(async () => {
   const win = new BrowserWindow({
     width: 1600,
     height: 900,
-    show: true,
+    // Created hidden, then shown with showInactive() (below) so the window is
+    // visible to the compositor — the rAF-driven game loop runs at full speed
+    // (a never-shown window throttles requestAnimationFrame) — yet it never takes
+    // OS focus or yanks the cursor away from the editor during a capture run.
+    show: false,
     backgroundColor: "#05070a",
     webPreferences: { backgroundThrottling: false, offscreen: false },
   });
+  win.showInactive();
 
   win.webContents.on("console-message", (_e, level, message) => {
     if (level >= 3) errors.push("CONSOLE: " + message);
@@ -185,10 +190,22 @@ app.whenReady().then(async () => {
       // Add the bosses on top of the existing crowd — worst-case geometry load.
       await js(`window.__wod.spawnWave('roadblock',1); window.__wod.spawnWave('drowned',1); window.__wod.spawnWave('behemoth',1);`);
       await sleep(3800);
-      return await js(`(()=>{ const p=window.__wodPerf; p.on=false; const g=p.gaps.slice(5);
+      const gaps = await js(`(()=>{ const p=window.__wodPerf; p.on=false; const g=p.gaps.slice(5);
         const maxGap=g.length?Math.max(...g):0; const avg=g.reduce((a,b)=>a+b,0)/Math.max(1,g.length);
         return { frames:g.length, maxGap:+maxGap.toFixed(1), avgGap:+avg.toFixed(1),
                  over100:g.filter(x=>x>100).length, over250:g.filter(x=>x>250).length, over750:g.filter(x=>x>750).length }; })()`);
+      // Worst-case GPU cost + scene-graph health under that same heavy load. The
+      // draw-call / triangle counts make "did my optimization help" measurable;
+      // the audit catches NaN/negative-radius geometry the luminance check can't.
+      const render = await js(`window.__wod.renderStats()`).catch(() => null);
+      const audit = await js(`window.__wod.sceneAudit()`).catch(() => null);
+      return {
+        ...gaps,
+        render,
+        sceneProblems: audit ? audit.problems.length : -1,
+        sceneTris: audit ? audit.triangles : -1,
+        problemSample: audit ? audit.problems.slice(0, 6) : [],
+      };
     });
 
     // --- Mid-night lighting frame (the most-seen state) --------------------

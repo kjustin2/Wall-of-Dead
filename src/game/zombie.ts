@@ -460,6 +460,9 @@ export class Zombie {
   private bodyMat: THREE.MeshStandardMaterial;
   private glow!: THREE.Sprite;
   private bellyGlow?: THREE.Sprite;
+  /** Boss-only: hot eye-point sprites + the ember hue for the body pulse. */
+  private bossGlows: THREE.Sprite[] = [];
+  private emberColor: THREE.Color | null = null;
   private targetX: number;
   private clawTimer = 0;
   private touchTimer = 0;
@@ -513,8 +516,12 @@ export class Zombie {
       flatShading: true,
       emissive: new THREE.Color(0x000000),
     });
-    // Per-instance skin-tone jitter so a horde never looks like clones.
-    this.bodyMat.color.offsetHSL((ctx.rng.next() - 0.5) * 0.06, (ctx.rng.next() - 0.5) * 0.18, (ctx.rng.next() - 0.5) * 0.12);
+    // Per-instance skin-tone jitter so a horde never looks like clones. A boss is
+    // a singular landmark, not a horde member — keep it near its authored dark tone
+    // (the full lightness jitter washed the near-black Behemoth into a pale mauve
+    // blob). Three rng draws either way so the run's RNG stream stays in lockstep.
+    const jit = t.boss ? 0.08 : 1;
+    this.bodyMat.color.offsetHSL((ctx.rng.next() - 0.5) * 0.06 * jit, (ctx.rng.next() - 0.5) * 0.18 * jit, (ctx.rng.next() - 0.5) * 0.12 * jit);
     this.body = new THREE.Mesh(geo.body, this.bodyMat);
     this.body.castShadow = true;
     this.group.add(this.body);
@@ -522,9 +529,25 @@ export class Zombie {
     this.group.add(eyes);
     const bones = new THREE.Mesh(geo.bone, BONE_MAT);
     this.group.add(bones);
-    this.glow = makeGlow(t.eye, 1.7 * s, 0.6);
+    // Head glow. For a normal zombie a soft eye-glow that scales with its size;
+    // for the big heavies (boss/miniboss) the full-scale sprite became a screen-
+    // filling additive disc that bloomed into a featureless blob — the chief
+    // "glitchy" read on the Behemoth. So the heavies get a CONTAINED halo, and a
+    // real boss gets two tight, hot eye-points so it reads as a pair of burning
+    // eyes in a dark silhouette rather than a sun.
+    const big = t.boss || !!t.miniboss;
+    this.glow = makeGlow(t.eye, big ? 2.0 : 1.7 * s, big ? 0.36 : 0.6);
     this.glow.position.set(0, 1.66 * s, 0.4 * s);
     this.group.add(this.glow);
+    if (t.boss) {
+      this.emberColor = new THREE.Color(t.eye);
+      for (const ex of [-0.13, 0.13]) {
+        const eye = makeGlow(t.eye, 0.5 * s, 0.85);
+        eye.position.set(ex * s, 1.66 * s, 0.52 * s);
+        this.group.add(eye);
+        this.bossGlows.push(eye);
+      }
+    }
 
     // Exploder: a sickly green glow on the swollen, gas-filled belly.
     if (t.key === "exploder") {
@@ -683,6 +706,12 @@ export class Zombie {
       this.hitFlash -= dt;
       const f = Math.max(0, this.hitFlash) / 0.12;
       this.bodyMat.emissive.setRGB(f, f, f);
+    } else if (this.emberColor) {
+      // A slow ember pulse in the eye hue keeps the boss reading as a LIVING
+      // silhouette in the dark — lifting its shadowed faces just enough that the
+      // form holds, kept well under the bloom threshold so it never blows out.
+      const e = 0.085 + 0.035 * Math.sin(this.bob * 0.9);
+      this.bodyMat.emissive.setRGB(this.emberColor.r * e, this.emberColor.g * e, this.emberColor.b * e);
     }
 
     switch (this.state) {
@@ -956,6 +985,7 @@ export class Zombie {
     this.bodyMat.dispose();
     this.glow.material.dispose();
     this.bellyGlow?.material.dispose();
+    for (const g of this.bossGlows) g.material.dispose();
   }
 }
 
@@ -979,7 +1009,10 @@ const ACID_G = 22;
 /** Spawns, ticks and reaps zombies; also owns spitter acid projectiles. */
 // Per-instance meshes/state make these awkward to recycle — never pool them.
 function poolable(kind: string): boolean {
-  return kind !== "shielded";
+  // Shielded actors build a per-instance plate; bosses build per-instance eye
+  // glows + are singular landmarks — neither should be recycled into the pool
+  // (reuse would resurrect a half-built actor / leak the extra sprites).
+  return kind !== "shielded" && !TYPES[kind]?.boss;
 }
 const POOL_CAP = 40;
 
