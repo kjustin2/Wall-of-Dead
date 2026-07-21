@@ -7,7 +7,41 @@ import { ALLY_SIDEARM } from "./weapons";
 
 const RANGE = 64;
 const ALLY = 0x52e0a0;
-const BARKS = ["On your left!", "Reloading!", "They're at the gate!", "Hold the line!", "Got your back!", "So many of 'em!"];
+
+// Trait-flavored barks, split by morale tone (grim / steady / hot) so the roster's
+// voice tracks how the night is going — a confident crew sounds different from a
+// crew watching the wall come down.
+type BarkMood = "grim" | "steady" | "hot";
+const TRAIT_BARKS: Record<string, Record<BarkMood, string[]>> = {
+  marksman: {
+    grim: ["Running dry up here.", "Too many in the dark.", "I can't cover it all."],
+    steady: ["Lining one up.", "Got an angle.", "Eyes on the field."],
+    hot: ["One shot, one less!", "They're dropping!", "Can't miss tonight!"],
+  },
+  medic: {
+    grim: ["We're hurting!", "Hold on — patching up!", "Don't go down on me."],
+    steady: ["Stay close, I've got you.", "Keep breathing.", "I'll keep us up."],
+    hot: ["Nobody dies tonight!", "I've got us — keep pushing!", "We're holding!"],
+  },
+  gunner: {
+    grim: ["Belt's almost out!", "They keep coming!", "Don't make me fall back!"],
+    steady: ["Holding this lane.", "Let 'em come.", "On the line."],
+    hot: ["Feed it and forget it!", "This lane is MINE!", "Mow 'em down!"],
+  },
+  none: {
+    grim: ["This is bad.", "So many of 'em.", "Hold the line!"],
+    steady: ["On your left!", "Got your back!", "Steady."],
+    hot: ["We've got this!", "Push 'em back!", "That's how it's done!"],
+  },
+};
+// Call-and-reply lines between two survivors ({A} = speaker, {B} = the other).
+const EXCHANGES: [string, string][] = [
+  ["You holding up, {B}?", "Still here, {A}. Keep firing."],
+  ["How many's that, {B}?", "Lost count, {A}. Too many."],
+  ["{B}, watch the gap!", "On it, {A}!"],
+  ["We make it to dawn, {B}?", "We make it, {A}. We have to."],
+  ["Reloading — cover me, {B}!", "Go, {A}, I've got the lane."],
+];
 
 function bar(color: number, w: number): THREE.Sprite {
   const s = new THREE.Sprite(new THREE.SpriteMaterial({ color, depthTest: false, depthWrite: false, fog: false }));
@@ -250,20 +284,26 @@ class Companion {
 
     this.barkTimer -= dt;
     if (this.markersVisible && this.barkTimer <= 0) {
-      this.barkTimer = 6 + ctx.rng.next() * 8;
-      ctx.floaters.spawn(this.x, 3.4, this.group.position.z, ctx.rng.pick(BARKS), "heal");
+      const m = ctx.companions.moraleLevel();
+      this.barkTimer = (m > 0.5 ? 7 : 5) + ctx.rng.next() * 8;
+      const mood: BarkMood = m < 0.32 ? "grim" : m > 0.7 ? "hot" : "steady";
+      const set = TRAIT_BARKS[this.trait ?? "none"] ?? TRAIT_BARKS.none;
+      const tone = m < 0.32 ? "warn" : m > 0.7 ? "crit" : "heal";
+      ctx.floaters.spawn(this.x, 3.4, this.group.position.z, ctx.rng.pick(set[mood]), tone);
     }
 
-    // Nearest live zombie in front of this ally.
+    // Target: within this ally's reach (so they don't fire across the whole map),
+    // simply the nearest threat in front of them.
     let target: { x: number; z: number; obj: import("./zombie").Zombie } | null = null;
-    let bestD = RANGE * RANGE;
+    let bestScore = Infinity;
     for (const z of ctx.enemies.alive) {
       if (!z.killable || z.z > this.group.position.z) continue;
-      const dx = z.x - this.x;
-      const dz = z.z - this.group.position.z;
-      const d = dx * dx + dz * dz;
-      if (d < bestD) {
-        bestD = d;
+      const ddx = z.x - this.x;
+      const ddz = z.z - this.group.position.z;
+      if (ddx * ddx + ddz * ddz > RANGE * RANGE) continue;
+      const score = ddx * ddx + ddz * ddz;
+      if (score < bestScore) {
+        bestScore = score;
         target = { x: z.x, z: z.z, obj: z };
       }
     }
@@ -288,7 +328,8 @@ class Companion {
       const rof = this.trait === "gunner" ? 0.62 : 1;
       const spreadMul = this.trait === "marksman" ? 0.35 : 1;
       const dmgMul = this.trait === "marksman" ? 1.3 : 1;
-      this.cd = lo.def.fireRate * 1.35 * rof;
+      // A confident crew (high morale) fires a touch faster; a shaken one slower.
+      this.cd = lo.def.fireRate * 1.35 * rof * ctx.companions.moraleRof();
       const dx = target.x - this.x;
       const dz = target.z - this.group.position.z;
       const base = Math.atan2(dx, dz);
@@ -345,11 +386,32 @@ class Companion {
 
 export class CompanionManager {
   list: Companion[] = [];
+  /** Crew morale 0..1 — lifts on kills, drops on losses/breaches. Nudges ally
+   *  fire-rate + bark tone, giving the roster a felt mood. */
+  private morale = 0.55;
+  private exchangeT = 16;
+  private pendingReply: { line: string; x: number; z: number; t: number } | null = null;
 
-  constructor(private ctx: Ctx, private scene: THREE.Scene) {}
+  constructor(private ctx: Ctx, private scene: THREE.Scene) {
+    // Morale reacts to the night: kills lift it, allies going down or the wall
+    // breaching knock it back. (Manager is created once — no listener leak.)
+    this.ctx.events.on("ZOMBIE_KILLED", () => { this.morale = Math.min(1, this.morale + 0.012); });
+    this.ctx.events.on("COMPANION_DOWN", () => { this.morale = Math.max(0, this.morale - 0.2); });
+    this.ctx.events.on("WALL_BREACH", () => { this.morale = Math.max(0, this.morale - 0.12); });
+  }
+
+  moraleLevel(): number {
+    return this.morale;
+  }
+  /** Fire-cooldown multiplier from morale (<1 = faster when confident). */
+  moraleRof(): number {
+    return 1.18 - this.morale * 0.36;
+  }
 
   spawnFromRun(): void {
     this.clear();
+    this.morale = 0.55; // a fresh night starts even-keeled
+    this.pendingReply = null;
     const names = this.ctx.run.companions;
     const n = names.length;
     for (let i = 0; i < n; i++) {
@@ -388,6 +450,35 @@ export class CompanionManager {
   }
 
   update(dt: number): void {
+    // Morale drifts back toward neutral.
+    this.morale += (0.55 - this.morale) * Math.min(1, dt * 0.05);
+
+    // Ally-to-ally exchanges: an occasional call-and-reply between two survivors so
+    // the roster feels alive without a dialogue tree.
+    this.exchangeT -= dt;
+    const up = this.list.filter((c) => !c.down);
+    if (this.exchangeT <= 0) {
+      this.exchangeT = 15 + this.ctx.rng.next() * 12;
+      if (up.length >= 2) {
+        const a = this.ctx.rng.pick(up);
+        let b = this.ctx.rng.pick(up);
+        for (let k = 0; k < 4 && b === a; k++) b = this.ctx.rng.pick(up);
+        if (b !== a) {
+          const [call, reply] = this.ctx.rng.pick(EXCHANGES);
+          const fill = (s: string) => s.replace("{A}", a.name).replace("{B}", b.name);
+          this.ctx.floaters.spawn(a.x, 3.6, a.group.position.z, fill(call), "heal");
+          this.pendingReply = { line: fill(reply), x: b.x, z: b.group.position.z, t: 1.4 };
+        }
+      }
+    }
+    if (this.pendingReply) {
+      this.pendingReply.t -= dt;
+      if (this.pendingReply.t <= 0) {
+        this.ctx.floaters.spawn(this.pendingReply.x, 3.6, this.pendingReply.z, this.pendingReply.line, "heal");
+        this.pendingReply = null;
+      }
+    }
+
     for (const c of this.list) c.update(dt, this.ctx);
     for (const z of this.ctx.enemies.alive) {
       if (z.state !== "crossing") continue;
@@ -395,7 +486,8 @@ export class CompanionManager {
         if (c.down) continue;
         const dx = z.x - c.x;
         const dz = z.z - c.group.position.z;
-        if (dx * dx + dz * dz < 1.6) c.hurt(8 * dt * 6, this.ctx);
+        // ~48 DPS, scaled by difficulty like every other damage path (player/wall).
+        if (dx * dx + dz * dz < 1.6) c.hurt(48 * dt * this.ctx.tuning.enemyDmg, this.ctx);
       }
     }
   }

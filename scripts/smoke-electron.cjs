@@ -91,16 +91,24 @@ app.whenReady().then(async () => {
       await sleep(2500);
       await shot(win, "01-title.png");
 
-      // Settings round-trip: open from the title, set Nightmare, confirm it
-      // applies to the difficulty multipliers, then back.
+      // Settings round-trip: open from the title (lands on the DISPLAY tab —
+      // resolution / fullscreen / brightness), screenshot it, then switch to the
+      // GAMEPLAY tab, set Nightmare, confirm it applies to the difficulty
+      // multipliers, and back.
       await js(`(()=>{const b=document.querySelector('.act-settings'); if(b) b.click();})()`);
       await sleep(300);
+      // The DISPLAY tab must expose the headline "real game" options.
+      const displayOk = await js(`(()=>!!(document.querySelector('.set-fullscreen') && document.querySelector('.set-rscale')))()`);
+      if (!displayOk) errors.push("SETTINGS: DISPLAY tab missing fullscreen/resolution controls");
+      await shot(win, "01c-settings.png");
+      // Hop to the GAMEPLAY tab for the difficulty round-trip.
+      await js(`(()=>{const t=document.querySelector('.settings-tab[data-tab="game"]'); if(t) t.click();})()`);
+      await sleep(200);
       const diffOk = await js(`(()=>{const s=document.querySelector('.set-diff'); if(!s) return false; s.value='nightmare'; s.dispatchEvent(new Event('change')); return true;})()`);
       await sleep(200);
       const zhp = await js(`window.__wod.ctx.tuning.zHp`);
       if (!diffOk) errors.push("SETTINGS: no difficulty selector");
       if (!(zhp > 1)) errors.push("SETTINGS: Nightmare did not apply (zHp=" + zhp + ")");
-      await shot(win, "01c-settings.png");
       // The settings list must fit the viewport (BACK reachable, not cut off).
       const fits = await js(`(()=>{const b=document.querySelector('.act-back'); if(!b) return false; const r=b.getBoundingClientRect(); return r.bottom <= window.innerHeight + 1 && r.top >= 0;})()`);
       if (!fits) errors.push("SETTINGS: panel overflows the screen (BACK off-screen)");
@@ -152,8 +160,8 @@ app.whenReady().then(async () => {
       // Let a wave build, then force some action (every zombie type renders here)
       await win.webContents.executeJavaScript(`window.__wod.spawnWave('shambler', 6); window.__wod.spawnWave('runner', 3); window.__wod.spawnWave('brute', 1); window.__wod.spawnWave('spitter', 2); window.__wod.spawnWave('crawler', 3); window.__wod.spawnWave('armored', 2); window.__wod.spawnWave('screamer', 1); window.__wod.spawnWave('exploder', 2); window.__wod.spawnWave('shielded', 2); window.__wod.spawnWave('leaper', 2); window.__wod.spawnWave('tank', 1);`);
       await sleep(2000);
-      // Drop a trap + flare (tactics) so those render paths run too.
-      await win.webContents.executeJavaScript(`window.dispatchEvent(new KeyboardEvent('keydown',{code:'KeyT'})); window.dispatchEvent(new KeyboardEvent('keydown',{code:'KeyG'})); window.dispatchEvent(new KeyboardEvent('keydown',{code:'KeyC'}));`);
+      // Drop a trap (tactics) so that render path runs too.
+      await win.webContents.executeJavaScript(`window.dispatchEvent(new KeyboardEvent('keydown',{code:'KeyT'}));`);
       await sleep(300);
       // Exercise the melee bash (Space) swing path
       await win.webContents.executeJavaScript(`window.dispatchEvent(new KeyboardEvent('keydown',{code:'Space'}));`);
@@ -294,12 +302,11 @@ app.whenReady().then(async () => {
         await js(`(()=>{const b=document.querySelector('.act-supply-1'); if(b) b.click();})()`);
         await sleep(900);
         if (leg === 0) {
-          // Exercise the stealth verbs (toggle flashlight) while backing to the
-          // safe entrance edge, away from the guards deeper in the lot — caught now
-          // ends the run on first contact, so don't wander into one.
+          // Back toward the safe entrance edge, away from the guards deeper in the
+          // lot — caught now ends the run on first contact, so don't wander into one.
           await win.webContents.executeJavaScript(`(()=>{
             const fire = (code, type) => window.dispatchEvent(new KeyboardEvent(type || 'keydown', { code }));
-            fire('KeyF'); fire('KeyF'); fire('KeyS','keydown');
+            fire('KeyS','keydown');
           })()`);
           // Let the opening banner fade so the shot shows the lot, not the title.
           await sleep(1700);
@@ -390,6 +397,46 @@ app.whenReady().then(async () => {
         await shot(win, "10-defeat.png");
       } else {
         errors.push("DEFEAT: could not reach night to test the death path");
+      }
+
+      // ---- Save-on-exit regression: a completed day survives quitting mid-flow ----
+      // The checkpoint used to be written ONLY at night-start, so quitting during
+      // the day/loot/dilemma replayed the night you'd already cleared. Now the leg
+      // is banked (night advanced + saveRun) the moment the day completes, and a
+      // window-close (pagehide/beforeunload/visibility-hidden) flushes too.
+      await js(`window.__wod.startRun()`);
+      await sleep(650);
+      await js(`window.dispatchEvent(new KeyboardEvent('keydown',{code:'Escape'}))`); // skip story → night
+      await sleep(1300);
+      if ((await js(`window.__wod.state()`)) === "night") {
+        const beforeNight = await js(`window.__wod.ctx.run.night`); // 1
+        // (a) window-close flush: clearing the save then firing pagehide mid-night
+        // must re-persist a checkpoint (exit-the-game safety net).
+        await js(`localStorage.removeItem('wod-save')`);
+        await js(`window.dispatchEvent(new Event('pagehide'))`);
+        if (!(await js(`!!localStorage.getItem('wod-save')`)))
+          errors.push("SAVE-EXIT: pagehide did not flush a checkpoint mid-run");
+        // (b) beat the night → complete the day; the checkpoint must now point PAST
+        // the cleared night and stay night/leg-consistent.
+        await js(`window.__wod.forceDawn()`);
+        await sleep(1500);
+        await js(`(()=>{const b=document.querySelector('.act-start'); if(b) b.click();})()`); // report → choice
+        await sleep(450);
+        await js(`(()=>{const b=document.querySelector('.act-supply-1'); if(b) b.click();})()`); // pick → run
+        await sleep(900);
+        await js(`window.__wod.completeDay()`); // → loot (day banked + saved by onDayDone)
+        await sleep(900);
+        const saved = await js(`(()=>{ try { return JSON.parse(localStorage.getItem('wod-save')||'null'); } catch (e) { return null; } })()`);
+        if (!saved || !saved.run) {
+          errors.push("SAVE-EXIT: no checkpoint after a day completed");
+        } else {
+          if (!(saved.run.night > beforeNight))
+            errors.push("SAVE-EXIT: checkpoint did not advance past the cleared night (night=" + saved.run.night + ", was " + beforeNight + ")");
+          if (saved.run.night !== saved.run.leg + 1)
+            errors.push("SAVE-EXIT: checkpoint night/leg inconsistent (night=" + saved.run.night + ", leg=" + saved.run.leg + ")");
+        }
+      } else {
+        errors.push("SAVE-EXIT: could not reach night to test the save-on-exit path");
       }
 
       // ---- Extra coverage for the campaign systems (run on a fresh throwaway run) ----

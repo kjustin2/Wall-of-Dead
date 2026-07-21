@@ -370,6 +370,15 @@ body {
 .adr--ready { box-shadow: 0 0 16px 3px rgba(255, 90, 60, 0.7); animation: pulse 0.7s ease-in-out infinite; }
 .adr--ready + .adr-label { color: var(--accent); }
 @keyframes pulse { 50% { box-shadow: 0 0 26px 6px rgba(255, 90, 60, 0.95); } }
+/* Adrenaline zone-up beat — a felt pulse + zone-tinted glow when the meter
+   crosses steady→focused→surge (applied to the center container, JS-triggered). */
+.adr-zone--up { animation: adrZone 0.34s ease-out; }
+@keyframes adrZone {
+  0% { transform: scale(1); }
+  40% { transform: scale(1.13); filter: drop-shadow(0 0 12px var(--zone, #ffce7a)); }
+  100% { transform: scale(1); }
+}
+body.reduced .adr-zone--up { animation: none; }
 
 .hud-right { text-align: right; }
 .weapon-name {
@@ -651,6 +660,26 @@ body.reduced .day-alarm--on { animation: none; opacity: 0.7; }
   overflow: hidden;
 }
 .stamina-fill { height: 100%; width: 100%; background: linear-gradient(90deg, #3a9bd0, #7fe0ff); transition: width 0.1s; }
+/* "Close call" pips — your margin before being overrun. Lit green while intact,
+   they go dark-red as they're spent; the one just spent flashes. */
+.day-strikes { display: flex; align-items: center; justify-content: center; gap: 6px; margin-top: 7px; }
+.day-strikes .skey { font-family: var(--display); font-size: 10px; letter-spacing: 2px; color: var(--dim); margin-right: 4px; }
+.strike {
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+  transform: rotate(45deg);
+  background: rgba(120, 230, 160, 0.85);
+  box-shadow: 0 0 8px rgba(80, 230, 150, 0.5);
+  transition: background 0.2s, box-shadow 0.2s;
+}
+.strike--used { background: rgba(120, 30, 26, 0.7); box-shadow: none; }
+.strike--hit { animation: strikeHit 0.4s ease-out; }
+@keyframes strikeHit {
+  0% { transform: rotate(45deg) scale(1.9); background: #ff5a3c; box-shadow: 0 0 16px rgba(255, 90, 60, 0.9); }
+  100% { transform: rotate(45deg) scale(1); }
+}
+body.reduced .strike--hit { animation: none; }
 .compass-arrow {
   position: absolute;
   left: 50%;
@@ -698,6 +727,17 @@ body.reduced .day-alarm--on { animation: none; opacity: 0.7; }
   top: -20px;
   border-color: rgba(255, 120, 90, 0.9);
 }
+/* Ring reacts to a confirmed hit: a quick scale-pop (gold on a crit/headshot). */
+.crosshair--hit .ch-ring { animation: chHit 0.22s ease-out; }
+@keyframes chHit {
+  0% { transform: scale(1.4); border-color: rgba(255, 255, 255, 0.95); }
+  100% { transform: scale(1); }
+}
+.crosshair--crit .ch-ring { animation: chCrit 0.26s ease-out; }
+@keyframes chCrit {
+  0% { transform: scale(1.5); border-color: rgba(255, 210, 74, 1); box-shadow: 0 0 9px rgba(255, 210, 74, 0.9); }
+  100% { transform: scale(1); }
+}
 .hitmark {
   position: absolute;
   width: 22px;
@@ -735,6 +775,28 @@ body.reduced .day-alarm--on { animation: none; opacity: 0.7; }
 .ammo-mag--low { color: #ff5a3c; animation: ammoPulse 0.5s ease-in-out infinite; }
 @keyframes ammoPulse { 50% { opacity: 0.4; } }
 .weapon-name--empty { color: #ff5a3c; animation: ammoPulse 0.6s ease-in-out infinite; }
+/* Weapon-swap bounce. */
+.weapon-name--swap { animation: wnameSwap 0.28s ease-out; }
+@keyframes wnameSwap {
+  0% { transform: translateY(0) scale(1); }
+  40% { transform: translateY(-3px) scale(1.07); color: #ffd24a; }
+  100% { transform: translateY(0) scale(1); }
+}
+
+/* ---------------------------------------------------------------- challenge modifiers */
+.mod-list { display: flex; flex-direction: column; gap: 10px; margin: 14px 0 18px; width: min(620px, 86vw); }
+.mod-row {
+  display: flex; align-items: center; gap: 14px; text-align: left;
+  padding: 12px 16px; border-radius: 10px; cursor: pointer;
+  background: rgba(20, 26, 32, 0.7); border: 1px solid var(--edge); color: var(--dim);
+  font-family: inherit; transition: border-color 0.15s, background 0.15s, color 0.15s;
+}
+.mod-row:hover { border-color: rgba(255, 160, 90, 0.5); }
+.mod-row--on { border-color: var(--accent); background: rgba(60, 30, 20, 0.6); color: var(--ink); }
+.mod-check { font-size: 22px; line-height: 1; color: var(--accent); }
+.mod-text { display: flex; flex-direction: column; gap: 2px; }
+.mod-text b { font-family: var(--display); letter-spacing: 2px; font-size: 15px; color: var(--ink); }
+.mod-text span { font-size: 12.5px; color: var(--dim); }
 
 /* ---------------------------------------------------------------- banner */
 .banner {
@@ -1102,6 +1164,73 @@ body.reduced .report li { animation: none; opacity: 1; transform: none; }
   border-radius: 6px;
   padding: 4px 10px;
   font-family: var(--ui);
+  min-width: 180px;
+}
+/* A small clarifying note under a setting's label (e.g. "render scale"). */
+.set-note {
+  display: block;
+  font-family: var(--ui);
+  font-size: 10px;
+  letter-spacing: 1px;
+  color: rgba(126, 138, 147, 0.7);
+  margin-top: 1px;
+  text-transform: uppercase;
+}
+/* ---- Settings tabs (the "real game" options menu) ---- */
+.settings-tabs {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+  justify-content: center;
+  border-bottom: 1px solid var(--edge);
+  margin-bottom: 6px;
+  padding-bottom: 0;
+}
+.settings-tab {
+  font-family: var(--display);
+  font-weight: 600;
+  letter-spacing: 2px;
+  font-size: 13px;
+  color: var(--dim);
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  border-radius: 4px 4px 0 0;
+  padding: 9px 18px;
+  margin-bottom: -1px;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+}
+.settings-tab:hover { color: #fff; background: rgba(255, 255, 255, 0.04); }
+.settings-tab--active {
+  color: #fff;
+  border-bottom-color: var(--accent);
+  background: rgb(var(--act-rgb) / 0.08);
+}
+/* A fixed panel height keeps the BACK bar from jumping as tabs change. */
+.settings-panel {
+  display: flex;
+  justify-content: center;
+  width: 100%;
+  min-height: 240px;
+}
+/* ---- FPS readout ---- */
+.fps-meter {
+  position: absolute;
+  top: 8px;
+  right: 10px;
+  display: none;
+  font-family: var(--display);
+  font-weight: 600;
+  font-size: 12px;
+  letter-spacing: 1px;
+  color: #8be08b;
+  background: rgba(5, 7, 10, 0.5);
+  border: 1px solid var(--edge);
+  border-radius: 5px;
+  padding: 2px 8px;
+  pointer-events: none;
+  z-index: 60;
 }
 
 /* ---------------------------------------------------------------- story */
@@ -1121,13 +1250,13 @@ body.reduced .report li { animation: none; opacity: 1; transform: none; }
   opacity: 0;
 }
 .story-line--show {
-  animation: storyFade 4.2s ease-in-out forwards;
+  /* Fade/slide in, then HOLD at full opacity — the line stays fully legible until
+     the JS timer (length-scaled) swaps it, instead of fading itself back out. */
+  animation: storyFade 0.7s ease-out forwards;
 }
 @keyframes storyFade {
   0% { opacity: 0; transform: translateY(14px); }
-  14% { opacity: 1; transform: translateY(0); }
-  82% { opacity: 1; transform: translateY(0); }
-  100% { opacity: 0; transform: translateY(-8px); }
+  100% { opacity: 1; transform: translateY(0); }
 }
 .story-skip {
   position: absolute;

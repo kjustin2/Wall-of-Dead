@@ -15,6 +15,14 @@ const SNEAK = 7.2;
 const SPRINT = 13.6;
 const CRATES = 8; // default supply crates (per-run count comes from DENSITY)
 const AV_R = 0.6;
+// Getting caught is a survivable SETBACK, not sudden death: a grab costs time +
+// your wind and scatters the pack, and you wrench free for a beat. Three grabs and
+// you're dragged down (overrun) — but you keep whatever you'd already secured.
+const MAX_GRABS = 3; // close calls before the run is overrun
+const GRAB_PENALTY = 5; // seconds torn off the clock on each grab
+const BREAKFREE_T = 1.3; // mercy window after a grab (can't be re-grabbed)
+const BREAKFREE_SPEED = 1.25; // scramble-away speed boost during break-free
+const EXTRACT_FRAC = 0.6; // share of supplies that opens the rendezvous early (push-your-luck)
 
 /** Where you choose to scavenge. The choice drives BOTH the danger/loot AND the
  * look of the map, so it matches its label: a crowded district is a dense, neon-
@@ -477,9 +485,14 @@ function segEntryT(ax: number, az: number, bx: number, bz: number, w: Wall): num
 
 /**
  * The day "Supply Run" — a moody stealth crawl. The map is dark; your avatar has
- * a flashlight and moves slow (hold Shift to sprint a short burst). Zombies
- * patrol with visible sight cones; step into one (with line of sight, not behind
- * a wall) and they give chase. Find the crates in the dark; returns { tier, frac }.
+ * a flashlight and moves slow (hold Shift to sprint a short burst). Zombies patrol
+ * with visible sight cones; step into one (with line of sight, not behind a wall)
+ * and they give chase. A glowing chevron leads to the nearest objective so the dark
+ * stays navigable. Getting caught is a SURVIVABLE setback, not sudden death — a
+ * grab costs time + your wind, flings the zombie back and breaks the pack's line
+ * for a beat (tracked as close-call "pips"); only the THIRD grab overruns you. Once
+ * you've secured a worthwhile share, the rendezvous opens — bank it now or push for
+ * a top rating. Find the crates in the dark; returns { tier, frac }.
  */
 export class Scavenge {
   active = false;
@@ -487,16 +500,23 @@ export class Scavenge {
   got = 0;
   total = CRATES;
   timeLeft = DURATION;
-  readonly maxTime = DURATION;
+  maxTime = DURATION; // effective run length (Storm Front shortens it per run)
   stamina = 1;
   private exhausted = false;
   spotted = false;
   // HUD-facing state (read by the day HUD)
   promptText = "";
-  lightOn = true;
   extractOpen = false;
+  grabs = 0; // close calls used this run (read by the day HUD as "lives")
+  readonly maxGrabs = MAX_GRABS;
 
   private group = new THREE.Group();
+  private invuln = 0; // post-grab break-free window (no re-grab, slight speed boost)
+  private extractThreshold = 9999; // crates needed to open the rendezvous early
+  private extractArmed = false; // exit only fires once you've stepped clear of it
+  private objArrow = new THREE.Group(); // in-world chevron pointing to the next objective
+  private objArrowMat!: THREE.MeshBasicMaterial;
+  private objArrowGlow!: THREE.Sprite;
   private startGrace = 0; // no detection for a beat at the start of a run
   private spits: Spit[] = [];
   private hideZones: HideZone[] = [];
@@ -523,6 +543,10 @@ export class Scavenge {
   private coneGeo: THREE.BufferGeometry;
   private nearest = new THREE.Vector3();
   private walls: Wall[] = MAPS[0]; // active layout (chosen per run)
+  // Per-run prop footprints (barrels, wrecks, crates, trees, …) that block
+  // movement but not sight — so the lot reads as full of real, solid objects
+  // instead of dressing you walk straight through. Rebuilt each run.
+  private solids: Wall[] = [];
   private wallGroup = new THREE.Group();
   private floorMat!: THREE.MeshStandardMaterial;
   private laneGroup = new THREE.Group(); // painted lot lines (urban only)
@@ -577,8 +601,32 @@ export class Scavenge {
     g.rotateX(Math.PI / 2);
     this.coneGeo = g;
 
+    this.buildObjArrow();
+
     this.group.visible = false;
     scene.add(this.group);
+  }
+
+  /** A glowing chevron that floats just ahead of the avatar, pointing the way to
+   * the nearest objective (amber = next supply crate, green = the open exit). It's
+   * the dark maze's only nav aid — keeps "where do I go" legible without giving the
+   * whole lot away (it leads, the beacons still have to be found up close). */
+  private buildObjArrow(): void {
+    const shape = new THREE.Shape();
+    shape.moveTo(0, 0.95);
+    shape.lineTo(-0.6, -0.2);
+    shape.lineTo(0, 0.18);
+    shape.lineTo(0.6, -0.2);
+    shape.closePath();
+    const geo = new THREE.ShapeGeometry(shape);
+    geo.rotateX(Math.PI / 2); // lay flat; tip points +Z (the avatar's forward axis)
+    this.objArrowMat = new THREE.MeshBasicMaterial({ color: 0xffce7a, transparent: true, opacity: 0.92, depthWrite: false, fog: false, side: THREE.DoubleSide });
+    const arrow = new THREE.Mesh(geo, this.objArrowMat);
+    this.objArrowGlow = makeGlow(0xffce7a, 1.7, 0.5);
+    this.objArrowGlow.position.y = 0.01;
+    this.objArrow.add(arrow, this.objArrowGlow);
+    this.objArrow.visible = false;
+    this.group.add(this.objArrow);
   }
 
   private buildAvatar(): void {
@@ -751,6 +799,7 @@ export class Scavenge {
     this.clearGroup(this.dressGroup);
     this.redLights = [];
     this.signs = [];
+    this.solids = []; // rebuilt with the props below (backdrop trees append to it)
     const rng = this.ctx.rng;
     const G = this.dressGroup;
     const skin = ACT_SKINS[this.skinId];
@@ -784,6 +833,7 @@ export class Scavenge {
       barrel.rotation.z = rng.chance(0.3) ? Math.PI / 2 : 0;
       barrel.castShadow = true;
       G.add(barrel);
+      this.addSolid(p.x, p.z, 1.0, 1.0);
     }
     for (let i = 0; i < cfg.planks; i++) {
       const p = spot();
@@ -838,8 +888,9 @@ export class Scavenge {
       G.add(sign, glow);
       this.signs.push({ mat, glow, phase: rng.range(0, 6) });
     }
-    // Drifting low fog cards (a little, everywhere).
-    const fogTex = makeGlow(0xffffff, 1).material.map;
+    // Drifting low fog cards (a little, everywhere). Use the shared glow texture
+    // directly — don't spin up a throwaway Sprite+SpriteMaterial just to borrow it.
+    const fogTex = glowTexture();
     for (let i = 0; i < 6; i++) {
       const p = spot();
       const fmat = new THREE.MeshBasicMaterial({ map: fogTex, color: skin.wall, transparent: true, opacity: 0.14, depthWrite: false });
@@ -908,6 +959,7 @@ export class Scavenge {
         }
         stack.position.set(p.x, 0, p.z);
         G.add(stack);
+        this.addSolid(p.x, p.z, 1.3, 1.3);
       }
       const tp = spot(3);
       const tanker = new THREE.Mesh(new THREE.CylinderGeometry(1.7, 1.7, 8, 14), new THREE.MeshStandardMaterial({ color: 0x6a3a1a, roughness: 0.85, metalness: 0.3, flatShading: true }));
@@ -916,6 +968,7 @@ export class Scavenge {
       tanker.position.set(tp.x, 1.5, tp.z);
       tanker.castShadow = true;
       G.add(tanker);
+      this.addSolid(tp.x, tp.z, 5.0, 5.0);
       const oilMat = new THREE.MeshBasicMaterial({ color: 0x05060a, transparent: true, opacity: 0.55, depthWrite: false });
       for (let i = 0; i < 4; i++) {
         const p = spot();
@@ -969,6 +1022,7 @@ export class Scavenge {
         post.position.set(p.x, h / 2, p.z);
         post.rotation.z = rng.range(-0.25, 0.25);
         G.add(post);
+        this.addSolid(p.x, p.z, 0.6, 0.6);
       }
       const wreckMat = new THREE.MeshStandardMaterial({ color: 0x102b34, roughness: 0.8, metalness: 0.2, flatShading: true });
       for (let i = 0; i < 3; i++) {
@@ -977,6 +1031,7 @@ export class Scavenge {
         wreck.position.set(p.x, 0.2, p.z);
         wreck.rotation.y = rng.range(0, Math.PI);
         G.add(wreck);
+        this.addSolid(p.x, p.z, 2.6, 2.6);
       }
       // Floating debris, a half-sunk dinghy, and reed clusters break up the water.
       const driftMat = new THREE.MeshStandardMaterial({ color: 0x2a3a3e, roughness: 1, flatShading: true });
@@ -994,12 +1049,14 @@ export class Scavenge {
         barrel.position.set(p.x, 0.25, p.z); // mostly submerged
         barrel.rotation.x = rng.range(-0.2, 0.2);
         G.add(barrel);
+        this.addSolid(p.x, p.z, 1.0, 1.0);
       }
       const dp = spot(2.5);
       const dinghy = new THREE.Mesh(new THREE.BoxGeometry(4.2, 0.7, 1.7), new THREE.MeshStandardMaterial({ color: 0x3a2a1a, roughness: 1, flatShading: true }));
       dinghy.position.set(dp.x, 0.35, dp.z);
       dinghy.rotation.set(0, rng.range(0, Math.PI), 0.12);
       G.add(dinghy);
+      this.addSolid(dp.x, dp.z, 3.4, 3.4);
       const reedMat = new THREE.MeshStandardMaterial({ color: 0x2a3a22, roughness: 1, flatShading: true });
       for (let c = 0; c < 6; c++) {
         const p = spot();
@@ -1024,6 +1081,7 @@ export class Scavenge {
         const booth = new THREE.Mesh(new THREE.BoxGeometry(3.4, 2.4, 2.6), gateMat);
         booth.position.set(x, 1.2, -18);
         G.add(booth);
+        this.addSolid(x, -18, 3.4, 2.6);
         const arm = new THREE.Mesh(new THREE.BoxGeometry(9, 0.18, 0.18), gateMat);
         arm.position.set(x > 0 ? x - 5 : x + 5, 1.45, -18);
         arm.rotation.y = x > 0 ? 0.25 : -0.25;
@@ -1087,6 +1145,7 @@ export class Scavenge {
         bunker.position.set(p.x, 0, p.z);
         bunker.rotation.y = rng.range(0, Math.PI);
         G.add(bunker);
+        this.addSolid(p.x, p.z, 2.4, 2.4);
       }
       const palletMat = new THREE.MeshStandardMaterial({ color: 0x5a6470, roughness: 1, flatShading: true });
       for (let i = 0; i < 4; i++) {
@@ -1098,6 +1157,7 @@ export class Scavenge {
           crate.castShadow = true;
           G.add(crate);
         }
+        this.addSolid(p.x, p.z, 1.3, 1.3);
       }
       const wireMat = new THREE.MeshBasicMaterial({ color: 0x9fb0bc, fog: false });
       for (const wx of [-16, -5.5, 5.5, 16]) {
@@ -1120,8 +1180,10 @@ export class Scavenge {
       const towerBeacon = makeGlow(0xff5a40, 2.2, 0.75);
       towerBeacon.position.set(0, 10.6, 0);
       tower.add(towerBeacon);
-      tower.position.set(rng.chance(0.5) ? -46 : 46, 0, -54);
+      const towerX = rng.chance(0.5) ? -46 : 46;
+      tower.position.set(towerX, 0, -54);
       G.add(tower);
+      this.addSolid(towerX, -54, 3.4, 3.4);
     }
   }
 
@@ -1193,6 +1255,7 @@ export class Scavenge {
         tree.position.set(p.x, 0, p.z);
         tree.rotation.y = rng.range(0, Math.PI);
         B.add(tree);
+        this.addSolid(p.x, p.z, 0.7, 0.7);
       }
     }
   }
@@ -1272,7 +1335,17 @@ export class Scavenge {
       if (x > w.x - w.w / 2 - pad && x < w.x + w.w / 2 + pad && z > w.z - w.d / 2 - pad && z < w.z + w.d / 2 + pad)
         return true;
     }
+    for (const w of this.solids) {
+      if (x > w.x - w.w / 2 - pad && x < w.x + w.w / 2 + pad && z > w.z - w.d / 2 - pad && z < w.z + w.d / 2 + pad)
+        return true;
+    }
     return false;
+  }
+
+  /** Register a movement-blocking footprint for a prop — player and guards push
+   * out of it (so dressing objects feel solid), but it doesn't block sight. */
+  private addSolid(x: number, z: number, w: number, d: number): void {
+    this.solids.push({ x, z, w, d });
   }
 
   private freeSpot(minZ: number, maxZ: number): { x: number; z: number } {
@@ -1369,6 +1442,7 @@ export class Scavenge {
   private makeGuard(type: GType, center?: { x: number; z: number }): Guard {
     const g = new THREE.Group();
     const cfg = GUARD_CFG[type];
+    const pack = this.ctx.run.mods.packTactics; // sharper eyes + faster chase
     const skin = ACT_SKINS[this.skinId];
     const flesh = new THREE.MeshStandardMaterial({ color: cfg.flesh, roughness: 1, flatShading: true });
     const coat = new THREE.MeshStandardMaterial({ color: cfg.coat, roughness: 1, flatShading: true });
@@ -1475,8 +1549,8 @@ export class Scavenge {
     const f0 = Math.atan2(patrol[1].x - patrol[0].x, patrol[1].z - patrol[0].z);
     return {
       group: g, cone, coneMat, eyeMat, type, x: patrol[0].x, z: patrol[0].z, facing: f0,
-      patrol, pIdx: 1, state: "patrol", alertT: 0, speed: cfg.speed, chase: cfg.chase,
-      vision: cfg.vision ?? 1, scream: cfg.scream ?? false,
+      patrol, pIdx: 1, state: "patrol", alertT: 0, speed: cfg.speed, chase: cfg.chase * (pack ? 1.12 : 1),
+      vision: (cfg.vision ?? 1) * (pack ? 1.3 : 1), scream: cfg.scream ?? false,
       spitCd: this.ctx.rng.range(1.2, 2.6), stuckT: 0, px: patrol[0].x, pz: patrol[0].z,
       invX: 0, invZ: 0, dead: false,
     };
@@ -1494,25 +1568,36 @@ export class Scavenge {
     this.envCap = dcfg.cap;
     this.envFog = dcfg.fog;
 
+    // Storm Front modifier: shorter, more frantic supply days.
+    const storm = this.ctx.run.mods.stormFront;
+    const dur = storm ? Math.round(DURATION * 0.7) : DURATION;
     this.active = true;
     this.done = false;
     this.got = 0;
-    this.timeLeft = DURATION;
+    this.timeLeft = dur;
+    this.maxTime = dur;
     this.total = dcfg.crates;
+    this.extractThreshold = Math.max(1, Math.ceil(dcfg.crates * EXTRACT_FRAC));
+    this.grabs = 0;
+    this.invuln = 0;
+    this.extractArmed = false;
+    this.objArrow.visible = false;
     this.stamina = 1;
     this.exhausted = false;
     this.spotted = false;
+    this.debugAlert = false; // clear any debug "held spotted" so real runs work
+    this.dbgTeleT = 0;
     this.ax = 0;
     this.az = -7;
     this.group.visible = true;
     this.groanT = 4;
     this.extractOpen = false;
     this.extractMarker.visible = false;
-    this.lightOn = true;
     this.promptText = "";
     this.startGrace = 1.6; // brief grace so no guard can spot you the instant you spawn
     this.ctx.world.setDawn(0.08); // dark + moody, but still navigable
-    // Thicker fog + a dimmer, tighter flashlight = scarier.
+    // Thicker fog + a tight steady flashlight on the avatar = scarier (the light
+    // is purely illumination now — no on/off mechanic; it never affects stealth).
     this.fogPrev = this.ctx.stage.fog.density;
     this.ctx.stage.fog.density = this.envFog;
     this.light.distance = 23;
@@ -1584,7 +1669,8 @@ export class Scavenge {
       this.group.remove(g.group);
     }
     this.guards = [];
-    const patrols = Math.max(3, Math.round((5 + pressure) * dcfg.guardMul));
+    // Storm Front packs the lot with more patrols (louder, busier).
+    const patrols = Math.max(3, Math.round((5 + pressure) * dcfg.guardMul * (storm ? 1.3 : 1)));
     const types: GType[] = ["shambler", "runner", "spitter", "brute", "screamer"];
     const weights = [
       5,
@@ -1612,14 +1698,8 @@ export class Scavenge {
     this.t += dt;
     this.timeLeft -= dt;
     if (this.startGrace > 0) this.startGrace -= dt;
+    if (this.invuln > 0) this.invuln -= dt;
     this.promptText = "";
-
-    // Flashlight toggle (F) — off = harder to be seen, but you see far less.
-    if (this.ctx.input.pressed("KeyF")) {
-      this.lightOn = !this.lightOn;
-      this.light.intensity = this.lightOn ? this.lightDefault : 3.5;
-      this.ctx.events.emit("SFX", { id: "ui_click" });
-    }
 
     // Move (sneak, or sprint while stamina holds). Once stamina bottoms out the
     // legs lock until it recovers past a clear threshold — so "out of breath"
@@ -1629,13 +1709,15 @@ export class Scavenge {
     if (this.stamina <= 0.001) this.exhausted = true;
     else if (this.stamina > 0.35) this.exhausted = false;
     const sprint = this.ctx.input.down("ShiftLeft") && !this.exhausted && moving;
-    this.stamina = sprint ? Math.max(0, this.stamina - dt * 0.72) : Math.min(1, this.stamina + dt * 0.26);
-    const sp = sprint ? SPRINT : SNEAK;
+    this.stamina = sprint ? Math.max(0, this.stamina - dt * 0.62) : Math.min(1, this.stamina + dt * 0.3);
+    // Just wrenched free of a grab — a brief scramble-away burst so the break has teeth.
+    const sp = (sprint ? SPRINT : SNEAK) * (this.invuln > 0 ? BREAKFREE_SPEED : 1);
     let nx = this.ax + a.x * sp * dt;
     let nz = this.az + a.y * sp * dt;
     nx = clamp(nx, AREA.minX, AREA.maxX);
     nz = clamp(nz, AREA.minZ, AREA.maxZ);
     for (const w of this.walls) [nx, nz] = pushOutAABB(nx, nz, AV_R, w);
+    for (const w of this.solids) [nx, nz] = pushOutAABB(nx, nz, AV_R, w);
     this.ax = nx;
     this.az = nz;
     this.avatar.position.set(this.ax, 0, this.az);
@@ -1803,39 +1885,125 @@ export class Scavenge {
       }
     }
 
-    // Extraction beat: once the supplies are secured an exit opens near the road
-    // — reach it before the clock for a clean-getaway bonus.
-    if (!this.extractOpen && this.got >= this.total) {
+    // Extraction beat (push-your-luck): the rendezvous opens once you've secured a
+    // worthwhile share of the haul (not just at 100%), so you get a real decision —
+    // bank a solid run now, or risk the deep crates for a top rating. A full sweep
+    // still earns the clean-getaway bonus.
+    const allSecured = this.got >= this.total;
+    if (!this.extractOpen && this.got >= this.extractThreshold) {
       this.extractOpen = true;
       this.extractMarker.visible = true;
-      this.ctx.floaters.spawn(this.extractZone.x, 2.6, this.extractZone.z, "SUPPLIES SECURED — REACH THE EXIT", "crit");
+      this.ctx.floaters.spawn(this.extractZone.x, 2.6, this.extractZone.z, allSecured ? "ALL SUPPLIES SECURED — EXTRACT" : "RENDEZVOUS OPEN — EXTRACT ANYTIME", "crit");
       this.ctx.events.emit("SFX", { id: "meter_full" });
     }
     if (this.extractOpen) {
       this.extractMarker.rotation.y += dt * 1.5;
-      this.promptText = "↑ REACH THE EXIT";
       const edx = this.extractZone.x - this.ax;
       const edz = this.extractZone.z - this.az;
-      if (edx * edx + edz * edz < 6.25) {
-        this.ctx.run.addAmmo(60);
-        this.ctx.floaters.spawn(this.ax, 2.4, this.az, "CLEAN EXTRACTION  +AMMO", "crit");
+      const inZone = edx * edx + edz * edz < 4.0;
+      // Don't let an exit that opened on top of you fire instantly — arm it once you
+      // step clear, so extracting is always a deliberate return to the rendezvous.
+      if (!inZone) this.extractArmed = true;
+      if (!this.hidden) this.promptText = allSecured ? "↑ EXTRACT — CLEAN GETAWAY" : "↑ EXTRACT  (or push for more)";
+      if (inZone && this.extractArmed) {
+        const bonus = allSecured ? 80 : Math.round(40 * (this.got / this.total));
+        if (bonus > 0) this.ctx.run.addAmmo(bonus);
+        this.ctx.floaters.spawn(this.ax, 2.4, this.az, allSecured ? "CLEAN GETAWAY  +AMMO" : "EXTRACTED", "crit");
         this.finish();
         return;
       }
     }
 
+    this.updateObjArrow();
     this.ctx.cam.target.set(this.ax, 0, this.az);
     if (this.timeLeft <= 0) this.finish();
   }
 
-  /** Caught by a chaser — the run ends immediately. */
-  private onCaught(): void {
-    if (this.debugAlert) return; // held debug-alert frame never ends the run
-    this.ctx.floaters.spawn(this.ax, 2.2, this.az, "CAUGHT!", "warn");
-    this.ctx.events.emit("SFX", { id: "player_hurt" });
+  /** Caught by a chaser (or an acid hit). NOT instant death: it's a survivable
+   * setback — you wrench free, the grabber is flung back and the pack loses your
+   * trail for a beat (break-free window), and it costs time + your wind. The THIRD
+   * grab is the one that drags you down (overrun); you still keep what you secured. */
+  private onGrabbed(g: Guard | null): void {
+    if (this.debugAlert || this.invuln > 0 || this.done) return; // held debug frame / already breaking free
+    this.grabs++;
+    this.invuln = BREAKFREE_T;
     this.ctx.cam.addTrauma(0.5);
-    this.ctx.stage.punch(0.45);
-    this.finish();
+    this.ctx.stage.punch(0.42);
+    this.ctx.events.emit("SFX", { id: "player_hurt" });
+    this.ctx.fx.burst(this.ax, 1.0, this.az, 22, 0xff4030, { speed: 8, up: 6, life: 0.5, size: 7 });
+
+    if (this.grabs >= this.maxGrabs) {
+      // Dragged down — the run ends, but the haul you already grabbed still counts.
+      this.ctx.floaters.spawn(this.ax, 2.4, this.az, "OVERRUN!", "warn");
+      this.ctx.events.emit("SFX", { id: "scream" });
+      this.finish();
+      return;
+    }
+
+    const left = this.maxGrabs - this.grabs;
+    this.ctx.floaters.spawn(this.ax, 2.4, this.az, g ? `GRABBED · ${left} LEFT` : `ACID HIT · ${left} LEFT`, "warn");
+    this.timeLeft = Math.max(2, this.timeLeft - GRAB_PENALTY);
+    this.stamina = Math.min(this.stamina, 0.2); // winded
+    // Fling the grabber back + send it to investigate, so it can't instantly re-grab.
+    if (g) {
+      const dx = g.x - this.ax;
+      const dz = g.z - this.az;
+      const d = Math.hypot(dx, dz) || 1;
+      g.x = clamp(g.x + (dx / d) * 3.5, AREA.minX, AREA.maxX);
+      g.z = clamp(g.z + (dz / d) * 3.5, AREA.minZ, AREA.maxZ);
+      g.group.position.set(g.x, 0, g.z);
+      g.state = "investigate";
+      g.alertT = 1.0;
+      g.invX = this.ax;
+      g.invZ = this.az;
+    }
+    // The rest of the pack loses your trail for a beat — drop chasers to investigate.
+    for (const o of this.guards) {
+      if (o === g || o.dead || o.state !== "chase") continue;
+      if ((o.x - this.ax) ** 2 + (o.z - this.az) ** 2 < 14 * 14) {
+        o.state = "investigate";
+        o.alertT = 1.4;
+        o.invX = this.ax;
+        o.invZ = this.az;
+      }
+    }
+    this.spotted = false;
+  }
+
+  /** Float the objective chevron a step ahead of the avatar, aimed at the nearest
+   * unfound supply (amber); once the supplies are in, it points to the exit (green).
+   * Hidden when the target's close enough that its own beacon reads. */
+  private updateObjArrow(): void {
+    const c = this.got >= this.total ? null : this.nearestCrate();
+    let tx: number;
+    let tz: number;
+    let col: number;
+    if (c) {
+      tx = c.x;
+      tz = c.z;
+      col = 0xffce7a;
+    } else if (this.extractOpen) {
+      tx = this.extractZone.x;
+      tz = this.extractZone.z;
+      col = 0x6fffa8;
+    } else {
+      this.objArrow.visible = false;
+      return;
+    }
+    const dx = tx - this.ax;
+    const dz = tz - this.az;
+    if (dx * dx + dz * dz < 3.4 * 3.4) {
+      this.objArrow.visible = false; // close enough — let the beacon take over
+      return;
+    }
+    const ang = Math.atan2(dx, dz);
+    const R = 2.4;
+    const bob = 0.14 + 0.07 * Math.sin(this.t * 4.5);
+    this.objArrow.position.set(this.ax + Math.sin(ang) * R, bob, this.az + Math.cos(ang) * R);
+    this.objArrow.rotation.y = ang;
+    this.objArrowMat.color.setHex(col);
+    (this.objArrowGlow.material as THREE.SpriteMaterial).color.setHex(col);
+    this.objArrow.visible = true;
   }
 
   private losBlocked(ax: number, az: number, bx: number, bz: number): boolean {
@@ -1878,12 +2046,11 @@ export class Scavenge {
       return;
     }
     // Detection: in range, within the cone, not behind a wall — and not while
-    // you're hidden in an alcove or in the brief grace window after a grab. The
-    // flashlight gives you away: with it off, guards spot you only up close.
+    // you're hidden in an alcove or in the brief grace window after a grab.
     const dx = this.ax - g.x;
     const dz = this.az - g.z;
     const dist = Math.hypot(dx, dz);
-    const range = (this.lightOn ? VISION_RANGE : VISION_RANGE * 0.5) * g.vision;
+    const range = VISION_RANGE * g.vision;
     let sees = false;
     if (dist < range && !this.hidden && this.startGrace <= 0) {
       const toAvatar = Math.atan2(dx, dz);
@@ -1918,9 +2085,9 @@ export class Scavenge {
       tx = this.ax;
       tz = this.az;
       speed = g.chase;
-      // Caught — the run ends right here.
-      if (dist < 1.4) {
-        this.onCaught();
+      // Caught — a grab (survivable setback), unless you're still breaking free.
+      if (dist < 1.4 && this.invuln <= 0) {
+        this.onGrabbed(g);
         return;
       }
       // Spitters hang back and lob acid instead of closing all the way.
@@ -1951,8 +2118,9 @@ export class Scavenge {
     g.z += (mdz / md) * speed * dt;
     g.x = clamp(g.x, AREA.minX, AREA.maxX);
     g.z = clamp(g.z, AREA.minZ, AREA.maxZ);
-    // Guards collide with walls too (no walking through cover).
+    // Guards collide with walls + props too (no walking through cover).
     for (const w of this.walls) [g.x, g.z] = pushOutAABB(g.x, g.z, 0.55, w);
+    for (const w of this.solids) [g.x, g.z] = pushOutAABB(g.x, g.z, 0.55, w);
 
     // Stuck recovery: if a patrolling guard hasn't progressed (wedged on a wall),
     // pick a fresh patrol target so it never jams (e.g. around the survivor).
@@ -2022,7 +2190,7 @@ export class Scavenge {
       const offMap = s.x < AREA.minX || s.x > AREA.maxX || s.z < AREA.minZ || s.z > AREA.maxZ;
       if (dx * dx + dz * dz < 1.0) {
         this.retireSpit(i);
-        if (!this.done) this.onCaught();
+        if (!this.done && this.invuln <= 0) this.onGrabbed(null);
         return;
       }
       if (s.life <= 0 || hitWall || offMap) this.retireSpit(i);
@@ -2091,6 +2259,16 @@ export class Scavenge {
       b.alertT = 999;
       b.x = this.ax - 4;
       b.z = this.az - 2;
+    }
+  }
+
+  /** Debug: force N grabs so a capture/test can frame the close-call pips + the
+   * survivable-setback feedback (and exercise the onGrabbed path in the real
+   * renderer). Clears invuln between grabs so they actually land. */
+  debugGrab(n = 1): void {
+    for (let i = 0; i < n && !this.done; i++) {
+      this.invuln = 0;
+      this.onGrabbed(null);
     }
   }
 

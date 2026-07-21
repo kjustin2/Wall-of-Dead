@@ -27,11 +27,11 @@ import { CompanionManager } from "./game/companion";
 import { GrenadeManager } from "./game/grenade";
 import { Deployables } from "./game/deployables";
 import { Player } from "./game/player";
-import { RunManager } from "./game/run";
+import { RunManager, freshMods, type RunMods } from "./game/run";
 import { WEAPONS } from "./game/weapons";
 import { TRAITS } from "./game/traits";
 import { WaveDirector, nightStats } from "./game/waveDirector";
-import { actLevelLabel, bossTypeKeys, campaignNodeLabels, levelInfo, nextLevelInfo, TOTAL_LEVELS } from "./game/acts";
+import { actLevelLabel, bossTypeKeys, campaignNodeLabels, levelInfo, TOTAL_LEVELS } from "./game/acts";
 import { TYPES } from "./game/zombie";
 import { Scavenge, type Density } from "./minigames/scavenge";
 import { renderStats, sceneAudit } from "./render/diagnostics";
@@ -172,6 +172,26 @@ function hasSave(): boolean {
     return false;
   }
 }
+
+// Opt-in challenge modifiers (persisted; default off → the baseline campaign).
+const MODS_KEY = "wod-mods";
+function loadMods(): RunMods {
+  try {
+    const raw = localStorage.getItem(MODS_KEY);
+    if (raw) return { ...freshMods(), ...JSON.parse(raw) };
+  } catch {
+    /* ignore */
+  }
+  return freshMods();
+}
+function saveMods(m: RunMods): void {
+  try {
+    localStorage.setItem(MODS_KEY, JSON.stringify(m));
+  } catch {
+    /* ignore */
+  }
+}
+let chosenMods = loadMods();
 function resumeRun(): void {
   try {
     const raw = localStorage.getItem(SAVE_KEY);
@@ -190,6 +210,27 @@ function resumeRun(): void {
   ctx.player.group.visible = true;
   beginNight();
 }
+
+/** True while a run is in progress (so closing the window can flush a checkpoint).
+ * The checkpoint is always a clean "start of the upcoming night": run.night and
+ * run.leg only ever advance together (in onDayDone), so a flush here is safe to
+ * resume via beginNight() regardless of which in-run screen the player closed on. */
+function runInProgress(): boolean {
+  return state === "night" || state === "day" || state === "report" || state === "loot" || state === "paused";
+}
+/** Persist the current checkpoint if a run is live — bound to window-close so
+ * progress survives the player exiting the game at any point, not just at the
+ * night-start checkpoint. Harmless if no run is active (writes nothing). */
+function flushSave(): void {
+  if (runInProgress()) saveRun();
+}
+window.addEventListener("beforeunload", flushSave);
+window.addEventListener("pagehide", flushSave);
+// Minimizing / hiding the window (incl. an Electron close on some platforms) may
+// not fire beforeunload reliably — flush on the visibility transition too.
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "hidden") flushSave();
+});
 
 // ---------------------------------------------------------------- state flow
 function toTitle(): void {
@@ -219,7 +260,17 @@ function toTitle(): void {
       settingsReturn = () => toTitle();
       menus.showSettings(() => toTitle());
     },
-    hasSave() ? resumeRun : undefined
+    hasSave() ? resumeRun : undefined,
+    () =>
+      menus.showModifiers(
+        chosenMods,
+        (m) => {
+          chosenMods = m;
+          saveMods(m);
+          beginRun();
+        },
+        () => toTitle()
+      )
   );
 }
 
@@ -250,6 +301,7 @@ function startRun(): void {
   menus.clear();
   clearSave();
   ctx.run.start();
+  ctx.run.mods = { ...chosenMods }; // apply the chosen challenge modifiers for this run
   pendingWeapon = null;
   armorySwapOffered = false;
   ctx.stats = freshStats();
@@ -290,6 +342,11 @@ function beginNight(): void {
   scavenge.hide();
   ctx.run.refillMags();
   restoreWall(); // per-segment HP persists — breaches do NOT auto-heal between nights
+  // A "dig in" dilemma reinforces the wall for the hold that follows.
+  if (ctx.run.startWallBonus > 0) {
+    ctx.wall.repair(ctx.run.startWallBonus);
+    ctx.run.startWallBonus = 0;
+  }
   ctx.wall.dmgMul = ctx.tuning.enemyDmg;
   ctx.wall.group.visible = true;
   ctx.world.setFieldClutter(true);
@@ -436,7 +493,7 @@ function beginSupplyRun(density: Density, weaponOverride?: string | null): void 
   // picked-over / outskirts), so the map matches its description.
   scavenge.start({ density, weaponInCrate });
   state = "day";
-  hud.banner(scavenge.envName, "Supply run - sneak the dark - stay out of their sight");
+  hud.banner(scavenge.envName, "Grab supplies in the dark · slip the patrols · extract when you've got enough");
 }
 
 function onDayDone(tier: string, frac: number, weapons: string[]): void {
@@ -449,7 +506,19 @@ function onDayDone(tier: string, frac: number, weapons: string[]): void {
   ctx.run.refillMags();
   ctx.run.traps += 2;
 
+  // Supply yield → night stakes: a strong run banks a real reserve-ammo margin for
+  // the hold ahead; a poor one leaves you lean (D earns nothing extra).
+  const TIER_AMMO: Record<string, number> = { S: 120, A: 80, B: 50, C: 25, D: 0 };
+  const tierAmmo = TIER_AMMO[tier] ?? 0;
+  if (tierAmmo > 0) ctx.run.addAmmo(tierAmmo);
+  ctx.run.lastSupplyTier = tier;
+
   ctx.run.leg += 1;
+  // Advance the campaign pointer the moment the leg is banked (unless this leg
+  // reached the safe zone — then the run ends, not advances). Keeping night/leg
+  // in lockstep here means the save written below is a clean "start of the next
+  // night", so quitting anywhere in the day→night flow resumes correctly.
+  if (!ctx.run.reachedSafeZone) ctx.run.night += 1;
 
   // A new gun is ONLY the one(s) you actually pulled from a weapon-case crate this
   // run — never handed out automatically. Under the cap it's granted; at the cap
@@ -483,6 +552,9 @@ function onDayDone(tier: string, frac: number, weapons: string[]): void {
 
   const lines = [
     `Run rating — ${tier}  (${Math.round(frac * 100)}% ammo crates)`,
+    tierAmmo > 0
+      ? `Supply margin — +${tierAmmo} reserve ammo for the next hold`
+      : `Lean haul — no spare ammo margin tonight`,
     `Repair kits — ${ctx.run.repairKits}`,
     foundLine,
   ];
@@ -495,11 +567,13 @@ function onDayDone(tier: string, frac: number, weapons: string[]): void {
     }
     // A dawn dilemma before pressing on — one choice, one consequence.
     offerDilemma(() => {
-      ctx.run.night += 1;
+      // night already advanced in onDayDone — show the level we're about to play
+      // (levelInfo, not nextLevelInfo, which previously skipped one ahead).
       // The march between nights isn't safe — roll a random event (an ally may be
       // lost, or a quiet scavenge may pay off) and surface it on the road map.
       const ev = interNightEvent();
-      const next = nextLevelInfo(ctx.run.night);
+      const next = levelInfo(ctx.run.night);
+      saveRun(); // bank the dilemma + inter-night results before the road map
       // Show the convoy advancing toward the safe zone + a story beat, then night.
       menus.showRoadMap(
         ctx.run.leg,
@@ -513,6 +587,7 @@ function onDayDone(tier: string, frac: number, weapons: string[]): void {
       );
     });
   };
+  saveRun(); // bank the day's haul (leg, weapons, kits, ammo) immediately
   menus.showDayLoot(lines, lootContinue);
 }
 
@@ -614,6 +689,33 @@ function offerDilemma(after: () => void): void {
           tone: "safe",
           onPick: () => {
             ctx.run.repairKits += 1;
+          },
+        },
+      ],
+      after
+    );
+  } else if (ctx.rng.chance(0.5)) {
+    // A choice that branches the NEXT night's STARTING CONDITION, not just resources.
+    menus.showDilemma(
+      "Dig in, or travel light?",
+      "There's time on the march to either shore up the barricade or move fast and quiet — one buys a sturdier wall at the next hold, the other more tricks in your pocket.",
+      [
+        {
+          label: "Reinforce the wall",
+          detail: "Spend the march bracing the barricade — start the next hold with a noticeably sturdier wall.",
+          tag: "+WALL",
+          tone: "safe",
+          onPick: () => {
+            ctx.run.startWallBonus += 140;
+          },
+        },
+        {
+          label: "Travel light",
+          detail: "Move fast and quiet — arrive with extra spike traps in hand (+2).",
+          tag: "+TRAPS",
+          tone: "gain",
+          onPick: () => {
+            ctx.run.traps += 2;
           },
         },
       ],
@@ -889,6 +991,10 @@ let last = performance.now();
 let fpsAccum = 0;
 let fpsFrames = 0;
 let qualityNudged = false;
+// Display FPS readout (smoothed over ~0.5s; written to the corner each frame).
+let fpsShowAccum = 0;
+let fpsShowFrames = 0;
+let fpsShown = 0;
 // Boot FPS probe → pick the starting quality preset (unless the user set one).
 let bootProbe = false;
 let probeAccum = 0;
@@ -908,6 +1014,16 @@ ctx.stage.renderer.setAnimationLoop(() => {
   last = now;
   ctx.playing = state === "night" || state === "day";
   ctx.input.poll(realDt);
+
+  // FPS readout (always sampled; shown only when the setting is on).
+  fpsShowAccum += realDt;
+  fpsShowFrames++;
+  if (fpsShowAccum >= 0.5) {
+    fpsShown = Math.round(fpsShowFrames / fpsShowAccum);
+    fpsShowAccum = 0;
+    fpsShowFrames = 0;
+  }
+  hud.setFps(menus.settings.showFps, `${fpsShown} FPS`);
 
   // Resolve time scale: hit-stop freezes, then slow-mo, else normal.
   let scale = 1;
@@ -1005,6 +1121,7 @@ ctx.stage.renderer.setAnimationLoop(() => {
   // feedback stays smooth even mid hit-stop.
   ctx.fx.update(dt);
   ctx.tele.update(dt);
+  ctx.wall.update(realDt); // breach-flash decay (visual)
   ctx.decals.update(realDt);
   ctx.floaters.update(realDt);
   ctx.world.update(realDt);
@@ -1095,6 +1212,8 @@ const SCENARIOS: Record<string, Scenario> = {
     ctx.enemies.clear();
   },
   completeDay: () => scavenge.debugComplete(),
+  /** Force N supply-run grabs (close calls) — for QA capture of the pip feedback. */
+  grabDay: (n: number) => scavenge.debugGrab(n),
   /** True once a found-at-cap weapon has forced an ARMORY FULL swap this run. */
   armorySwapOffered: () => armorySwapOffered,
   /** Force the next supply run to carry a weapon case (deterministic test finds). */

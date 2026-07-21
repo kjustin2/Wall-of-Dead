@@ -110,8 +110,17 @@ export class Input {
       if (code !== null) this.keys.delete(code);
     });
     window.addEventListener("blur", () => {
+      // Drop ALL transient input on focus loss so nothing sticks when focus
+      // returns mid-press (held keys, pad buttons, edges, mouse, wheel).
       this.keys.clear();
+      this.justPressed.clear();
+      this.padHeld.clear();
       this.mouseDown = false;
+      this.mouseJustDown = false;
+      this.wheel = 0;
+      this.padFire = false;
+      this.padFireJust = false;
+      this.padFirePrev = false;
     });
 
     canvas.addEventListener("pointermove", (e) => {
@@ -271,6 +280,9 @@ export class Input {
 
   updateAim(camera: THREE.Camera): void {
     const rect = this.canvas.getBoundingClientRect();
+    // A zero-size canvas (hidden during a transition) would feed NaN NDC into the
+    // raycast and poison aimWorld — keep the last valid aim instead.
+    if (rect.width === 0 || rect.height === 0) return;
     this.ndc.x = ((this.px - rect.left) / rect.width) * 2 - 1;
     this.ndc.y = -((this.py - rect.top) / rect.height) * 2 + 1;
     this.raycaster.setFromCamera(this.ndc, camera);

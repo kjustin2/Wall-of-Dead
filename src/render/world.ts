@@ -143,6 +143,7 @@ export class World {
   private groundMat!: THREE.MeshStandardMaterial;
   private winMat!: THREE.MeshBasicMaterial;
   private keyNight = new THREE.Color(0xaecbe8);
+  private keyDawn = new THREE.Color(0xffd9a8); // hoisted: setDawn runs every night frame
   private fogScale = 1;
   // Base scene-light levels set by setDawn — the lightning flash adds onto THESE
   // (absolute), so a flash can't accumulate when setDawn isn't called every frame
@@ -1292,7 +1293,7 @@ export class World {
     this.stage.scene.background = this.stage.fog.color;
     this.stage.hemiLight.intensity = lerp(0.26, 0.8, d);
     this.stage.keyLight.intensity = lerp(0.3, 1.05, d);
-    this.stage.keyLight.color.copy(this.keyNight).lerp(new THREE.Color(0xffd9a8), d);
+    this.stage.keyLight.color.copy(this.keyNight).lerp(this.keyDawn, d);
     // Remember the resting levels so the lightning flash adds absolutely, not
     // cumulatively (the supply-run/pause "lights stuck bright" bug).
     this.litHemi = this.stage.hemiLight.intensity;
@@ -1416,6 +1417,7 @@ export class World {
       if (this.lightningTimer <= 0) {
         this.lightningTimer = this.rng.range(11, 26);
         this.flashT = 0.2;
+        this.stage.flashExposure(0.32); // lightning as a real light event (+ exposure spike)
         this.onFlash?.();
       }
     }

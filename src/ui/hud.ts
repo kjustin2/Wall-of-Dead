@@ -3,6 +3,7 @@ import type { Ctx } from "../game/ctx";
 import type { AdrenalineZone } from "../core/events";
 import type { Scavenge } from "../minigames/scavenge";
 import { actLevelLabel, levelInfo } from "../game/acts";
+import { damp } from "../core/math";
 
 const THREAT_ARROWS = 6;
 
@@ -56,7 +57,8 @@ export class Hud {
         <div class="day-crates">SUPPLIES 0/0</div>
         <div class="bar bar-day"><div class="bar-fill"></div></div>
         <div class="stamina"><div class="stamina-fill"></div></div>
-        <div class="day-obj">SHIFT sprint (loud) · F flashlight · tuck into a bin to hide</div>
+        <div class="day-strikes"><span class="skey">✋ CLOSE CALLS</span><span class="strike"></span><span class="strike"></span><span class="strike"></span></div>
+        <div class="day-obj">SHIFT sprint (loud) · F light · hide in bins · 3 grabs = overrun</div>
         <div class="day-status"></div>
       </div>
       <div class="day-prompt"></div>
@@ -74,6 +76,7 @@ export class Hud {
         </div>
       </div>
       <div class="crosshair"><span class="ch-ring"></span><span class="hitmark"></span></div>
+      <div class="fps-meter"></div>
       <div class="dmg dmg--left"></div>
       <div class="dmg dmg--right"></div>
       <div class="dmg dmg--top"></div>
@@ -112,10 +115,12 @@ export class Hud {
       companions: q(".companions"),
       top: q(".hud-top"),
       bottom: q(".hud-bottom"),
+      hudCenter: q(".hud-center"),
       dayHud: q(".day-hud"),
       dayCrates: q(".day-crates"),
       dayFill: q(".bar-day .bar-fill"),
       stamina: q(".stamina-fill"),
+      dayStrikes: q(".day-strikes"),
       dayStatus: q(".day-status"),
       dayPrompt: q(".day-prompt"),
       dayAlarm: q(".day-alarm"),
@@ -128,6 +133,7 @@ export class Hud {
       cineName: q(".cine-name"),
       cineSub: q(".cine-sub"),
       crosshair: q(".crosshair"),
+      fps: q(".fps-meter"),
       hitmark: q(".hitmark"),
       dmgLeft: q(".dmg--left"),
       dmgRight: q(".dmg--right"),
@@ -143,6 +149,8 @@ export class Hud {
     this.ctx.events.on("SHOOT", () => this.fireKick());
     this.ctx.events.on("ZOMBIE_HIT", ({ headshot, killed, heavy }) => this.hitmarker(headshot, killed, heavy));
     this.ctx.events.on("ZOMBIE_KILLED", () => this.bumpStreak());
+    this.ctx.events.on("ADRENALINE_ZONE", ({ zone, prev }) => this.zonePulse(zone, prev));
+    this.ctx.events.on("WEAPON_SWAP", () => this.swapBounce());
     this.ctx.events.on("PLAYER_HIT", ({ dirX }) => this.damageFlash(dirX));
     this.ctx.events.on("CRATE_GRABBED", () => this.replay(this.el.dayHud, "day-hud--pickup"));
     // Big-beat additive screen flashes (color-coded by event).
@@ -159,6 +167,8 @@ export class Hud {
       strip.appendChild(cell);
       this.wallCells.push(cell);
     }
+    // Supply-run "close call" pips (deplete as you get grabbed).
+    this.strikePips = Array.from(this.el.dayStrikes.querySelectorAll(".strike"));
     // Off-screen threat arrow pool.
     for (let i = 0; i < THREAT_ARROWS; i++) {
       const a = document.createElement("div");
@@ -172,6 +182,7 @@ export class Hud {
   }
 
   private wallCells: HTMLElement[] = [];
+  private strikePips: HTMLElement[] = [];
   private threatArrows: HTMLElement[] = [];
   private segFracs: number[] = [];
   private pressure: number[] = [];
@@ -179,6 +190,8 @@ export class Hud {
   private cx = window.innerWidth / 2;
   private cy = window.innerHeight / 2;
   private hpGhostV = 1;
+  private hpFillV = 1; // eased HP bar fill (damped, so a hit drains with weight)
+  private adrFillV = 35; // eased adrenaline bar fill
   private lastKills = -1;
   private streak = 0;
   private streakT = 0;
@@ -189,6 +202,7 @@ export class Hud {
   private lastAmmoRes = "";
   private lastDawnLabel = "";
   private lastDayStatus = "";
+  private lastGrabs = -1;
   private lastCellFrac: number[] = [];
 
   /** Brief additive full-screen flash, color-coded by the event. Honors the
@@ -224,6 +238,28 @@ export class Hud {
     h.className = `hitmark ${headshot ? "hitmark--crit" : ""} ${killed ? "hitmark--kill" : ""} ${heavy ? "hitmark--heavy" : ""}`;
     void h.offsetWidth;
     h.classList.add("hitmark--show");
+    // The ring itself reacts: a quick scale-pop on a confirmed hit, gold on a crit.
+    const ch = this.el.crosshair;
+    ch.classList.remove("crosshair--hit", "crosshair--crit");
+    void ch.offsetWidth;
+    ch.classList.add("crosshair--hit");
+    if (headshot) ch.classList.add("crosshair--crit");
+  }
+
+  private static ZONE_ORDER: AdrenalineZone[] = ["shaken", "steady", "focused", "surge"];
+  /** A felt beat when the meter crosses UP a tier (steady→focused→surge): a brief
+   * scale-pulse + zone-tinted glow on the meter. Silent on a drop. */
+  private zonePulse(zone: AdrenalineZone, prev: AdrenalineZone): void {
+    if (this.mode !== "night") return;
+    if (Hud.ZONE_ORDER.indexOf(zone) <= Hud.ZONE_ORDER.indexOf(prev)) return;
+    this.el.hudCenter.style.setProperty("--zone", ZONE_COLOR[zone]);
+    this.replay(this.el.hudCenter, "adr-zone--up");
+  }
+
+  /** A quick bounce on the weapon name when you swap. */
+  private swapBounce(): void {
+    if (this.mode !== "night") return;
+    this.replay(this.el.wname, "weapon-name--swap");
   }
 
   private bumpStreak(): void {
@@ -253,6 +289,7 @@ export class Hud {
     this.el.bossCine.classList.remove("boss-cine--on", "boss-cine--kill");
     // Drop the per-frame DOM caches so the first frame of the new scene repaints.
     this.lastWname = this.lastAmmoMag = this.lastAmmoRes = this.lastDawnLabel = this.lastDayStatus = "";
+    this.lastGrabs = -1;
     this.lastCellFrac.length = 0;
     const night = mode === "night";
     const day = mode === "day";
@@ -274,6 +311,8 @@ export class Hud {
     if (night) {
       // Fresh night: reset the reactive HUD trails.
       this.hpGhostV = 1;
+      this.hpFillV = 1;
+      this.adrFillV = 35;
       this.lastKills = -1;
       this.streak = 0;
       this.streakT = 0;
@@ -281,6 +320,21 @@ export class Hud {
       this.el.streakBadge.classList.remove("streak-badge--show", "streak-badge--big");
     }
     if (!night) this.el.streakBadge.classList.remove("streak-badge--show", "streak-badge--big");
+  }
+
+  private lastFps = "";
+  /** Corner FPS readout, driven by the main loop. Only writes the DOM on change. */
+  setFps(visible: boolean, text: string): void {
+    const f = this.el.fps;
+    if (!visible) {
+      if (f.style.display !== "none") f.style.display = "none";
+      return;
+    }
+    if (f.style.display !== "block") f.style.display = "block";
+    if (text !== this.lastFps) {
+      f.textContent = text;
+      this.lastFps = text;
+    }
   }
 
   banner(text: string, sub = ""): void {
@@ -365,7 +419,10 @@ export class Hud {
     this.el.levelChip.className = `level-chip level-chip--${level.supplyTheme}`;
     const hpFrac = Math.max(0, c.player.hp / c.player.maxHp);
     const wallFrac = c.wall.integrityFrac();
-    this.el.hpFill.style.width = `${hpFrac * 100}%`;
+    // Eased fill: the bar slides toward the real value with weight rather than
+    // snapping, while the red ghost trail still lags further behind after a hit.
+    this.hpFillV = damp(this.hpFillV, hpFrac, 12, dt);
+    this.el.hpFill.style.width = `${this.hpFillV * 100}%`;
     // Ghost trail: a red chip that lags the real value down after damage.
     this.hpGhostV = this.hpGhostV > hpFrac ? Math.max(hpFrac, this.hpGhostV - dt * 0.7) : hpFrac;
     this.el.hpGhost.style.width = `${this.hpGhostV * 100}%`;
@@ -405,7 +462,8 @@ export class Hud {
     }
 
     const adr = c.adrenaline;
-    this.el.adrFill.style.width = `${adr.value}%`;
+    this.adrFillV = damp(this.adrFillV, adr.value, 16, dt);
+    this.el.adrFill.style.width = `${this.adrFillV}%`;
     const color = ZONE_COLOR[adr.zone];
     this.el.adrFill.style.background = color;
     if (adr.canCrash()) {
@@ -584,14 +642,24 @@ export class Hud {
     this.el.dayCrates.style.color = s.spotted || low ? "#ff5a3c" : "#ffce7a";
     this.el.stamina.style.width = `${s.stamina * 100}%`;
 
+    // Close-call pips: light → spent as you get grabbed; the newest flashes red.
+    if (s.grabs !== this.lastGrabs) {
+      this.strikePips.forEach((p, i) => {
+        const used = i < s.grabs;
+        p.classList.toggle("strike--used", used);
+        if (used && i === s.grabs - 1) this.replay(p, "strike--hit");
+      });
+      this.lastGrabs = s.grabs;
+    }
+
     const hidden = s.promptText === "HIDDEN";
-    let status = s.lightOn ? "LIGHT ON" : "LIGHT OFF";
+    let status = "SCAVENGING";
     if (s.spotted) status = "SPOTTED - BREAK LINE";
     else if (s.extractOpen) status = "EXIT OPEN";
     else if (hidden) status = "HIDDEN";
     if (status !== this.lastDayStatus) {
       this.el.dayStatus.textContent = status;
-      this.el.dayStatus.className = `day-status ${s.spotted ? "day-status--danger" : s.extractOpen ? "day-status--exit" : hidden ? "day-status--hidden" : s.lightOn ? "day-status--on" : "day-status--off"}`;
+      this.el.dayStatus.className = `day-status ${s.spotted ? "day-status--danger" : s.extractOpen ? "day-status--exit" : hidden ? "day-status--hidden" : "day-status--on"}`;
       this.lastDayStatus = status;
     }
 

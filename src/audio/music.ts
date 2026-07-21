@@ -117,6 +117,10 @@ export class Music {
     if (s.el) {
       try {
         s.el.pause();
+        // Detach the stream so the decoder/media element can be reclaimed instead
+        // of lingering paused-but-loaded across every cue change.
+        s.el.src = "";
+        s.el.load();
       } catch {
         /* noop */
       }

@@ -73,6 +73,7 @@ export class Player {
   private strideNod = 0; // subtle fore/aft torso march while walking
   private recoil = 0; // 0..1 firing kick on the gun rig
   private recoilScale = 1;
+  private reticleBloom = 1; // aim-ring spread feedback (recoil heat + base cone)
 
   constructor(private ctx: Ctx, scene: THREE.Scene) {
     const y = FIELD.rampartHeight;
@@ -466,9 +467,13 @@ export class Player {
     this.yaw = Math.atan2(-dx, -dz);
     this.aimRig.rotation.y = this.yaw;
 
-    // World aim reticle follows the cursor on the field
+    // World aim reticle follows the cursor on the field. The ring blooms with the
+    // current spread (recoil heat + the weapon's base cone) and tightens when you
+    // let off — so recoil growth is legible right where shots land.
     this.aimMarker.position.set(input.aimWorld.x, 0.08, input.aimWorld.z);
-    const pulse = 1 + Math.sin(this.t * 8) * 0.08;
+    const spreadNow = (lo0 ? lo0.def.spread : 0) + this.heat;
+    this.reticleBloom = damp(this.reticleBloom, clamp(1 + spreadNow * 5, 1, 3), 10, dt);
+    const pulse = (1 + Math.sin(this.t * 8) * 0.08) * this.reticleBloom;
     this.aimMarker.scale.set(pulse, pulse, pulse);
 
     // Flashlight intensity tracks the meter + muzzle flash (kept moderate so the
@@ -489,7 +494,9 @@ export class Player {
       if (this.reloadTimer <= 0) this.finishReload();
     }
     // Hold E (context): revive a downed ally nearby, else patch the wall with a kit.
-    this.atBreach = this.alive && this.ctx.wall.needsRepairAt(this.x);
+    // The Iron Wall modifier forbids repairs entirely (you hold what you've got).
+    const noRepairs = this.ctx.run.mods.ironWall;
+    this.atBreach = this.alive && !noRepairs && this.ctx.wall.needsRepairAt(this.x);
     this.repairing = false;
     this.repairFrac = this.repairT / REPAIR_TIME;
     if (this.alive && input.down("KeyE") && this.ctx.companions.reviveTick(this.x, dt)) {
@@ -497,6 +504,7 @@ export class Player {
       this.repairT = 0;
     } else if (
       this.alive &&
+      !noRepairs &&
       input.down("KeyE") &&
       this.ctx.wall.needsRepairAt(this.x) &&
       this.ctx.run.repairKits > 0
@@ -644,7 +652,16 @@ export class Player {
       this.ctx.events.emit("SFX", { id: "dry_fire" });
       this.ctx.fx.burst(mx, FLY_Y, mz, 6, 0x888888, { speed: 3, up: 4, life: 0.6, size: 6, drag: 1 });
     }
-    this.ctx.fx.cone(mx, FLY_Y, mz, sx, sz, 6, def.color, 20);
+    // Muzzle flash. Buckshot throws a WIDE 3-lobe spread so it reads as a fan of
+    // pellets, not one jet; everything else fires a single tight cone.
+    if (def.pellets > 1) {
+      for (const off of [-1, 0, 1]) {
+        const a = base + off * def.spread * 1.2;
+        this.ctx.fx.cone(mx, FLY_Y, mz, Math.sin(a), Math.cos(a), 4, def.color, 17);
+      }
+    } else {
+      this.ctx.fx.cone(mx, FLY_Y, mz, sx, sz, 6, def.color, 20);
+    }
     // Muzzle smoke puff + an ejected shell casing
     this.ctx.fx.burst(mx, FLY_Y, mz, 2, 0x6a6a6a, { speed: 1.5, up: 1.5, life: 0.5, size: 5, drag: 1.2 });
     this.ctx.fx.burst(this.x + 0.3, 1.5, this.z, 1, 0xc9a24a, { speed: 3, up: 2.5, life: 0.8, size: 4, drag: 1 });
@@ -653,7 +670,11 @@ export class Player {
     this.recoil = clamp(this.recoil + 0.55, 0, 1);
     this.recoilScale = 0.7 + Math.min(1.3, def.shake * 4);
     this.ctx.cam.addTrauma(def.shake);
-    this.ctx.cam.kick(-sx, -sz, def.shake * 8);
+    // Heavy shots (shotgun/rifle/magnum) get a real backward kick + a brief FOV
+    // punch so the gun has recoil WEIGHT; light autos stay flat and controllable.
+    const heavyShot = def.shake >= 0.12;
+    this.ctx.cam.kick(-sx, -sz, def.shake * (heavyShot ? 16 : 8));
+    if (heavyShot) this.ctx.cam.pulseFov(Math.min(0.5, def.shake * 2));
     this.ctx.events.emit("SHOOT", { weapon: def.id, x: mx, y: FLY_Y, z: mz });
     this.ctx.events.emit("SFX", { id: def.sfx });
 
@@ -691,9 +712,18 @@ export class Player {
           this.ctx.combat.damageZombie(z, 99999, true, true);
           this.ctx.events.emit("TIME_HITSTOP", { s: 0.06 });
           this.ctx.floaters.spawn(z.x, z.headY, z.z, "EXECUTED", "crit");
+        } else if (z.isLunging) {
+          // Counter a runner mid-lunge — a read that stacks knockback + extra hurt.
+          z.repel(16);
+          this.ctx.combat.damageZombie(z, 20, false, true);
+          this.ctx.floaters.spawn(z.x, z.headY, z.z, "COUNTER", "crit");
+          this.ctx.events.emit("TIME_HITSTOP", { s: 0.05 });
+          this.ctx.fx.burst(z.x, 1.2, z.z, 12, 0xbcd0e6, { speed: 11, up: 4, life: 0.35, size: 6 });
         } else {
           z.repel(8);
           this.ctx.combat.damageZombie(z, 12, false, true);
+          // A heavy barely budges — sparks + trauma stay full so it reads as "held".
+          if (z.heavy) this.ctx.fx.burst(z.x, 1.3, z.z, 7, 0xbcd0e6, { speed: 5, up: 3, life: 0.32, size: 5 });
         }
         hit = true;
       }

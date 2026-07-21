@@ -5,12 +5,21 @@ import { DIFFICULTY, type DifficultyId } from "../config";
 import { BINDABLE, GAMEPAD_REF } from "../core/input";
 import type { Density } from "../minigames/scavenge";
 import type { SupplyTheme } from "../game/acts";
+import type { RunMods } from "../game/run";
 
 export interface Settings {
   volume: number;
   music: number;
   muted: boolean;
   quality: Quality;
+  /** Resolution scale: render at this fraction of native, then upscale (0.5–1.25). */
+  renderScale: number;
+  /** Borderless fullscreen via the Fullscreen API. */
+  fullscreen: boolean;
+  /** Brightness / gamma — scales the renderer's ACES exposure (0.6–1.5). */
+  brightness: number;
+  /** Show a live FPS readout in the corner. */
+  showFps: boolean;
   shake: number;
   floaters: boolean;
   reducedFx: boolean;
@@ -24,6 +33,9 @@ export interface Settings {
   /** Set once the player picks a quality, so boot auto-detect won't override. */
   qualityTouched: boolean;
 }
+
+/** Which group of settings the panel is currently showing. */
+type SettingsTab = "display" | "audio" | "game" | "access" | "controls";
 
 const KEY = "wod-settings";
 
@@ -44,6 +56,10 @@ function defaultSettings(): Settings {
     music: 0.5,
     muted: false,
     quality: "high",
+    renderScale: 1,
+    fullscreen: false,
+    brightness: 1,
+    showFps: false,
     shake: 1,
     floaters: true,
     reducedFx: false,
@@ -132,6 +148,18 @@ export class Menus {
   constructor(private ctx: Ctx) {
     this.root = document.getElementById("overlay") as HTMLElement;
     this.settings = loadSettings();
+    // Keep the setting + checkbox in sync when fullscreen changes by any route
+    // (the toggle, the OS, or pressing Esc to leave). requestFullscreen itself
+    // needs a user gesture, so it's only ever called from the checkbox handler.
+    document.addEventListener("fullscreenchange", () => {
+      const on = !!document.fullscreenElement;
+      if (on !== this.settings.fullscreen) {
+        this.settings.fullscreen = on;
+        saveSettings(this.settings);
+      }
+      const cb = this.root.querySelector(".set-fullscreen") as HTMLInputElement | null;
+      if (cb) cb.checked = on;
+    });
   }
 
   applySettings(): void {
@@ -140,6 +168,8 @@ export class Menus {
     this.ctx.sfx.setMuted(s.muted);
     this.ctx.music.setVolume(s.muted ? 0 : s.music);
     this.ctx.stage.applyQuality(s.quality);
+    this.ctx.stage.setRenderScale(s.renderScale);
+    this.ctx.stage.setExposure(s.brightness);
     this.ctx.cam.shakeScale = s.shake;
     this.ctx.floaters.enabled = s.floaters;
     this.ctx.stage.setReduced(s.reducedFx);
@@ -151,6 +181,23 @@ export class Menus {
     document.body.classList.toggle("cb", s.colorblind);
     document.body.classList.toggle("bigtext", s.bigText);
     document.body.classList.toggle("reduced", s.reducedFx);
+  }
+
+  /** The settings group last viewed — preserved across the rebind repaint. */
+  private settingsTab: SettingsTab = "display";
+
+  /** Enter/leave borderless fullscreen. Must be called from a user gesture (the
+   * checkbox change), or the browser rejects the request. */
+  private requestFullscreen(want: boolean): void {
+    try {
+      if (want && !document.fullscreenElement) {
+        void document.documentElement.requestFullscreen?.();
+      } else if (!want && document.fullscreenElement) {
+        void document.exitFullscreen?.();
+      }
+    } catch {
+      /* unsupported or blocked — leave the setting, do nothing */
+    }
   }
 
   /** An armed key-rebind capture listener, torn down on any repaint/close so it
@@ -207,7 +254,10 @@ export class Menus {
       timers.forEach((t) => window.clearTimeout(t));
       timers.length = 0;
     };
+    let finished = false;
     const finish = () => {
+      if (finished) return; // onDone() is a scene transition — never run it twice
+      finished = true;
       clearTimers();
       this.root.removeEventListener("click", advance);
       window.removeEventListener("keydown", onKey);
@@ -218,12 +268,18 @@ export class Menus {
         finish();
         return;
       }
-      lineEl.textContent = lines[i];
+      const text = lines[i];
+      lineEl.textContent = text;
       lineEl.classList.remove("story-line--show");
       void lineEl.offsetWidth;
       lineEl.classList.add("story-line--show");
       i++;
-      timers.push(window.setTimeout(show, 4200));
+      // Hold each line long enough to actually read it — a relaxed cinematic pace
+      // scaled to the line's length, with a generous floor and a sane cap. Click
+      // or any key still advances early for anyone who reads faster.
+      const words = text.trim().split(/\s+/).length;
+      const hold = Math.min(9000, Math.max(5200, words * 440 + 1400));
+      timers.push(window.setTimeout(show, hold));
     };
     const advance = () => {
       clearTimers();
@@ -247,8 +303,9 @@ export class Menus {
       </div>`);
   }
 
-  showTitle(onStart: () => void, onSettings: () => void, onContinue?: () => void): void {
+  showTitle(onStart: () => void, onSettings: () => void, onContinue?: () => void, onChallenges?: () => void): void {
     const cont = onContinue ? `<button class="mbtn mbtn--primary act-continue">CONTINUE RUN</button>` : "";
+    const chal = onChallenges ? `<button class="mbtn act-challenges">CHALLENGES</button>` : "";
     this.paint(`
       <div class="screen screen--title">
         <h1 class="title">WALL <span>OF</span> DEAD</h1>
@@ -257,14 +314,59 @@ export class Menus {
           ${cont}
           <button class="mbtn ${onContinue ? "" : "mbtn--primary"} act-start">${onContinue ? "NEW RUN" : "BEGIN"}</button>
           <button class="mbtn act-help">TUTORIAL</button>
+          ${chal}
           <button class="mbtn act-settings">SETTINGS</button>
         </div>
-        <p class="controls">A / D move &nbsp;·&nbsp; MOUSE aim &nbsp;·&nbsp; CLICK fire &nbsp;·&nbsp; R reload &nbsp;·&nbsp; E repair/revive &nbsp;·&nbsp; SPACE shove &nbsp;·&nbsp; F frag &nbsp;·&nbsp; 🎮 gamepad ready</p>
+        <p class="controls">A / D move &nbsp;·&nbsp; MOUSE aim &nbsp;·&nbsp; CLICK fire &nbsp;·&nbsp; R reload &nbsp;·&nbsp; E repair/revive &nbsp;·&nbsp; SPACE shove &nbsp;·&nbsp; F frag &nbsp;·&nbsp; C order allies &nbsp;·&nbsp; 🎮 gamepad ready</p>
       </div>`);
     this.btn(".act-start", onStart);
     if (onContinue) this.btn(".act-continue", onContinue);
-    this.btn(".act-help", () => this.showHelp(() => this.showTitle(onStart, onSettings, onContinue)));
+    if (onChallenges) this.btn(".act-challenges", onChallenges);
+    this.btn(".act-help", () => this.showHelp(() => this.showTitle(onStart, onSettings, onContinue, onChallenges)));
     this.btn(".act-settings", onSettings);
+  }
+
+  /** Opt-in challenge modifiers, chosen before a run. Toggling updates a local
+   *  copy; START launches with them, BACK returns to the title. */
+  showModifiers(current: RunMods, onStart: (m: RunMods) => void, onBack: () => void): void {
+    const sel: RunMods = { ...current };
+    const defs: { key: keyof RunMods; name: string; desc: string }[] = [
+      { key: "ironWall", name: "IRON WALL", desc: "No repairs — the barricade you start each night with is all you get." },
+      { key: "stormFront", name: "STORM FRONT", desc: "Supply runs are shorter and far busier — grab what you can and go." },
+      { key: "packTactics", name: "PACK TACTICS", desc: "Supply-run guards see farther and give chase harder." },
+    ];
+    const render = () => {
+      const rows = defs
+        .map(
+          (d) => `
+        <button class="mod-row ${sel[d.key] ? "mod-row--on" : ""}" data-k="${d.key}">
+          <span class="mod-check">${sel[d.key] ? "☑" : "☐"}</span>
+          <span class="mod-text"><b>${d.name}</b><span>${d.desc}</span></span>
+        </button>`
+        )
+        .join("");
+      this.paint(`
+        <div class="screen screen--help">
+          <h2 class="panel-title">CHALLENGE MODIFIERS</h2>
+          <p class="subtitle">Optional. Stack any, or none — they add bite for the texture, not a score. Saved for next time.</p>
+          <div class="mod-list">${rows}</div>
+          <div class="menu">
+            <button class="mbtn mbtn--primary act-modstart">START RUN ▶</button>
+            <button class="mbtn act-modback">BACK</button>
+          </div>
+        </div>`);
+      this.root.querySelectorAll(".mod-row").forEach((el) =>
+        el.addEventListener("click", () => {
+          const k = (el as HTMLElement).dataset.k as keyof RunMods;
+          sel[k] = !sel[k];
+          this.ctx.events.emit("SFX", { id: "ui_click" });
+          render();
+        })
+      );
+      this.btn(".act-modstart", () => onStart(sel));
+      this.btn(".act-modback", onBack);
+    };
+    render();
   }
 
   /** How-to-play + controls reference, reachable from the title and pause. */
@@ -293,7 +395,6 @@ export class Menus {
             <ul>
               <li><b>WASD</b> — move (you sneak; the map is dark)</li>
               <li><b>Shift</b> — sprint (short — and <b>loud</b>)</li>
-              <li><b>F</b> — toggle flashlight (off = stealthier, blind)</li>
               <li>Tuck into a <b>dumpster</b> to break a chase</li>
               <li>Grab <b>supplies</b> &amp; <b>repair kits</b>, then hit the <b>exit</b></li>
               <li>Stay out of the sight cones — <b>get caught and the run ends</b></li>
@@ -343,101 +444,176 @@ export class Menus {
     this.btn(".act-title", onTitle);
   }
 
+  /** Build the rows for one settings tab. */
+  private settingsPanel(tab: SettingsTab): string {
+    const s = this.settings;
+    const check = (cls: string, on: boolean) => `<input type="checkbox" class="${cls}" ${on ? "checked" : ""}>`;
+    const range = (cls: string, min: number, max: number, step: number, v: number) =>
+      `<input type="range" min="${min}" max="${max}" step="${step}" value="${v}" class="${cls}">`;
+    const row = (label: string, control: string, note = "") =>
+      `<div class="settings-row"><label>${label}${note ? `<span class="set-note">${note}</span>` : ""}</label>${control}</div>`;
+    if (tab === "display") {
+      const rscale = `
+        <select class="set-rscale">
+          <option value="0.5" ${s.renderScale === 0.5 ? "selected" : ""}>50% — Performance</option>
+          <option value="0.67" ${s.renderScale === 0.67 ? "selected" : ""}>67%</option>
+          <option value="0.75" ${s.renderScale === 0.75 ? "selected" : ""}>75% — Balanced</option>
+          <option value="1" ${s.renderScale === 1 ? "selected" : ""}>100% — Native</option>
+          <option value="1.25" ${s.renderScale === 1.25 ? "selected" : ""}>125% — Ultra</option>
+        </select>`;
+      const quality = `
+        <select class="set-quality">
+          <option value="low" ${s.quality === "low" ? "selected" : ""}>Low</option>
+          <option value="medium" ${s.quality === "medium" ? "selected" : ""}>Medium</option>
+          <option value="high" ${s.quality === "high" ? "selected" : ""}>High</option>
+        </select>`;
+      return `<div class="settings-grid">
+        ${row("Fullscreen", check("set-fullscreen", s.fullscreen))}
+        ${row("Resolution", rscale, "render scale")}
+        ${row("Graphics quality", quality, "post-processing & shadows")}
+        ${row("Brightness", range("set-bright", 0.6, 1.5, 0.05, s.brightness))}
+        ${row("FPS counter", check("set-fps", s.showFps))}
+        ${row("Field of view", range("set-fov", 44, 66, 1, s.fov))}
+        ${row("Screen shake", range("set-shake", 0, 1.5, 0.1, s.shake))}
+      </div>`;
+    }
+    if (tab === "audio") {
+      return `<div class="settings-grid">
+        ${row("SFX volume", range("set-vol", 0, 1, 0.05, s.volume))}
+        ${row("Music volume", range("set-music", 0, 1, 0.05, s.music))}
+        ${row("Mute all", check("set-mute", s.muted))}
+      </div>`;
+    }
+    if (tab === "game") {
+      const diff = `
+        <select class="set-diff">
+          <option value="story" ${s.difficulty === "story" ? "selected" : ""}>Story (gentler)</option>
+          <option value="normal" ${s.difficulty === "normal" ? "selected" : ""}>Normal</option>
+          <option value="nightmare" ${s.difficulty === "nightmare" ? "selected" : ""}>Nightmare</option>
+        </select>`;
+      return `<div class="settings-grid">
+        ${row("Difficulty", diff)}
+        ${row("Aim assist", check("set-aim", s.aimAssist))}
+        ${row("Damage numbers", check("set-floaters", s.floaters))}
+      </div>`;
+    }
+    if (tab === "access") {
+      return `<div class="settings-grid">
+        ${row("Reduced flashing", check("set-reduced", s.reducedFx))}
+        ${row("Colorblind palette", check("set-cb", s.colorblind))}
+        ${row("Large text", check("set-big", s.bigText))}
+      </div>`;
+    }
+    // controls
+    return `<div class="settings-grid">
+      <div class="rebind-head">KEYBOARD — click a key to rebind</div>
+      ${BINDABLE.map((b) => {
+        const phys = s.rebinds[b.id] ?? b.id;
+        return `<div class="settings-row"><label>${b.label}</label><button class="mbtn mbtn--sm act-rebind" data-code="${b.id}">${prettyKey(phys)}</button></div>`;
+      }).join("")}
+      <div class="rebind-head">GAMEPAD (reference)</div>
+      ${GAMEPAD_REF.map((g) => `<div class="settings-row settings-row--ref"><label>${g.label}</label><span class="pad-key">${g.pad}</span></div>`).join("")}
+    </div>`;
+  }
+
   showSettings(onBack: () => void): void {
     const s = this.settings;
+    const tab = this.settingsTab;
+    const TABS: { id: SettingsTab; label: string }[] = [
+      { id: "display", label: "DISPLAY" },
+      { id: "audio", label: "AUDIO" },
+      { id: "game", label: "GAMEPLAY" },
+      { id: "access", label: "ACCESSIBILITY" },
+      { id: "controls", label: "CONTROLS" },
+    ];
+    const tabBar = TABS.map(
+      (t) => `<button class="settings-tab ${t.id === tab ? "settings-tab--active" : ""}" data-tab="${t.id}">${t.label}</button>`
+    ).join("");
     this.paint(`
       <div class="screen screen--settings">
         <h2 class="panel-title">SETTINGS</h2>
-        <div class="settings-grid">
-        <div class="settings-row"><label>Difficulty</label>
-          <select class="set-diff">
-            <option value="story" ${s.difficulty === "story" ? "selected" : ""}>Story (gentler)</option>
-            <option value="normal" ${s.difficulty === "normal" ? "selected" : ""}>Normal</option>
-            <option value="nightmare" ${s.difficulty === "nightmare" ? "selected" : ""}>Nightmare</option>
-          </select>
-        </div>
-        <div class="settings-row"><label>Aim assist</label><input type="checkbox" class="set-aim" ${s.aimAssist ? "checked" : ""}></div>
-        <div class="settings-row"><label>SFX volume</label><input type="range" min="0" max="1" step="0.05" value="${s.volume}" class="set-vol"></div>
-        <div class="settings-row"><label>Music volume</label><input type="range" min="0" max="1" step="0.05" value="${s.music}" class="set-music"></div>
-        <div class="settings-row"><label>Mute</label><input type="checkbox" class="set-mute" ${s.muted ? "checked" : ""}></div>
-        <div class="settings-row"><label>Quality</label>
-          <select class="set-quality">
-            <option value="low" ${s.quality === "low" ? "selected" : ""}>Low</option>
-            <option value="medium" ${s.quality === "medium" ? "selected" : ""}>Medium</option>
-            <option value="high" ${s.quality === "high" ? "selected" : ""}>High</option>
-          </select>
-        </div>
-        <div class="settings-row"><label>Screen shake</label><input type="range" min="0" max="1.5" step="0.1" value="${s.shake}" class="set-shake"></div>
-        <div class="settings-row"><label>Field of view</label><input type="range" min="44" max="66" step="1" value="${s.fov}" class="set-fov"></div>
-        <div class="settings-row"><label>Damage numbers</label><input type="checkbox" class="set-floaters" ${s.floaters ? "checked" : ""}></div>
-        <div class="settings-row"><label>Reduced flashing</label><input type="checkbox" class="set-reduced" ${s.reducedFx ? "checked" : ""}></div>
-        <div class="settings-row"><label>Colorblind palette</label><input type="checkbox" class="set-cb" ${s.colorblind ? "checked" : ""}></div>
-        <div class="settings-row"><label>Large text</label><input type="checkbox" class="set-big" ${s.bigText ? "checked" : ""}></div>
-        <div class="rebind-head">CONTROLS — KEYBOARD (click to rebind)</div>
-        ${BINDABLE.map((b) => {
-          const phys = s.rebinds[b.id] ?? b.id;
-          return `<div class="settings-row"><label>${b.label}</label><button class="mbtn mbtn--sm act-rebind" data-code="${b.id}">${prettyKey(phys)}</button></div>`;
-        }).join("")}
-        <div class="rebind-head">CONTROLS — GAMEPAD</div>
-        ${GAMEPAD_REF.map((g) => `<div class="settings-row settings-row--ref"><label>${g.label}</label><span class="pad-key">${g.pad}</span></div>`).join("")}
-        </div>
+        <div class="settings-tabs">${tabBar}</div>
+        <div class="settings-panel">${this.settingsPanel(tab)}</div>
         <div class="menu menu--row">
           <button class="mbtn act-defaults">RESTORE DEFAULTS</button>
           <button class="mbtn mbtn--primary act-back">BACK</button>
         </div>
       </div>`);
+
+    // Tab switching keeps the rest of the panel state (the field persists).
+    this.root.querySelectorAll(".settings-tab").forEach((el) => {
+      el.addEventListener("click", () => {
+        const id = el.getAttribute("data-tab") as SettingsTab | null;
+        if (!id || id === this.settingsTab) return;
+        this.settingsTab = id;
+        this.ctx.events.emit("SFX", { id: "ui_click" });
+        this.showSettings(onBack);
+      });
+    });
+
     this.btn(".act-defaults", () => {
       this.settings = { ...defaultSettings() };
       this.applySettings();
+      this.requestFullscreen(false); // a click is a valid gesture to drop fullscreen
       saveSettings(this.settings);
       this.showSettings(onBack);
     });
-    const vol = this.root.querySelector(".set-vol") as HTMLInputElement;
-    const music = this.root.querySelector(".set-music") as HTMLInputElement;
-    const mute = this.root.querySelector(".set-mute") as HTMLInputElement;
-    const qual = this.root.querySelector(".set-quality") as HTMLSelectElement;
-    const shake = this.root.querySelector(".set-shake") as HTMLInputElement;
-    vol.addEventListener("input", () => {
-      s.volume = parseFloat(vol.value);
-      this.applySettings();
-      saveSettings(s);
-    });
-    music.addEventListener("input", () => {
-      s.music = parseFloat(music.value);
-      this.applySettings();
-      saveSettings(s);
-    });
-    mute.addEventListener("change", () => {
-      s.muted = mute.checked;
-      this.applySettings();
-      saveSettings(s);
-    });
-    qual.addEventListener("change", () => {
-      s.quality = qual.value as Quality;
-      s.qualityTouched = true; // an explicit choice — disable boot auto-detect
-      this.applySettings();
-      saveSettings(s);
-    });
-    shake.addEventListener("input", () => {
-      s.shake = parseFloat(shake.value);
-      this.applySettings();
-      saveSettings(s);
-    });
-    const bind = (sel: string, set: (el: HTMLInputElement) => void) => {
-      const el = this.root.querySelector(sel) as HTMLInputElement;
-      el.addEventListener(el.type === "checkbox" ? "change" : "input", () => {
+
+    // Wire whichever controls exist on the active tab (null-safe — only the
+    // current tab's elements are in the DOM).
+    const wire = (sel: string, evt: "input" | "change", set: (el: HTMLInputElement) => void) => {
+      const el = this.root.querySelector(sel) as HTMLInputElement | null;
+      if (!el) return;
+      el.addEventListener(evt, () => {
         set(el);
         this.applySettings();
         saveSettings(s);
       });
     };
-    const diff = this.root.querySelector(".set-diff") as HTMLSelectElement;
-    diff.addEventListener("change", () => {
-      s.difficulty = diff.value as DifficultyId;
-      this.applySettings();
-      saveSettings(s);
-    });
-    bind(".set-aim", (el) => (s.aimAssist = el.checked));
+    const wireSelect = (sel: string, set: (el: HTMLSelectElement) => void) => {
+      const el = this.root.querySelector(sel) as HTMLSelectElement | null;
+      if (!el) return;
+      el.addEventListener("change", () => {
+        set(el);
+        this.applySettings();
+        saveSettings(s);
+      });
+    };
+
+    // Display
+    const fs = this.root.querySelector(".set-fullscreen") as HTMLInputElement | null;
+    if (fs)
+      fs.addEventListener("change", () => {
+        s.fullscreen = fs.checked;
+        this.requestFullscreen(fs.checked); // the change event is the user gesture
+        saveSettings(s);
+      });
+    wireSelect(".set-rscale", (el) => (s.renderScale = parseFloat(el.value)));
+    const qual = this.root.querySelector(".set-quality") as HTMLSelectElement | null;
+    if (qual)
+      qual.addEventListener("change", () => {
+        s.quality = qual.value as Quality;
+        s.qualityTouched = true; // an explicit choice — disable boot auto-detect
+        this.applySettings();
+        saveSettings(s);
+      });
+    wire(".set-bright", "input", (el) => (s.brightness = parseFloat(el.value)));
+    wire(".set-fps", "change", (el) => (s.showFps = el.checked));
+    wire(".set-fov", "input", (el) => (s.fov = parseFloat(el.value)));
+    wire(".set-shake", "input", (el) => (s.shake = parseFloat(el.value)));
+    // Audio
+    wire(".set-vol", "input", (el) => (s.volume = parseFloat(el.value)));
+    wire(".set-music", "input", (el) => (s.music = parseFloat(el.value)));
+    wire(".set-mute", "change", (el) => (s.muted = el.checked));
+    // Gameplay
+    wireSelect(".set-diff", (el) => (s.difficulty = el.value as DifficultyId));
+    wire(".set-aim", "change", (el) => (s.aimAssist = el.checked));
+    wire(".set-floaters", "change", (el) => (s.floaters = el.checked));
+    // Accessibility
+    wire(".set-reduced", "change", (el) => (s.reducedFx = el.checked));
+    wire(".set-cb", "change", (el) => (s.colorblind = el.checked));
+    wire(".set-big", "change", (el) => (s.bigText = el.checked));
+
     // Re-bind: click → capture the next key as THIS action's key (a real
     // replacement). If that key already runs another action, the two swap so no
     // action is ever left unbound.
@@ -467,11 +643,6 @@ export class Menus {
         window.addEventListener("keydown", onKey, true);
       });
     });
-    bind(".set-fov", (el) => (s.fov = parseFloat(el.value)));
-    bind(".set-floaters", (el) => (s.floaters = el.checked));
-    bind(".set-reduced", (el) => (s.reducedFx = el.checked));
-    bind(".set-cb", (el) => (s.colorblind = el.checked));
-    bind(".set-big", (el) => (s.bigText = el.checked));
     this.btn(".act-back", onBack);
   }
 

@@ -1,13 +1,11 @@
 # Dependencies
 node_modules/
-package-lock.json
-yarn.lock
-pnpm-lock.yaml
 
 # Build output
 dist/
 build/
 out/
+release/
 .cache/
 .parcel-cache/
 .vite/
@@ -36,6 +34,8 @@ coverage/
 test-results/
 playwright-report/
 shots/
+tmp/
+*.tsbuildinfo
 
 # Local Claude settings
 .claude/settings.local.json

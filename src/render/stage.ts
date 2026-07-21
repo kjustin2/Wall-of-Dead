@@ -42,6 +42,12 @@ export class Stage {
   private baseVignette = 0.62;
   private baseAberration = 0.0011;
   private reduced = false;
+  /** User render-scale (resolution) multiplier on top of the quality DPR cap. */
+  private renderScale = 1;
+  /** Brightness exposure the user picked; the lightning flash adds onto this. */
+  private baseExposure = 1;
+  /** Transient additive exposure spike for a lightning flash (decays in update). */
+  private lightningBoost = 0;
 
   constructor(canvas: HTMLCanvasElement) {
     this.renderer = new THREE.WebGLRenderer({
@@ -159,14 +165,45 @@ export class Stage {
     return true;
   }
 
+  /** Max device-pixel-ratio for the current quality preset (the "native" cap). */
+  private qualityDprCap(): number {
+    return this.quality === "high" ? 2 : this.quality === "medium" ? 1.5 : 1;
+  }
+
+  /** Re-derive the render resolution from quality cap × user render scale, then
+   * size the renderer + composer. The single funnel both quality and resolution
+   * changes (and resizes) flow through, so the two settings compose cleanly. */
+  private applyResolution(): void {
+    const pr = Math.max(0.4, Math.min(window.devicePixelRatio, this.qualityDprCap()) * this.renderScale);
+    this.renderer.setPixelRatio(pr);
+    this.renderer.setSize(window.innerWidth, window.innerHeight);
+    this.composer.setSize(window.innerWidth, window.innerHeight);
+  }
+
+  /** Resolution scale (e.g. 0.5 = half-res upscaled, 1.25 = supersampled). The
+   * effective pixel ratio is this × the quality preset's DPR cap. */
+  setRenderScale(scale: number): void {
+    this.renderScale = scale;
+    this.applyResolution();
+  }
+
+  /** Brightness / gamma: scales ACES exposure (1 = default). */
+  setExposure(value: number): void {
+    this.baseExposure = value;
+    this.renderer.toneMappingExposure = value + this.lightningBoost;
+  }
+
+  /** A brief additive exposure spike — lightning as a real light event (paired in
+   * world.ts with a key/hemi-light boost). Honors reduced-flashing. */
+  flashExposure(amount: number): void {
+    if (this.reduced) return;
+    this.lightningBoost = Math.max(this.lightningBoost, amount);
+  }
+
   applyQuality(q: Quality): void {
     if (q === this.quality) return;
     this.quality = q;
-    const dpr = window.devicePixelRatio;
-    this.renderer.setPixelRatio(
-      q === "high" ? Math.min(dpr, 2) : q === "medium" ? Math.min(dpr, 1.5) : 1
-    );
-    this.renderer.setSize(window.innerWidth, window.innerHeight);
+    this.applyResolution();
     this.keyLight.castShadow = q !== "low";
     const size = q === "high" ? 2048 : 1024;
     if (this.keyLight.shadow.mapSize.x !== size) {
@@ -178,12 +215,9 @@ export class Stage {
   }
 
   private onResize(): void {
-    const w = window.innerWidth;
-    const h = window.innerHeight;
-    this.camera.aspect = w / h;
+    this.camera.aspect = window.innerWidth / window.innerHeight;
     this.camera.updateProjectionMatrix();
-    this.renderer.setSize(w, h);
-    this.composer.setSize(w, h);
+    this.applyResolution();
   }
 
   /** Photosensitivity-safe mode: tames stress aberration/vignette swings. */
@@ -203,6 +237,14 @@ export class Stage {
     if (this.aberration) {
       const ab = this.reduced ? this.baseAberration : this.baseAberration + s * 0.012;
       this.aberration.offset.set(ab, ab);
+    }
+    // Lightning exposure flash decays back to the user's brightness.
+    if (this.lightningBoost > 0.0008) {
+      this.lightningBoost = damp(this.lightningBoost, 0, 9, dt);
+      this.renderer.toneMappingExposure = this.baseExposure + this.lightningBoost;
+    } else if (this.lightningBoost !== 0) {
+      this.lightningBoost = 0;
+      this.renderer.toneMappingExposure = this.baseExposure;
     }
   }
 

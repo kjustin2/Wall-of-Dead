@@ -107,6 +107,12 @@ interface Signature {
   name: string;
   sub: string;
   run: (ctx: Ctx) => void;
+  /** Pivot the wave for ~`dur`s after it fires: a temporary mix reweight + an
+   * alive-cap bump + a tighter cadence, so a named spike is a real pressure
+   * SHIFT the player has to weather, not just a caption that spawns two enemies. */
+  pivot?: Mix;
+  capBoost?: number;
+  dur?: number;
 }
 // Keyed by global level (1..9). Ordinary (non-boss) levels each get one themed
 // headline spike; the act-finale boss levels (3, 6, 9) are intentionally absent
@@ -120,6 +126,8 @@ const SIGNATURES: Record<number, Signature> = {
     run: (ctx) => {
       for (let k = 0; k < 3; k++) ctx.enemies.spawn("runner", ctx.rng.range(-14, 14));
     },
+    pivot: [{ type: "runner", w: 8 }, { type: "crawler", w: 3 }],
+    capBoost: 5,
   },
   2: {
     at: 0.46,
@@ -128,6 +136,8 @@ const SIGNATURES: Record<number, Signature> = {
     run: (ctx) => {
       for (let k = 0; k < 2; k++) ctx.enemies.spawn("brute", ctx.rng.range(-10, 10));
     },
+    pivot: [{ type: "brute", w: 5 }, { type: "armored", w: 4 }],
+    capBoost: 6,
   },
   // Act II — The Floodline
   4: {
@@ -137,6 +147,8 @@ const SIGNATURES: Record<number, Signature> = {
     run: (ctx) => {
       for (let k = 0; k < 5; k++) ctx.enemies.spawn("crawler", ctx.rng.range(-18, 18));
     },
+    pivot: [{ type: "crawler", w: 8 }, { type: "leaper", w: 4 }],
+    capBoost: 7,
   },
   5: {
     at: 0.42,
@@ -145,6 +157,8 @@ const SIGNATURES: Record<number, Signature> = {
     run: (ctx) => {
       for (const sx of [-16, 0, 16]) ctx.enemies.spawn("spitter", sx + ctx.rng.range(-3, 3));
     },
+    pivot: [{ type: "spitter", w: 6 }, { type: "exploder", w: 4 }],
+    capBoost: 5,
   },
   // Act III — Haven Approach
   7: {
@@ -155,6 +169,8 @@ const SIGNATURES: Record<number, Signature> = {
       ctx.enemies.spawn("screamer", ctx.rng.range(-6, 6));
       for (let k = 0; k < 5; k++) ctx.enemies.spawn("runner", ctx.rng.range(-18, 18));
     },
+    pivot: [{ type: "runner", w: 9 }, { type: "leaper", w: 4 }],
+    capBoost: 6,
   },
   8: {
     at: 0.44,
@@ -164,6 +180,8 @@ const SIGNATURES: Record<number, Signature> = {
       for (let k = 0; k < 3; k++) ctx.enemies.spawn("armored", ctx.rng.range(-14, 14));
       for (const sx of [-8, 8]) ctx.enemies.spawn("shielded", sx + ctx.rng.range(-2, 2));
     },
+    pivot: [{ type: "armored", w: 6 }, { type: "shielded", w: 4 }, { type: "brute", w: 3 }],
+    capBoost: 7,
   },
 };
 
@@ -221,6 +239,17 @@ export class WaveDirector {
   private level: CampaignLevel;
   private early: Mix;
   private late: Mix;
+  // Wave-orchestration state: a signature pivot (temporary reweight + cap bump),
+  // a screamer-coordinated push, and a one-time tempo "answer" to a hot streak.
+  private pivotT = 0;
+  private pivotBias: Mix = [];
+  private pivotCap = 0;
+  private coordT = 0;
+  private surgeT = 0;
+  private killStreak = 0;
+  private streakGap = 0;
+  private lastKills = 0;
+  private answered = false;
 
   constructor(private ctx: Ctx) {
     const n = ctx.run.night;
@@ -233,6 +262,7 @@ export class WaveDirector {
     this.len = s.len;
     this.startI = s.startI;
     this.endI = s.endI;
+    this.lastKills = ctx.stats.kills;
   }
 
   get progress(): number {
@@ -254,6 +284,45 @@ export class WaveDirector {
       this.signatureFired = true;
       sig.run(this.ctx);
       this.ctx.events.emit("NOTICE", { text: sig.name, sub: sig.sub });
+      // The named spike PIVOTS the wave: a temporary mix reweight + cap bump for a
+      // window, so it's a pressure shift the player rides out, not just a caption.
+      this.pivotT = sig.dur ?? 18;
+      this.pivotBias = sig.pivot ?? [];
+      this.pivotCap = sig.capBoost ?? 6;
+    }
+
+    // Decay the active pivot / screamer-coordinate windows.
+    if (this.pivotT > 0) this.pivotT -= dt;
+    if (this.coordT > 0) this.coordT -= dt;
+    // A live screamer coordinates the horde: keep a runner/brute push window open
+    // while its shriek-buff is active, so a scream visibly organizes the wave.
+    if (this.ctx.enemies.screaming) this.coordT = Math.max(this.coordT, 5);
+
+    // Light tempo response: a sustained surge OR a long kill streak earns a ONE-time
+    // "answer" — a heavy (act 2+) or an armored push — so skill is met with a check,
+    // not just the clock. Never on a boss level, and not into the dawn surge.
+    if (this.ctx.adrenaline.zone === "surge") this.surgeT += dt;
+    else this.surgeT = Math.max(0, this.surgeT - dt * 0.5);
+    const kills = this.ctx.stats.kills;
+    if (kills > this.lastKills) {
+      this.killStreak += kills - this.lastKills;
+      this.streakGap = 3;
+    }
+    this.lastKills = kills;
+    if (this.streakGap > 0) {
+      this.streakGap -= dt;
+      if (this.streakGap <= 0) this.killStreak = 0;
+    }
+    if (!this.answered && !this.level.boss && !this.clockDone && this.progress > 0.32 && this.progress < 0.72 && (this.surgeT > 14 || this.killStreak >= 26)) {
+      this.answered = true;
+      if (this.level.level >= 5) {
+        this.ctx.enemies.spawn("tank", this.ctx.rng.range(-6, 6));
+        this.ctx.events.emit("NOTICE", { text: "THEY SEND A HEAVY", sub: "You're cooking — the horde answers in kind" });
+      } else {
+        for (const sx of [-9, 0, 9]) this.ctx.enemies.spawn("armored", sx + this.ctx.rng.range(-2, 2));
+        this.ctx.events.emit("NOTICE", { text: "THEY ADAPT", sub: "An armored push answers your streak" });
+      }
+      this.ctx.events.emit("SFX", { id: "boss_roar" });
     }
 
     // Act finales: warn that something huge is coming, then spawn the boss with
@@ -306,18 +375,29 @@ export class WaveDirector {
 
   private spawnTick(dt: number): void {
     const p = this.progress;
-    // The dawn surge lifts the alive cap and floods spawns.
-    const cap = p > 0.78 ? this.maxAlive + 12 : this.maxAlive;
+    // The dawn surge lifts the alive cap and floods spawns; an active signature
+    // pivot also thickens the wave for its window (clamped to the global cap).
+    let cap = p > 0.78 ? this.maxAlive + 12 : this.maxAlive;
+    if (this.pivotT > 0) cap += this.pivotCap;
+    cap = Math.min(MAX_ALIVE_CAP, cap);
     if (this.ctx.enemies.count >= cap) return;
     this.spawnTimer -= dt;
     if (this.spawnTimer > 0) return;
 
-    // Interval tightens; the last stretch is a surge.
+    // Interval tightens; the last stretch is a surge; a pivot quickens the cadence.
     let interval = lerp(this.startI, this.endI, p);
     if (p > 0.78) interval *= 0.4;
+    if (this.pivotT > 0) interval *= 0.8;
     this.spawnTimer = interval * this.ctx.rng.range(0.75, 1.25);
 
-    const mix = p < 0.4 ? this.early : this.late;
+    // Base phase mix, plus any active reweights: a signature pivot biases toward its
+    // threat; a coordinating screamer biases toward a runner/brute push.
+    let mix = p < 0.4 ? this.early : this.late;
+    if ((this.pivotT > 0 && this.pivotBias.length) || this.coordT > 0) {
+      mix = mix.slice();
+      if (this.pivotT > 0) mix = mix.concat(this.pivotBias);
+      if (this.coordT > 0) mix = mix.concat([{ type: "runner", w: 6 }, { type: "brute", w: 2 }]);
+    }
     const type = this.ctx.rng.weighted(
       mix.map((m) => m.type),
       mix.map((m) => m.w)

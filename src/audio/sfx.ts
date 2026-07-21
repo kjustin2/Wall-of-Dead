@@ -170,6 +170,12 @@ export class Sfx {
         this.burst(0.05, 0.42, 2400);
         this.burst(0.13, 0.24, 480);
         break;
+      case "headcrack":
+        // a dry skull crack: a high click + a quick mid snap (precedes the squelch)
+        this.tone(1200, 0.04, "square", 0.13, 600);
+        this.tone(520, 0.05, "triangle", 0.08, 220, 0.01);
+        this.burst(0.04, 0.16, 3200);
+        break;
       case "zombie_die":
         // collapsing groan + wet thud
         this.tone(150, 0.42, "sawtooth", 0.18, 42);
@@ -228,6 +234,11 @@ export class Sfx {
         this.tone(880, 0.12, "square", 0.18, 440);
         this.tone(1320, 0.08, "triangle", 0.12, 660, 0.03);
         this.burst(0.18, 0.3, 3200);
+        break;
+      case "shield_chip":
+        // a light metallic tick as a round glances off the riot plate
+        this.tone(1500, 0.04, "square", 0.06, 900);
+        this.burst(0.03, 0.07, 4200);
         break;
       case "player_hurt":
         // heavy impact + grunt, less tonal

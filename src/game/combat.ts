@@ -18,12 +18,18 @@ export class Combat {
       ctx.adrenaline.drain(dmg * 0.25);
       ctx.cam.addTrauma(Math.min(0.12, dmg * 0.01));
     });
-    ctx.events.on("WALL_BREACH", () => {
+    ctx.events.on("WALL_BREACH", ({ x }) => {
       ctx.cam.addTrauma(0.4);
       ctx.stage.punch(0.35);
       ctx.adrenaline.drain(12);
       ctx.events.emit("SFX", { id: "wall_breach" });
       ctx.events.emit("TIME_HITSTOP", { s: 0.05 });
+      // Give the breach a LOCATION: a hot white→orange burst at the rupture plus a
+      // persistent dark stain blooming from it (paired with the breach sting). The
+      // segment itself also flashes hot (wall.update) before settling to rubble.
+      ctx.fx.burst(x, 1.2, FIELD.wallZ, 30, 0xfff1d0, { speed: 12, up: 9, life: 0.5, size: 9 });
+      ctx.fx.burst(x, 0.8, FIELD.wallZ, 18, 0xff7a2a, { speed: 9, up: 5, life: 0.8, size: 11 });
+      ctx.decals.spawn(x, FIELD.wallZ, 0x1a0d0a, 2.4);
     });
   }
 
@@ -43,10 +49,12 @@ export class Combat {
       const before = z.shield;
       dmg = z.chipShield(dmg);
       this.ctx.fx.burst(z.x, 1.1, z.z, 5, 0x9fb4c8, { speed: 6, up: 3, life: 0.3, size: 5 });
-      // Only a distinct clang on the BREAK — the normal hit sound below still
-      // plays, so don't double up on every chip.
+      // A loud clang on the BREAK; a light metallic clink as rounds chip the plate
+      // (throttled so a shotgun's 9 pellets don't stack into a rattle).
       if (before > 0 && z.shield <= 0) {
         this.ctx.events.emit("SFX", { id: "shield_break", pan: clamp(z.x / FIELD.wallHalf, -1, 1) });
+      } else if (z.shield > 0 && this.ctx.rng.chance(0.5)) {
+        this.ctx.events.emit("SFX", { id: "shield_chip", pan: clamp(z.x / FIELD.wallHalf, -1, 1) });
       }
     }
     const killed = z.hurt(dmg);
@@ -75,13 +83,20 @@ export class Combat {
     if (killed) {
       this.ctx.stats.kills++;
       if (headshot) this.ctx.stats.headshots++;
-      this.ctx.fx.burst(z.x, 1.0, z.z, 24, PAL.blood, { speed: 12, up: 8, life: 0.7, size: 8 });
-      this.ctx.decals.spawn(z.x, z.z, 0x4a0708, 1.1 + (z.heavy ? 1.4 : 0));
-      // Dismemberment: a headshot/explosion pops chunks of gore upward.
-      if (headshot) this.ctx.fx.burst(z.x, z.headY, z.z, 10, 0x6a1010, { speed: 9, up: 12, life: 0.9, size: 11 });
+      // Overkill scaling: a round that vastly exceeds the target's HP erupts; a
+      // chip that just finishes it spatters lightly. So a rifle slug into a
+      // shambler bursts and a pistol tap doesn't — the kill reads its own lethality.
+      const overkill = clamp(dmg / Math.max(8, z.maxHp), 0.25, 2.2);
+      const goreN = Math.round((13 + 13 * overkill) * (z.heavy ? 1.3 : 1));
+      this.ctx.fx.burst(z.x, 1.0, z.z, goreN, PAL.blood, { speed: 9 + 6 * overkill, up: 8, life: 0.7, size: 7 + 3 * overkill });
+      this.ctx.decals.spawn(z.x, z.z, 0x4a0708, 1.0 + 0.5 * overkill + (z.heavy ? 1.4 : 0));
+      // Dismemberment: a headshot/explosion pops chunks of gore upward (more on overkill).
+      if (headshot) this.ctx.fx.burst(z.x, z.headY, z.z, Math.round(8 + 6 * overkill), 0x6a1010, { speed: 9, up: 12, life: 0.9, size: 11 });
       // Gore chunks on every kill (more on big ones).
       this.ctx.fx.burst(z.x, z.headY * 0.7, z.z, big ? 12 : 6, 0x6a1010, { speed: big ? 11 : 7, up: 10, life: 0.9, size: big ? 11 : 8 });
       this.ctx.events.emit("ZOMBIE_KILLED", { x: z.x, z: z.z, kind: z.kind });
+      // A short, dry bone-crack just before the wet collapse on a headshot kill.
+      if (headshot) this.ctx.events.emit("SFX", { id: "headcrack", pan });
       this.ctx.events.emit("SFX", { id: "zombie_die", pan });
       // A brief crunch only on the meaty kills, so it reads as punch not lag.
       if (z.heavy || headshot) this.ctx.events.emit("TIME_HITSTOP", { s: 0.04 });

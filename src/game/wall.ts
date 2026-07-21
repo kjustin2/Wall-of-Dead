@@ -27,6 +27,7 @@ export class Wall {
   /** Difficulty scalar on incoming wall damage (set per night). */
   dmgMul = 1;
   private hp = new Float32Array(SEG);
+  private flashT = new Float32Array(SEG); // per-segment breach-flash timer
   private segGroup: THREE.Group[] = [];
   private baseMat: THREE.MeshStandardMaterial[] = [];
   private bagMat: THREE.MeshStandardMaterial[] = [];
@@ -261,7 +262,22 @@ export class Wall {
     this.hp[i] = Math.max(0, this.hp[i] - dmg * this.dmgMul);
     this.events.emit("WALL_HIT", { seg: i, x: this.centerX(i), dmg });
     this.refresh(i);
-    if (this.hp[i] <= 0) this.events.emit("WALL_BREACH", { seg: i, x: this.centerX(i) });
+    if (this.hp[i] <= 0) {
+      this.flashT[i] = 1; // hot rupture flash, decayed in update()
+      this.events.emit("WALL_BREACH", { seg: i, x: this.centerX(i) });
+    }
+  }
+
+  /** Drives the breach flash: a freshly-ruptured segment glows hot (white→orange)
+   * for a beat, then settles back to its rubble look. Visual-only; runs realDt. */
+  update(dt: number): void {
+    for (let i = 0; i < SEG; i++) {
+      if (this.flashT[i] <= 0) continue;
+      this.flashT[i] = Math.max(0, this.flashT[i] - dt * 1.6);
+      const f = this.flashT[i];
+      this.baseMat[i].emissive.setRGB(f, f * f * 0.55 + 0.03, f * f * 0.18 + 0.04);
+      if (this.flashT[i] <= 0) this.refresh(i); // settle back to the rubble emissive
+    }
   }
 
   setTotal(total: number): void {

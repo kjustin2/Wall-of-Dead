@@ -14,6 +14,18 @@ const RESERVES: Record<string, number> = {
  * Past it, picking up a new gun means dropping one — a real loadout decision. */
 export const MAX_WEAPONS = 5;
 
+/** Opt-in challenge modifiers chosen before a run (see menus.showModifiers).
+ *  ironWall = no repairs; stormFront = shorter, louder supply days; packTactics =
+ *  sharper supply-run guards. All default off (the baseline campaign). */
+export interface RunMods {
+  ironWall: boolean;
+  stormFront: boolean;
+  packTactics: boolean;
+}
+export function freshMods(): RunMods {
+  return { ironWall: false, stormFront: false, packTactics: false };
+}
+
 /**
  * Persistent run state — everything that must survive across the night/day
  * boundary (weapons, who holds them, companions, wall integrity, repair kits,
@@ -44,6 +56,12 @@ export class RunManager {
   alliesRecruited = 0;
   alliesLost = 0;
   nightsWallHeld: number[] = [];
+  /** Last supply-run rating (S..D) — shapes the night's ammo stakes. */
+  lastSupplyTier = "C";
+  /** Pending wall reinforcement from a "dig in" dilemma, applied next beginNight. */
+  startWallBonus = 0;
+  /** Opt-in challenge modifiers for this run. */
+  mods: RunMods = freshMods();
 
   constructor(private ctx: Ctx) {}
 
@@ -70,6 +88,9 @@ export class RunManager {
     this.alliesRecruited = 0;
     this.alliesLost = 0;
     this.nightsWallHeld = [];
+    this.lastSupplyTier = "C";
+    this.startWallBonus = 0;
+    // mods are set by the caller (startRun) from the challenge picker — not reset here.
   }
 
   /** Recruit a survivor: add them with a random trait. Returns the trait. */
@@ -197,6 +218,9 @@ export class RunManager {
       alliesRecruited: this.alliesRecruited,
       alliesLost: this.alliesLost,
       nightsWallHeld: this.nightsWallHeld.slice(),
+      lastSupplyTier: this.lastSupplyTier,
+      startWallBonus: this.startWallBonus,
+      mods: { ...this.mods },
     };
   }
 
@@ -221,6 +245,9 @@ export class RunManager {
     this.alliesRecruited = d.alliesRecruited;
     this.alliesLost = d.alliesLost;
     this.nightsWallHeld = d.nightsWallHeld.slice();
+    this.lastSupplyTier = d.lastSupplyTier ?? "C";
+    this.startWallBonus = d.startWallBonus ?? 0;
+    this.mods = { ...freshMods(), ...(d.mods ?? {}) };
   }
 }
 
@@ -239,4 +266,7 @@ export interface RunSave {
   alliesRecruited: number;
   alliesLost: number;
   nightsWallHeld: number[];
+  lastSupplyTier?: string;
+  startWallBonus?: number;
+  mods?: Partial<RunMods>;
 }

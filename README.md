@@ -9,8 +9,8 @@ files; music is the one bundled exception): low-poly geometry under ACES tone
 mapping + bloom, a trauma camera, and synthesized Web Audio. A polished
 **3-act campaign**: Title -> **9 Nights / Days** -> HAVEN, with a "freedom isn't
 free" choice at the gate. Each act is its own place (Outer Road -> Floodline ->
-Haven Approach). Features: night tactics (traps, flares,
-ally orders, an act-end zombie boss + dawn surge), a real stealth day with per-act
+Haven Approach). Features: night tactics (spike traps,
+an act-end zombie boss + dawn surge), a real stealth day with per-act
 environments + a population choice (more loot = more risk), a 5-weapon carry cap
 that forces loadout decisions, random between-nights events that can cost you
 allies, survivor traits + a dawn dilemma, difficulty presets, controller +
@@ -27,11 +27,10 @@ Night (defend):
 - **A / D** — move along the wall · **Mouse** aim · **Click** fire (hold autos)
 - **R** — reload (nail the green zone) · **1–5 / wheel** — switch weapons
 - **Space** — shove/bash · **E** — repair a breach / revive an ally
-- **T** — spike trap · **G** — flare · **C** — order allies to focus your mark
-- **F (hold)** — lob a frag when Adrenaline is full · **Esc** — pause
+- **T** — spike trap · **F (hold)** — lob a frag when Adrenaline is full · **Esc** — pause
 
 Day (supply run): pick a district (more loot = more dead), then **WASD** sneak ·
-**Shift** sprint (loud) · **F** flashlight (off = stealthier, blind) · hide in
+**Shift** sprint (loud) · hide in
 dumpsters to break a chase · grab supplies + repair kits, then reach the exit.
 Stay out of the sight cones — getting caught ends the run. A **gamepad** works
 throughout (twin-stick).

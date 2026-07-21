@@ -468,6 +468,7 @@ export class Zombie {
   private touchTimer = 0;
   private spitTimer: number;
   private winding = 0; // brute slam / spit wind-up remaining
+  private windDmg = 0; // damage taken during a slam wind-up (toward an interrupt)
   private screamTimer = 4;
   private vaultT = -1;
   private vault = 0;
@@ -505,7 +506,10 @@ export class Zombie {
     this.headY = 1.7 * t.scale;
     this.shield = t.shield ?? 0;
     this.maxShield = this.shield;
-    this.seeksWeak = ctx.rng.chance(0.55);
+    // Heavies always pile onto the weakest visible segment (a readable "hold the
+    // weak point" moment); lighter types only sometimes do. (Draw rng either way
+    // so the run's RNG stream stays in lockstep — see the smoke-coupling note.)
+    this.seeksWeak = ctx.rng.chance(0.55) || t.heavy;
     this.lungeCd = ctx.rng.range(1.5, 3.5);
 
     const s = t.scale;
@@ -585,6 +589,7 @@ export class Zombie {
     this.touchTimer = 0;
     this.spitTimer = this.t.spitCD ?? 2.5;
     this.winding = 0;
+    this.windDmg = 0;
     this.screamTimer = 4;
     this.vaultT = -1;
     this.vault = 0;
@@ -595,7 +600,7 @@ export class Zombie {
     this.hitFlash = 0;
     this.bossPhase = 0;
     this.enrageMul = 1;
-    this.seeksWeak = ctx.rng.chance(0.55);
+    this.seeksWeak = ctx.rng.chance(0.55) || this.t.heavy;
     this.lungeCd = ctx.rng.range(1.5, 3.5);
     this.lungeWind = 0;
     this.lungeBoost = 0;
@@ -628,6 +633,9 @@ export class Zombie {
     if (this.state === "dying") return false;
     this.hp -= dmg;
     this.hitFlash = 0.12;
+    // Punishing a telegraphed slam: damage banked during the wind-up can stagger
+    // it (non-boss slammers only — bosses you have to weather).
+    if (this.winding > 0 && this.t.slam && !this.t.boss) this.windDmg += dmg;
     if (this.hp <= 0) {
       this.startDie();
       return true;
@@ -656,7 +664,7 @@ export class Zombie {
     this.group.rotation.z = 0.18; // a permanent lean/limp
   }
 
-  /** Temporary slow (flares, traps). */
+  /** Temporary slow (traps). */
   slow(dur: number): void {
     this.slowT = Math.max(this.slowT, dur);
   }
@@ -688,11 +696,25 @@ export class Zombie {
     return (this.crippled ? 0.55 : 1) * (this.slowT > 0 ? 0.5 : 1);
   }
 
-  /** Shove back out into the field (Last Stand shockwave). */
+  /** How much this body resists knockback: a boss is a mountain, a heavy holds
+   * its ground, a light runner/crawler flies. Drives "I pushed it but it held". */
+  get knockResist(): number {
+    return this.t.boss ? 0.06 : this.heavy ? 0.32 : clamp(0.62 / this.radius, 0.5, 1.25);
+  }
+
+  /** Mid-lunge: a runner in its forward burst (the counter window for a shove). */
+  get isLunging(): boolean {
+    return this.lungeBoost > 0;
+  }
+
+  /** Shove back out into the field (Last Stand shockwave, melee bash). The push
+   * scales inversely with mass — heavies barely budge, light ones sail. */
   repel(amount: number): void {
     if (this.state === "dying" || this.state === "fleeing") return;
-    this.z -= amount;
+    this.z -= amount * this.knockResist;
     this.winding = 0;
+    this.lungeBoost = 0;
+    this.lungeWind = 0;
     if (this.state === "attacking" || this.state === "crossing" || this.state === "standoff") {
       this.state = "advancing";
     }
@@ -874,6 +896,17 @@ export class Zombie {
       const boss = this.t.boss;
       // Telegraphed heavy slam
       if (this.winding > 0) {
+        // Interruptible (non-boss): enough damage during the wind-up staggers the
+        // slam — turning a telegraph you only dodge into one you can BEAT.
+        if (!boss && this.windDmg >= this.maxHp * 0.12) {
+          this.winding = 0;
+          this.windDmg = 0;
+          this.clawTimer = this.t.clawCD / this.enrageMul;
+          ctx.events.emit("SFX", { id: "shield_break", pan: clamp(this.x / FIELD.wallHalf, -1, 1) });
+          ctx.floaters.spawn(this.x, this.headY, this.z, "STAGGERED", "crit");
+          ctx.fx.burst(this.x, 1.4, this.z, 12, 0xffd24a, { speed: 8, up: 5, life: 0.4, size: 6 });
+          return;
+        }
         this.winding -= dt;
         if (this.winding <= 0) {
           if (boss) {
@@ -896,6 +929,7 @@ export class Zombie {
       this.clawTimer -= dt;
       if (this.clawTimer <= 0) {
         this.winding = 0.7 / this.enrageMul;
+        this.windDmg = 0; // fresh interrupt budget for this slam
         ctx.tele.warn(this.x, FIELD.wallZ - 0.5, boss ? 4.2 : 2.4, 0xff3030, 0.7 / this.enrageMul);
       }
       return;
@@ -930,7 +964,9 @@ export class Zombie {
   }
 
   private cross(dt: number, ctx: Ctx): void {
-    const spd = this.t.speed * 1.05 * ctx.enemies.speedMul() * this.speedFactor() * this.enrageMul;
+    // Breach avalanche: the moment a gap opens, the bodies pouring through SURGE —
+    // a brief local speed-up that closing the breach (repair) stops.
+    const spd = this.t.speed * 1.05 * ctx.enemies.speedMul() * this.speedFactor() * this.enrageMul * ctx.enemies.crossRush();
     // Vault hop arc as they come over the barricade.
     if (this.vault > 0) {
       this.vault -= dt;
@@ -1022,6 +1058,7 @@ export class EnemyManager {
   private acids: Acid[] = [];
   private group = new THREE.Group();
   private screamBuffT = 0;
+  private breachRushT = 0; // breach "avalanche": crossing zombies surge briefly
   /** Recycled actors per type — reused instead of rebuilt to cut GC. */
   private pool: Record<string, Zombie[]> = {};
 
@@ -1048,6 +1085,18 @@ export class EnemyManager {
     return this.screamBuffT > 0 ? 1.45 : 1;
   }
 
+  /** Crossing-speed multiplier — a brief "avalanche" surge after a breach opens,
+   * cleared the moment the wall has no breach left (i.e. once you repair it). */
+  crossRush(): number {
+    return this.breachRushT > 0 ? 1.25 : 1;
+  }
+
+  /** True while a screamer's buff is active — the wave director reads this to
+   * coordinate a focused runner/brute push behind the shriek. */
+  get screaming(): boolean {
+    return this.screamBuffT > 0;
+  }
+
   triggerScream(x: number, z: number): void {
     this.screamBuffT = 2.5;
     this.ctx.events.emit("SFX", { id: "scream", pan: clamp(x / FIELD.wallHalf, -1, 1), gain: distGain(z) });
@@ -1057,6 +1106,8 @@ export class EnemyManager {
 
   constructor(private ctx: Ctx, scene: THREE.Scene) {
     scene.add(this.group);
+    // A breach opening kicks off the avalanche surge (cleared once it's repaired).
+    this.ctx.events.on("WALL_BREACH", () => { this.breachRushT = 6; });
     const geo = new THREE.SphereGeometry(0.32, 8, 8);
     for (let i = 0; i < ACID_CAP; i++) {
       const mat = new THREE.MeshBasicMaterial({ color: PAL.acid, fog: false });
@@ -1137,6 +1188,12 @@ export class EnemyManager {
 
   update(dt: number): void {
     if (this.screamBuffT > 0) this.screamBuffT -= dt;
+    // Avalanche surge decays, and ends the instant the wall has no breach left
+    // (repairing the gap stops the rush — repair feels urgent, not a chore).
+    if (this.breachRushT > 0) {
+      this.breachRushT -= dt;
+      if (!this.ctx.wall.anyBreached()) this.breachRushT = 0;
+    }
     // Snapshot the count: a boss can spawn adds mid-update (bossTick → spawn →
     // alive.push); they must wait for next frame, not get an extra update now.
     const n = this.alive.length;
@@ -1195,6 +1252,8 @@ export class EnemyManager {
     for (const z of this.alive) this.release(z);
     this.alive.length = 0;
     this.boss = null;
+    this.screamBuffT = 0; // don't carry a screamer speed-buff into the next scene
+    this.breachRushT = 0;
     for (const a of this.acids) {
       a.active = false;
       a.mesh.visible = false;

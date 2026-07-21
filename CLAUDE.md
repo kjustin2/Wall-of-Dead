@@ -26,35 +26,27 @@ preserved in git history (commit `8570e94` and earlier).
 
 **Current scope: a polished 3-act campaign of 9 levels** — Title → **3 acts ×
 3 levels (night + day each)** → HAVEN, with a "freedom isn't free" turn at the
-gate (a two-ending choice in `onVictory`). **The campaign is data-driven by
-`src/game/acts.ts`** — `CAMPAIGN` is the flat list of 9 `CampaignLevel`s (act
-name, title, story/radio/beat copy, `zone`, `supplyTheme`, optional `boss`);
-`run.legsTotal = TOTAL_LEVELS` (9). `levelInfo(level)` is the lookup everything
-reads (HUD, wave director, menus, scavenge). Each act is its own place:
-`world.ts ZONES` holds the **3** themed environments (THE OUTER ROAD → THE
-FLOODLINE → HAVEN APPROACH), each swapping palette/weather/fog plus a signature
-`feature` (`outer` / `flood` / `haven`) over shared geometry via
-`setZone(level.zone)`. Per-level signature threats live in
-`waveDirector.ts SIGNATURES`, **keyed by global level 1–9**; the act-finale
-levels (3, 6, 9) have no signature because their **boss** (THE ROADBLOCK / THE
-DROWNED TITAN / THE BEHEMOTH, defined in `acts.ts` `BossPlan`) is the mid-night
-event. Other systems: night tactics (traps `T` / flare `G` / ally focus-fire `C`
-/ choke geometry), hazard zombies + telegraphs + dawn surge; a real stealth day
-with **per-act environments + a population choice** (`scavenge.start({density})`,
-themed by the level's `supplyTheme` via `scavenge.ts ACT_SKINS`; the act + theme
-are picked via `menus.showSupplyChoice`); a **5-weapon cap** (`MAX_WEAPONS` in
-`run.ts`) that turns later finds into a dusk swap decision (`offerDilemma`);
-**random inter-night events** that can kill allies (`interNightEvent` in
-`main.ts`); survivor **traits** + a dawn **dilemma** + richer endings, difficulty
-presets, controller, mid-run save/resume, adaptive music + weather.
-Meta-progression / endless stay out of scope — see `IMPROVEMENTS.md §6`.
+gate (a two-ending choice in `onVictory`). The campaign is **data-driven by
+`src/game/acts.ts`**; each act is its own themed environment, has its own enemy
+mix, and ends in a boss night — the file-level details live in the architecture
+map below (`acts.ts` / `world.ts` / `waveDirector.ts`). Other systems: night
+tactics (spike traps `T` / choke geometry), hazard zombies + telegraphs + dawn
+surge; a real stealth day with **per-act environments + a population choice**
+(`scavenge.start({density})`, themed by the level's `supplyTheme`); a **5-weapon
+cap** (`MAX_WEAPONS` in `run.ts`) that turns later finds into a dusk swap
+decision (`offerDilemma`); **random inter-night events** that can kill allies
+(`interNightEvent` in `main.ts`); survivor **traits** + a dawn **dilemma** +
+richer endings, difficulty presets, controller, mid-run save/resume, adaptive
+music + weather. Meta-progression / endless stay out of scope — see
+`IMPROVEMENTS.md §6`.
 
 ### Stack
 
 TypeScript (strict) · **Three.js** (WebGL) · **postprocessing** (bloom, ACES
 already on the renderer, CA, vignette, grade, grain, SMAA) · **Vite** build ·
-Web Audio synthesis (all SFX) · `@fontsource` fonts. Electron is **dev-only**
-(desktop wrapper + smoke harness). **Procedural-first**: every mesh is a Three.js
+Web Audio synthesis (all SFX) · `@fontsource` fonts. **Electron is the shipping
+target** (`npm run standalone` / `npm run dist:win` portable .exe) and also hosts
+the smoke/QA harnesses. **Procedural-first**: every mesh is a Three.js
 primitive, every *sound effect* is synthesized at play time, textures are
 canvas-generated. The one asset exception is **streamed music** in
 `public/music/*.mp3` (played via `audio/music.ts`), added for mood — keep new
@@ -97,6 +89,12 @@ npm run qa:baseline      # qa:diagnose + (re)write qa/perf-baseline.json
 
 # Desktop app
 npm run standalone       # build + Electron window
+
+# Shareable build — ONE self-contained .exe to hand someone (no install, no
+# Node/dev tools on their machine; they double-click and play). Output lands in
+# release/Wall-of-Dead-<version>.exe (~77 MB; bundles Chromium). Windows x64.
+npm run dist:win             # build + electron-builder portable single-file .exe
+npm run dist:win:installer   # same, but an NSIS setup.exe (Start-menu install)
 ```
 
 **Two layers, both needed.** `npm run verify` (tsc strict + a real Vite build)
@@ -146,7 +144,9 @@ src/core/
 src/render/
   stage.ts             WebGLRenderer + ACES + FogExp2 + lights + the post chain
                        (bloom/CA/vignette/grade/grain/SMAA) + quality presets +
-                       punch()/stress screen feedback. (port of RH3 stage.ts)
+                       setRenderScale/setExposure (resolution & brightness, funneled
+                       through applyResolution) + punch()/stress screen feedback.
+                       (port of RH3 stage.ts)
   cameraRig.ts         Trauma camera (trauma², kick, FOV pulse). Modes: menu
                        drift / rampart follow (night) / topdown (day).
   world.ts             The environment: ground+grid, rampart, gradient sky,
@@ -175,14 +175,15 @@ src/game/
                        rubble; setTotal() redistributes a persisted run.wallHp.
   zombie.ts            EnemyManager + Zombie + TYPES (shambler/runner/brute/
                        spitter/crawler/armored/screamer/exploder/shielded/leaper/
-                       tank + the night-5 behemoth BOSS); merged per-type geometry
+                       tank + the 3 act-finale BOSSES roadblock/drowned/behemoth);
+                       merged per-type geometry
                        (one draw call) + per-type actor POOL (reinit on reuse);
                        FSM + breach-seeking (weakest segment), runner lunge,
                        vaulting/leaping, screamer buff, shield/exploder/boss-phase
                        logic; telegraphs; distance-attenuated enemy SFX.
   deployables.ts       Player tactics placed in the field: spike traps (limited,
-                       persistent) + flares (cooldown light + slow). Cleared on
-                       every scene transition like the other pools.
+                       persistent). Cleared on every scene transition like the
+                       other pools.
   traits.ts            Survivor TRAITS (marksman/medic/gunner): combat effects +
                        recruit/lost voice lines. run.companionTraits maps name→id.
   player.ts            Defender: strafe, aim, fire/reload/swap, shove (Space),
@@ -214,20 +215,25 @@ src/game/
 
 src/minigames/
   scavenge.ts          The day "Supply Run": a moody top-down STEALTH crawl —
-                       dark map + walls, avatar flashlight, guard sight cones +
-                       investigate state; verbs: takedown (hold E), lure (Q),
-                       hide in dumpsters, flashlight toggle (F), sprint=loud;
+                       dark map + walls + SOLID props (barrels/wrecks/crates/
+                       trees block movement via `solids`), steady avatar flashlight
+                       (illumination only — no toggle), guard sight cones +
+                       investigate state; hide in dumpsters, sprint=loud;
                        caught is a setback (3 grabs = out); extraction beat.
                        Returns { tier, frac }.
 
 src/ui/
   hud.ts               DOM night/day HUD (dawn timeline, HP, wall, adrenaline,
-                       weapon/ammo, companions, kills) + banners.
+                       weapon/ammo, companions, kills) + banners + corner FPS
+                       readout (hud.setFps, driven by the main loop).
   menus.ts             DOM overlays (title/pause/settings/report/loot/victory/
                        death + dawn dilemma + loadout) + opening story cutscene +
-                       persisted Settings (difficulty, aim-assist, SFX/music vol,
-                       mute, quality, shake, FOV, damage numbers, reduced-flashing,
-                       colorblind, large text, accessibility key re-binds).
+                       persisted Settings in a TABBED panel (Display / Audio /
+                       Gameplay / Accessibility / Controls). Display = fullscreen
+                       (Fullscreen API), resolution/render-scale, graphics quality,
+                       brightness, FPS counter, FOV, screen shake; the rest =
+                       difficulty, aim-assist, SFX/music vol, mute, damage numbers,
+                       reduced-flashing, colorblind, large text, key re-binds.
   style.css            The look (fonts, panels, crosshair, accessibility toggles).
 
 src/audio/sfx.ts       Web Audio synth SFX table (+ stereo pan) + ambient bed;
@@ -290,6 +296,18 @@ check-imports.mjs            Stop-hook shim → tsc --noEmit.
    `config.ts`): scales zombie HP, spawn rate, damage to you + the wall
    (`wall.dmgMul` / `combat.damagePlayer`), and starting ammo. Read it where you
    scale combat numbers; it's set from Settings in `menus.applySettings`.
+
+10. **Smokes never steal OS focus.** Harness Electron windows stay hidden
+    (`show: false` / `showInactive()`); never surface a test window.
+
+11. **Every scene/pause transition clears pooled actors AND restores
+    lighting/exposure.** This is the top bug class in this repo (stale zombies,
+    stuck dawn ramp / exposure after re-entry) — smokes should re-enter each
+    scene twice to catch it.
+
+12. **Input must survive gamepad↔keyboard switching mid-play.** The pad poll
+    releases only keys the pad itself pressed — it must never clobber live
+    keyboard state (see `input.ts`).
 
 ## Adding content — quick recipes
 
